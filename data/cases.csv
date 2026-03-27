@@ -1,0 +1,6 @@
+case_id,company_name,industry,warehouse_area,sku_count,daily_orders,scenario_applied,roi_achieved,implementation_time
+1,某电商平台A,电商,50000,80000,20000,AMR拣选辅助,2.3,8
+2,某3PL公司B,3PL,30000,50000,15000,GTP货到人系统,3.1,12
+3,某零售商C,零售,20000,30000,5000,输送分拣线,2.8,6
+4,某制造商D,制造,80000,10000,500,立体仓库AS/RS,3.5,18
+5,某快递公司E,快递,100000,5000,100000,跨带分拣机,4.2,10
