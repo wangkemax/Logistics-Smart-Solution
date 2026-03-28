@@ -238,19 +238,19 @@
 
       <div class="kpi-row">
         <div class="kpi-card highlight">
-          <div class="kpi-card-value">¥{{ (data.cost.automation_capex / 10000) | round(0) }}万</div>
+          <div class="kpi-card-value">¥{{ ((data.cost.automation_capex or 0) / 10000) | round(0) }}万</div>
           <div class="kpi-card-label">自动化投资 (CAPEX)</div>
         </div>
         <div class="kpi-card">
-          <div class="kpi-card-value">¥{{ (data.cost.warehouse_cost / 10000) | round(0) }}万</div>
+          <div class="kpi-card-value">¥{{ ((data.cost.warehouse_cost or 0) / 10000) | round(0) }}万</div>
           <div class="kpi-card-label">年度仓储成本</div>
         </div>
         <div class="kpi-card">
-          <div class="kpi-card-value">¥{{ (data.cost.labor_cost_annual / 10000) | round(0) }}万</div>
+          <div class="kpi-card-value">¥{{ ((data.cost.labor_cost_annual or 0) / 10000) | round(0) }}万</div>
           <div class="kpi-card-label">年度人工成本</div>
         </div>
         <div class="kpi-card">
-          <div class="kpi-card-value">¥{{ (data.cost.annual_maintenance / 10000) | round(1) }}万</div>
+          <div class="kpi-card-value">¥{{ ((data.cost.annual_maintenance or 0) / 10000) | round(1) }}万</div>
           <div class="kpi-card-label">年度设备维护</div>
         </div>
       </div>
@@ -260,27 +260,27 @@
           <tr><th>成本项</th><th>金额（万元）</th><th>占比</th></tr>
           <tr>
             <td class="cost-label">仓储租金</td>
-            <td class="cost-value">¥{{ (data.cost.warehouse_cost / 10000) | round(1) }}</td>
-            <td>{{ ((data.cost.warehouse_cost / data.cost.total_annual_cost * 100) | round(1) if data.cost.total_annual_cost > 0 else 0) }}%</td>
+            <td class="cost-value">¥{{ ((data.cost.warehouse_cost or 0) / 10000) | round(1) }}</td>
+            <td>{{ (((data.cost.warehouse_cost or 0) / (data.cost.total_annual_cost or 1) * 100) | round(1) if data.cost.total_annual_cost > 0 else 0) }}%</td>
           </tr>
           <tr>
             <td class="cost-label">人工成本（自动化后）</td>
-            <td class="cost-value">¥{{ ((data.cost.labor_cost_annual * (1 - data.cost.headcount_saved / (data.cost.headcount_required if data.cost.headcount_required > 0 else 1))) / 10000 | round(1)) }}</td>
+            <td class="cost-value">¥{{ ((data.cost.labor_cost_annual * (1 - (data.cost.headcount_saved or 0) / (data.cost.headcount_required if (data.cost.headcount_required or 0) > 0 else 1))) / 10000 | round(1)) }}</td>
             <td>—</td>
           </tr>
           <tr>
             <td class="cost-label">设备维护（年）</td>
-            <td class="cost-value">¥{{ (data.cost.annual_maintenance / 10000) | round(1) }}</td>
-            <td>{{ ((data.cost.annual_maintenance / data.cost.total_annual_cost * 100) | round(1) if data.cost.total_annual_cost > 0 else 0) }}%</td>
+            <td class="cost-value">¥{{ ((data.cost.annual_maintenance or 0) / 10000) | round(1) }}</td>
+            <td>{{ (((data.cost.annual_maintenance or 0) / (data.cost.total_annual_cost or 1) * 100) | round(1) if data.cost.total_annual_cost > 0 else 0) }}%</td>
           </tr>
           <tr>
             <td class="cost-label">自动化设备投资（CAPEX）</td>
-            <td class="cost-value">¥{{ (data.cost.automation_capex / 10000) | round(0) }}</td>
+            <td class="cost-value">¥{{ ((data.cost.automation_capex or 0) / 10000) | round(0) }}</td>
             <td>一次性</td>
           </tr>
           <tr class="total">
             <td class="cost-label">年度总成本（自动化后）</td>
-            <td class="cost-value">¥{{ (data.cost.total_annual_cost / 10000) | round(1) }}万</td>
+            <td class="cost-value">¥{{ ((data.cost.total_annual_cost or 0) / 10000) | round(1) }}万</td>
             <td>100%</td>
           </tr>
         </table>
@@ -314,11 +314,11 @@
           <div class="kpi-card-label">投资回收期</div>
         </div>
         <div class="kpi-card">
-          <div class="kpi-card-value">¥{{ (data.cost.automation_savings_annual / 10000) | round(1) }}万</div>
+          <div class="kpi-card-value">¥{{ ((data.cost.automation_savings_annual or 0) / 10000) | round(1) }}万</div>
           <div class="kpi-card-label">年节省人工</div>
         </div>
         <div class="kpi-card">
-          <div class="kpi-card-value">¥{{ (data.cost.net_annual_benefit / 10000) | round(1) }}万</div>
+          <div class="kpi-card-value">¥{{ ((data.cost.net_annual_benefit or 0) / 10000) | round(1) }}万</div>
           <div class="kpi-card-label">净年度收益</div>
         </div>
       </div>
@@ -333,7 +333,7 @@
           <div class="kpi-card-label">自动化后需人数</div>
         </div>
         <div class="kpi-card">
-          <div class="kpi-card-value">¥{{ (data.cost.net_annual_benefit * 5 / 10000) | round(1) }}万</div>
+          <div class="kpi-card-value">¥{{ ((data.cost.net_annual_benefit or 0) * 5 / 10000) | round(1) }}万</div>
           <div class="kpi-card-label">5年累计净收益</div>
         </div>
         <div class="kpi-card">
@@ -354,8 +354,8 @@
       <table class="data-table">
         <tr><th>年份</th><th>累计投资（万元）</th><th>累计节省（万元）</th><th>累计净收益（万元）</th><th>说明</th></tr>
         {% for year in range(1, 6) %}
-        {% set cum_capex = data.cost.automation_capex / 10000 %}
-        {% set cum_saving = (data.cost.automation_savings_annual - data.cost.annual_maintenance) * year / 10000 %}
+        {% set cum_capex = (data.cost.automation_capex or 0) / 10000 %}
+        {% set cum_saving = ((data.cost.automation_savings_annual or 0) - (data.cost.annual_maintenance or 0)) * year / 10000 %}
         {% set cum_net = cum_saving - cum_capex %}
         <tr>
           <td>第{{ year }}年</td>
@@ -601,10 +601,10 @@
           <td style="text-align:left; font-weight: bold;">
             {% if c.is_best %}✅ {% endif %}{{ c.scenario_name }}
           </td>
-          <td>{{ (c.automation_capex / 10000)|round(0) }}</td>
-          <td>{{ (c.annual_saving / 10000)|round(1) }}</td>
-          <td>{{ (c.annual_maintenance / 10000)|round(1) }}</td>
-          <td>{{ (c.net_annual_benefit / 10000)|round(1) }}</td>
+          <td>{{ ((c.automation_capex or 0) / 10000)|round(0) }}</td>
+          <td>{{ ((c.annual_saving or 0) / 10000)|round(1) }}</td>
+          <td>{{ ((c.annual_maintenance or 0) / 10000)|round(1) }}</td>
+          <td>{{ ((c.net_annual_benefit or 0) / 10000)|round(1) }}</td>
           <td><strong>{{ c.roi_5y }}x</strong></td>
           <td>{{ c.payback_years }}年</td>
           <td>{{ c.headcount_saved }}人</td>
@@ -636,7 +636,7 @@
           <div class="kpi-card-label">投资回收期</div>
         </div>
         <div class="kpi-card">
-          <div class="kpi-card-value">{{ (best_cmp.annual_saving / 10000)|round(1) }}万</div>
+          <div class="kpi-card-value">{{ ((best_cmp.annual_saving or 0) / 10000)|round(1) }}万</div>
           <div class="kpi-card-label">年节省</div>
         </div>
       </div>
@@ -663,8 +663,8 @@
         <tr>
           <td><strong>{% if c.is_best %}✅ {% endif %}{{ c.scenario_name }}</strong></td>
           <td>{{ c.category }}</td>
-          <td>¥{{ (c.automation_capex / 10000)|round(0) }}万</td>
-          <td>¥{{ (c.five_year_net_benefit / 10000)|round(1) }}万</td>
+          <td>¥{{ ((c.automation_capex or 0) / 10000)|round(0) }}万</td>
+          <td>¥{{ ((c.five_year_net_benefit or 0) / 10000)|round(1) }}万</td>
           <td><strong>{{ c.roi_5y }}x</strong></td>
           <td>{{ c.payback_years }}年</td>
           <td>{{ c.headcount_saved }}/{{ c.headcount_required }}</td>
