@@ -81,6 +81,7 @@ class PipelineRunRequest(BaseModel):
         description="指定对比方案ID列表，默认使用推荐TOP3"
     )
     generate_pdf: bool = Field(default=True, description="是否生成PDF报告")
+    use_llm: bool = Field(default=True, description="是否使用LLMExtractor（否则用正则）")
 
 
 class StageOutput(BaseModel):
@@ -579,6 +580,7 @@ async def run_pipeline(request: PipelineRunRequest, background_tasks: Background
                 api_base_url=request.api_base_url or "http://localhost:8000",
                 compare_scenario_ids=request.compare_scenario_ids,
                 generate_pdf=request.generate_pdf,
+                use_llm=request.use_llm,
                 pipeline_id=pid,
             )
         except Exception as e:
@@ -599,30 +601,30 @@ async def extract_profile(request: ExtractionRequest):
     """
     Standalone: Extract project profile from tender document text.
     Use this to preview extraction results before running full pipeline.
+
+    Set use_llm=True to use LLM extraction (higher quality, requires API key).
+    Set use_llm=False to use regex extraction only.
     """
-    profile, missing_p0 = extract_requirements(request.tender_document)
+    use_llm = getattr(request, 'use_llm', True)
+    from backend.services.llm_extractor import extract_requirements_llm
+    profile, missing_p0, confidence = extract_requirements_llm(
+        request.tender_document, use_llm=use_llm
+    )
 
     # Build raw summary
     raw_summary = (
-        f"行业: {profile['industry']} | "
-        f"地区: {profile['region']} | "
-        f"面积: {profile['warehouse_area'] or '待确认'}㎡ | "
-        f"SKU: {profile['sku_count'] or '待确认'} | "
-        f"日订单: {profile['daily_orders'] or '待确认'}单"
+        f"行业: {profile.get('industry','电商')} | "
+        f"地区: {profile.get('region','华东')} | "
+        f"面积: {profile.get('warehouse_area') or '待确认'}㎡ | "
+        f"SKU: {profile.get('sku_count') or '待确认'} | "
+        f"日订单: {profile.get('daily_orders') or '待确认'}单"
     )
-
-    # Confidence: higher if more fields are populated
-    populated = sum(1 for v in [
-        profile.get("warehouse_area"), profile.get("sku_count"),
-        profile.get("daily_orders"), profile.get("inventory")
-    ] if v is not None)
-    confidence = round(populated / 4 * 0.9 + 0.1, 2)
 
     return ExtractionResponse(
         project_profile=profile,
         extraction_confidence=confidence,
         raw_requirements_summary=raw_summary,
-        missing_p0=missing_p0,
+        missing_p0=missing_p0 or [],
         missing_p1=[],
     )
 

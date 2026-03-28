@@ -56,7 +56,7 @@ def _set_status(pipeline_id: str, status: str, **kwargs):
     pass  # Status is updated by complete_pipeline
 
 
-def pipeline_task(tender_document: str, project_profile_overrides: dict = None,
+def pipeline_task(tender_document: str, project_profile_overrides: dict = None, use_llm: bool = True,
                   api_base_url: str = "http://localhost:8000",
                   compare_scenario_ids: list = None,
                   generate_pdf: bool = True,
@@ -100,8 +100,8 @@ def pipeline_task(tender_document: str, project_profile_overrides: dict = None,
             missing_p0 = []
         else:
             # Import here to avoid circular
-            from agents.orchestrator import extract_requirements
-            profile, missing_p0 = extract_requirements(tender_document)
+            from backend.services.llm_extractor import extract_requirements_llm
+            profile, missing_p0, confidence = extract_requirements_llm(tender_document, use_llm=use_llm)
 
         extraction_file = pipeline_dir / "stage_1_extraction.md"
         extraction_file.write_text(
