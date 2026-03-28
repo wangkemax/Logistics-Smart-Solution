@@ -321,7 +321,24 @@ def _render_key_metrics(best: dict, profile: dict):
     with c2:
         st.metric("回本周期", fmt_years(best.get("payback_years")))
     with c3:
-        st.metric("Y1 EBITA", fmt_currency(best.get("y1_ebita")))
+
+            # QA verdict display
+            qa_verdict = best.get("qa_verdict", "UNKNOWN")
+            if qa_verdict == "PASS":
+                st.success("✅ QA审核通过")
+            elif qa_verdict == "CONDITIONAL_PASS":
+                issues = best.get("qa_issues") or []
+                st.warning("⚠️ QA条件通过 — 以下事项需确认：")
+                for issue in issues:
+                    sev = issue.get("severity", "low")
+                    sev_icon = {"high": "🔴", "medium": "🟡", "low": "🟢"}.get(sev, "⚪")
+                    st.markdown(f"{sev_icon} **{issue.get('message', '')}**")
+            elif qa_verdict == "FAIL":
+                st.error("❌ QA审核未通过")
+                failed_stage = best.get("last_failed_stage", "")
+                retry_count = best.get("retry_count", 0)
+                st.markdown(f"失败阶段：{fmt_text(failed_stage)} | 已重试：{retry_count}次")
+
     with c4:
         st.metric("投资额", fmt_currency(best.get("capex_estimate")))
     c5, c6, c7, c8 = st.columns(4)
@@ -394,6 +411,62 @@ def _render_results_panel():
                 st.markdown("**⚠️ 警告信息:**")
                 for w in warnings:
                     st.warning(w)
+
+    # ---- QA Verdict Panel ----
+    # Check multiple sources: best (comparisons), results (pipeline_result), session state
+    qa_verdict = (
+        best.get("qa_verdict") or
+        results.get("qa_verdict") or
+        st.session_state.get("pipeline_qa_verdict") or
+        "UNKNOWN"
+    )
+    retry_count = (
+        best.get("retry_count") or
+        results.get("retry_count") or
+        st.session_state.get("pipeline_retry_count", 0) or
+        0
+    )
+    has_risk_flags = (
+        best.get("has_risk_flags") or
+        results.get("has_risk_flags") or
+        st.session_state.get("pipeline_has_risk_flags", False) or
+        False
+    )
+    risk_flags = (
+        best.get("risk_flags") or
+        results.get("risk_flags") or
+        st.session_state.get("pipeline_risk_flags", []) or
+        []
+    )
+    retry_history = (
+        best.get("retry_history") or
+        results.get("retry_history") or
+        st.session_state.get("pipeline_retry_history", []) or
+        []
+    )
+    failed_stage = ""
+    if retry_history:
+        failed_stage = retry_history[-1].get("stage", "")
+
+    if qa_verdict == "PASS":
+        st.success("✅ QA 审核通过")
+    elif qa_verdict == "CONDITIONAL_PASS":
+        st.warning("⚠️ QA 条件通过 — 以下事项需确认：")
+        for rf in risk_flags:
+            st.markdown(f"- **{rf}**")
+    elif qa_verdict == "FAIL":
+        st.error("❌ QA 审核未通过")
+        if failed_stage:
+            st.markdown(f"失败阶段：**{failed_stage}**")
+        st.markdown(f"已重试：**{retry_count}** 次")
+    else:
+        st.caption(f"QA Verdict: `{qa_verdict or 'UNKNOWN'}`")
+
+    # ---- Retry History ----
+    if retry_history:
+        with st.expander("🔁 重试历史", expanded=False):
+            for i, r in enumerate(retry_history):
+                st.markdown(f"- #{i+1} `{r.get('stage','')}` → {r.get('reason','')[:60]}")
 
     # ---- ROI Comparison ----
     if comparisons:
@@ -1037,6 +1110,10 @@ elif app_mode == "🚀 Pipeline Run":
                     st.session_state.pipeline_recs = status_data.get("recommendations", [])
                     st.session_state.pipeline_comparisons = status_data.get("comparisons", [])
                     st.session_state.pipeline_pdf_url = status_data.get("pdf_download_url")
+                    st.session_state.pipeline_qa_verdict = status_data.get("qa_verdict", "UNKNOWN")
+                    st.session_state.pipeline_retry_count = status_data.get("retry_count", 0)
+                    st.session_state.pipeline_risk_flags = status_data.get("risk_flags", [])
+                    st.session_state.pipeline_retry_history = status_data.get("retry_history", [])
                     st.session_state.pipeline_state = "done"
                     st.rerun()
                 elif pipeline_status == "FAILED":
