@@ -119,7 +119,8 @@ def calculate_solution_financials(
     capex_estimate = (capex_min + capex_max) / 2 if capex_max > capex_min else capex_min
 
     # Labor savings
-    labor_cost_per_person = params.get("labor_cost_per_person_year", 100000)
+    labor_cost_multiplier = {"低": 0.8, "中": 1.0, "高": 1.2}.get(profile.get("labor_cost_level", "中"), 1.0)
+    labor_cost_per_person = params.get("labor_cost_per_person_year", 100000) * labor_cost_multiplier
     base_headcount = _estimate_headcount(profile)
     headcount_saved = base_headcount * labor_saving_ratio
     annual_labor_saving = headcount_saved * labor_cost_per_person
@@ -127,7 +128,7 @@ def calculate_solution_financials(
     # Efficiency gain value (estimate as labor-hours equivalent)
     daily_orders = profile.get("daily_orders", 0)
     efficiency_saving_hours = daily_orders * efficiency_gain_ratio * 0.01  # rough estimate
-    annual_efficiency_saving = efficiency_saving_hours * 30 * params.get("labor_cost_per_person_year", 100000) / base_headcount if base_headcount > 0 else 0
+    annual_efficiency_saving = efficiency_saving_hours * params.get("labor_cost_per_person_year", 100000)
 
     # OPEX (annual maintenance, ~8% of CAPEX for automation systems)
     opex_annual = capex_estimate * 0.08
@@ -184,17 +185,14 @@ def calculate_solution_financials(
 
 
 def _estimate_headcount(profile: dict) -> int:
-    """Rough estimate of warehouse headcount from order volume."""
-    daily_orders = profile.get("daily_orders", 0)
-    if daily_orders >= 20000:
-        return 50
-    elif daily_orders >= 10000:
-        return 30
-    elif daily_orders >= 5000:
-        return 15
-    elif daily_orders >= 1000:
-        return 8
-    return 4
+    """Estimate warehouse headcount using orders ÷ manual efficiency rate.
+    Mirrors the cost_engine logic so both services use the same baseline.
+    manual baseline = 150 orders/person/day
+    Minimum 1 to avoid div-by-zero in downstream calculations.
+    """
+    daily_orders = profile.get("daily_orders") or 0
+    base_hc = max(1, int(daily_orders / 150))
+    return max(1, base_hc)
 
 
 # ---- Batch comparison ----

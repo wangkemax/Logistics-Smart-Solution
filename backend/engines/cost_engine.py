@@ -311,7 +311,7 @@ def compare_scenarios(
             "net_annual_benefit": cost_data.get("net_annual_benefit", 0),
             "five_year_net_benefit": round(five_year_benefit, 0),
             "roi": roi,
-            "roi_5y": round((annual_saving - annual_maintenance) * 5 / capex, 2) if capex > 0 else 0,
+            "roi_5y": round(cost_data.get("net_annual_benefit", 0) * 5 / capex, 2) if capex > 0 else 0,
             "payback_years": payback,
             "headcount_saved": headcount_saved,
             "headcount_required": cost_data.get("headcount_required", 0),
