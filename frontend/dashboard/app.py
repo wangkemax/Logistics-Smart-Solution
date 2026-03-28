@@ -670,7 +670,7 @@ elif app_mode == "🚀 Pipeline Run":
             "budget_level": budget_level_p, "region": region_p,
             "compare_sids_str": compare_sids_str,
             "tender_text": tender_text,
-            "company_name": report_company,
+            "company_name": params.get("company_name", "飞力达物流"),
             "language": report_language,
         }
         st.session_state.skip_extraction = False
