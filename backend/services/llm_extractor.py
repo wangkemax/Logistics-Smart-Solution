@@ -81,7 +81,23 @@ def _call_minimax_llm(prompt: str, timeout: int = 30) -> Optional[dict]:
     Call MiniMax API directly.
     Requires MINIMAX_API_KEY env var or MiniMax OAuth token.
     """
+    # Load .env if API key not in environment
     api_key = os.getenv('MINIMAX_API_KEY') or os.getenv('OPENAI_API_KEY')
+    if not api_key:
+        try:
+            env_path = PROJECT_ROOT / ".env"
+            if env_path.exists():
+                for line in env_path.read_text().splitlines():
+                    line = line.strip()
+                    if line and not line.startswith("#") and "=" in line:
+                        k, v = line.split("=", 1)
+                        if k == "MINIMAX_API_KEY" and not v.startswith("your"):
+                            os.environ[k] = v
+                api_key = os.getenv("MINIMAX_API_KEY")
+        except Exception:
+            pass
+    if not api_key:
+        return None
     if not api_key:
         return None
 
@@ -89,7 +105,11 @@ def _call_minimax_llm(prompt: str, timeout: int = 30) -> Optional[dict]:
     base_url = 'https://api.minimaxi.com/anthropic'
     model = 'MiniMax-M2.5'
 
-    if 'OPENAI' in os.environ.get('MINIMAX_API_KEY', '') or 'sk-' in (api_key or ''):
+    if api_key.startswith('sk-api-'):
+        # MiniMax API key (starts with sk-api-)
+        base_url = 'https://api.minimaxi.com/anthropic'
+        model = 'MiniMax-M2.5'
+    elif 'OPENAI' in os.environ.get('MINIMAX_API_KEY', '') or (api_key or '').startswith('sk-'):
         base_url = 'https://api.openai.com/v1'
         model = 'gpt-4o-mini'
 
@@ -101,8 +121,9 @@ def _call_minimax_llm(prompt: str, timeout: int = 30) -> Optional[dict]:
         'messages': [{'role': 'user', 'content': prompt}]
     }
 
+    req_url = f'{base_url}/v1/messages'
     req = urllib.request.Request(
-        f'{base_url}/messages',
+        req_url,
         data=json.dumps(payload).encode('utf-8'),
         headers={
             'Authorization': f'Bearer {api_key}',
@@ -115,8 +136,18 @@ def _call_minimax_llm(prompt: str, timeout: int = 30) -> Optional[dict]:
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             result = json.loads(resp.read())
-            text = result.get('content', [{}])[0].get('text', '')
+            # MiniMax returns content as a list of blocks: [{"type": "text", "text": "..."}, ...]
+            content_list = result.get('content', [])
+            if isinstance(content_list, list):
+                text_blocks = [b.get('text', '') for b in content_list if b.get('type') == 'text']
+                text = '\n'.join(text_blocks)
+            else:
+                text = content_list
             return _parse_json_response(text)
+    except urllib.error.HTTPError as e:
+        body = e.read().decode()[:200]
+        print(f'[LLM] HTTP {e.code} body: {body}')
+        return None
     except Exception as e:
         print(f'[LLM] MiniMax API call failed: {e}')
         return None
