@@ -76,20 +76,15 @@ def score_sku_match(scenario: Dict, sku_count: int) -> float:
     """Score based on SKU count match (0-20 points)."""
     if sku_count is None:
         return 0.0
-    sku_min = scenario.get("sku_min", 0)
-    sku_max = scenario.get("sku_max", 9999999)
-
-    if sku_min <= sku_count <= sku_max:
+    s = normalize_scenario(scenario)
+    if in_range(sku_count, s["sku_min"], s["sku_max"]):
         return 20.0
-
-    if sku_count < sku_min:
-        ratio = sku_count / sku_min
+    if sku_count < s["sku_min"]:
+        ratio = sku_count / max(s["sku_min"], 1)
         return max(0, 20 * ratio)
-
-    if sku_count > sku_max:
-        ratio = sku_max / sku_count
+    if sku_count > s["sku_max"]:
+        ratio = s["sku_max"] / max(sku_count, 1)
         return max(10, 20 * ratio)
-
     return 0.0
 
 
@@ -97,29 +92,23 @@ def score_order_match(scenario: Dict, daily_orders: int) -> float:
     """Score based on order volume match (0-20 points)."""
     if daily_orders is None:
         return 0.0
-    order_min = scenario.get("order_min", 0)
-    order_max = scenario.get("order_max", 9999999)
-
-    if order_min <= daily_orders <= order_max:
+    s = normalize_scenario(scenario)
+    if in_range(daily_orders, s["order_min"], s["order_max"]):
         return 20.0
-
-    if daily_orders < order_min:
-        ratio = daily_orders / order_min
+    if daily_orders < s["order_min"]:
+        ratio = daily_orders / max(s["order_min"], 1)
         return max(0, 20 * ratio)
-
-    if daily_orders > order_max:
-        ratio = order_max / daily_orders
+    if daily_orders > s["order_max"]:
+        ratio = s["order_max"] / max(daily_orders, 1)
         return max(10, 20 * ratio)
-
     return 0.0
 
 
 def score_budget_match(scenario: Dict, budget_level: str) -> float:
     """Score based on budget match (0-20 points)."""
-    print(f"[DEBUG] score_budget_match: budget_level={budget_level!r} type={type(budget_level)}")
     budget_threshold = BUDGET_THRESHOLDS.get(budget_level, 5000000)
-    capex_min = scenario.get("capex_min", 0)
-    print(f"[DEBUG] budget_threshold={budget_threshold} capex_min={capex_min}")
+    s = normalize_scenario(scenario)
+    capex_min = s["capex_min"]
     if capex_min <= budget_threshold:
         return 20.0
     elif capex_min <= budget_threshold * 1.5:
@@ -136,10 +125,8 @@ def score_warehouse_conditions(scenario: Dict, warehouse_area: float,
         return 10.0
 
     base_score = 10.0
-
     category = scenario.get("category", "")
 
-    # Large warehouse benefits from certain automation
     if warehouse_area > 20000 and category in ["立体仓库", "货到人", "移动机器人"]:
         base_score += 5
     elif warehouse_area < 5000 and category in ["自动化辅助", "软件系统"]:
@@ -214,13 +201,17 @@ def recommend_automation(project_profile: Dict) -> List[Dict[str, Any]]:
     Returns:
         List of scenario recommendations sorted by score
     """
+    # Normalize all inputs once at entry — prevents NoneType crashes throughout
+    profile = normalize_profile(project_profile)
+
     scenarios = load_scenarios()
     recommendations = []
 
     for scenario in scenarios:
-        industry_score = score_industry_match(scenario, project_profile.get("industry", ""))
-        sku_score = score_sku_match(scenario, project_profile.get("sku_count", 0))
-        order_score = score_order_match(scenario, project_profile.get("daily_orders", 0))
+        # All scoring functions use normalize_scenario internally
+        industry_score = score_industry_match(scenario, profile["industry"])
+        sku_score = score_sku_match(scenario, profile["sku_count"])
+        order_score = score_order_match(scenario, profile["daily_orders"])
         budget_score = score_budget_match(scenario, project_profile.get("budget_level", "中"))
         warehouse_score = score_warehouse_conditions(
             scenario,
@@ -252,3 +243,53 @@ def recommend_automation(project_profile: Dict) -> List[Dict[str, Any]]:
 
     recommendations.sort(key=lambda x: x["score"], reverse=True)
     return recommendations[:5]
+
+
+# =============================================================================
+# Field Normalization Utilities — prevent NoneType comparison crashes
+# Called once at the entry of every scoring / filtering function.
+# =============================================================================
+
+def normalize_profile(profile: dict) -> dict:
+    """
+    Normalize a project profile dict: ensure all numeric fields are non-None.
+    Returns a safe copy — original profile is never mutated.
+    """
+    return {
+        "project_name": profile.get("project_name") or "待确认",
+        "client_name": profile.get("client_name") or "待确认",
+        "industry": profile.get("industry") or "未知",
+        "region": profile.get("region") or "华东",
+        "warehouse_area": profile.get("warehouse_area") or 0,
+        "sku_count": profile.get("sku_count") or 0,
+        "daily_orders": profile.get("daily_orders") or 0,
+        "inventory": profile.get("inventory") or 0,
+        "labor_cost_level": profile.get("labor_cost_level") or "中",
+        "budget_level": profile.get("budget_level") or "中",
+        "automation_expectation": profile.get("automation_expectation") or "中",
+        "contract_years": profile.get("contract_years") or 0,
+        "go_live_date": profile.get("go_live_date") or "待确认",
+    }
+
+
+def normalize_scenario(s: dict) -> dict:
+    """
+    Normalize a scenario dict: ensure all range bounds are non-None.
+    Returns a safe copy — original scenario is never mutated.
+    """
+    return {
+        **s,
+        "sku_min": s.get("sku_min") if s.get("sku_min") is not None else 0,
+        "sku_max": s.get("sku_max") if s.get("sku_max") is not None else 999999999,
+        "order_min": s.get("order_min") if s.get("order_min") is not None else 0,
+        "order_max": s.get("order_max") if s.get("order_max") is not None else 999999999,
+        "capex_min": s.get("capex_min") if s.get("capex_min") is not None else 0,
+        "capex_max": s.get("capex_max") if s.get("capex_max") is not None else 999999999,
+    }
+
+
+def in_range(value, min_val, max_val) -> bool:
+    """Safe range check: returns False if value is None, otherwise checks bounds."""
+    if value is None:
+        return False
+    return min_val <= value <= max_val
