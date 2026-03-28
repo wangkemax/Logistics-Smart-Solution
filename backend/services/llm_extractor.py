@@ -767,25 +767,30 @@ def extract_requirements_llm(
                 'missing_data_P0': missing_p0,
             }
 
+            # Track what LLM filled directly (before _fill_missing_fields runs)
+            llm_filled = {fname: llm_result.get(fname) for fname in FIELD_WEIGHTS}
+
             # Fill any remaining None fields with regex extraction
             _fill_missing_fields(tender_text, profile, field_values)
 
             # Compute per-field confidence:
-            # For fields filled by LLM: use LLM confidence (from llm_field_conf or overall llm_conf)
-            # For fields filled by regex: use field_confidence from pattern matching
+            # Rule: LLM-filling takes priority → use llm_conf (0.9).
+            # Only use regex field_confidence for fields LLM genuinely did not fill.
             final_field_confidence = {}
             for fname in FIELD_WEIGHTS:
-                if fname in llm_field_conf:
-                    final_field_confidence[fname] = llm_field_conf[fname]
-                elif profile.get(fname) is not None and fname in field_values and field_values.get(fname) == profile.get(fname):
-                    # Field was filled by regex pattern matching
+                if llm_filled.get(fname) is not None:
+                    # LLM filled this field directly → trust LLM's confidence
+                    final_field_confidence[fname] = llm_field_conf.get(fname, llm_conf)
+                elif profile.get(fname) is not None and field_values.get(fname) is not None:
+                    # LLM didn't fill it; fill step used field_values (regex matched)
                     final_field_confidence[fname] = field_confidence.get(fname, 0.0)
                 elif profile.get(fname) is not None:
-                    # Field was filled by LLM
-                    final_field_confidence[fname] = llm_conf
+                    # LLM didn't fill it; fill step used text-pattern fallback
+                    # Give moderate confidence (fill found something in text)
+                    final_field_confidence[fname] = 0.4
                 else:
-                    # Field not filled
-                    final_field_confidence[fname] = field_confidence.get(fname, 0.0)
+                    # Nothing filled this field
+                    final_field_confidence[fname] = 0.0
 
             # Merge pattern warnings with any LLM-provided warnings
             extraction_warnings = list(pattern_warnings)
@@ -802,8 +807,20 @@ def extract_requirements_llm(
                             f"value '{val}' may be unreliable"
                         )
 
-            # Compute overall weighted confidence
-            overall_conf = _calculate_weighted_confidence(final_field_confidence, profile)
+            # Overall confidence: LLM contributed high-confidence fields,
+            # regex fills the gaps. Weight by fraction of fields LLM filled.
+            filled_by_llm = sum(1 for v in llm_filled.values() if v is not None)
+            # Primary: llm_conf adjusted by how many fields were LLM-filled
+            if filled_by_llm >= 6:
+                # LLM filled the core fields — use llm_conf as base
+                overall_conf = llm_conf
+            elif filled_by_llm >= 3:
+                # Partial LLM fill — blend
+                overall_conf = llm_conf * 0.7 + _calculate_weighted_confidence(final_field_confidence, profile) * 0.3
+            else:
+                # Mostly regex — use blended score
+                overall_conf = llm_conf * 0.3 + _calculate_weighted_confidence(final_field_confidence, profile) * 0.7
+            overall_conf = min(overall_conf, 1.0)
 
             # Ensure profile has field_confidence and extraction_warnings
             profile['field_confidence'] = final_field_confidence
@@ -811,11 +828,12 @@ def extract_requirements_llm(
             profile['extraction_method'] = 'llm'
             profile['extraction_confidence'] = overall_conf
 
-            print(f'[LLM Extractor] LLM extraction success, confidence={overall_conf:.0%}')
+            print(f'[LLM Extractor] LLM extraction success, confidence={overall_conf:.0%} (LLM filled {filled_by_llm}/{len(FIELD_WEIGHTS)} fields)')
             return profile, missing_p0, overall_conf
 
     # LLM failed or use_llm=False — fall back to enhanced regex
     regex_profile, missing_p0, regex_conf = _extract_with_regex(tender_text)
+    regex_profile.setdefault('extraction_method', 'regex')
     return regex_profile, missing_p0, regex_conf
 
 
