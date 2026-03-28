@@ -143,7 +143,7 @@ def render_compare_roi_chart(comparisons):
 
 def render_compare_radar(comparisons):
     max_roi = max((c["roi_5y"] for c in comparisons), default=1)
-    max_payback = max((c["payback_years"] for c in comparisons), default=1)
+    max_payback = max(((c.get("payback_years") or 0) for c in comparisons), default=1)
     max_saving = max((c["annual_saving"] for c in comparisons), default=1)
     max_hc = max((c["headcount_saved"] for c in comparisons), default=1)
     colors = ["#2196f3", "#4caf50", "#ff9800", "#9c27b0", "#f44336"]
@@ -151,7 +151,7 @@ def render_compare_radar(comparisons):
     for i, c in enumerate(comparisons[:5]):
         values = [
             (c["roi_5y"] / max_roi) * 100,
-            (1 - c["payback_years"] / max_payback) * 100,
+            (1 - (c.get("payback_years") or 0) / max_payback) * 100,
             (c["annual_saving"] / max_saving) * 100,
             (c["headcount_saved"] / max_hc) * 100,
             100,
@@ -337,11 +337,11 @@ def _render_results_panel():
         for c in ranked:
             ws = weighted_score(c)
             rows.append({float(
-                "方案": ("🥇 " if c["scenario_name"] == top_w else "  ") + c["scenario_name"],
-                "投资(万)": f"{c.get('capex_estimate', 0)/10000 or 0):.0f}",
-                "5年ROI": f"{c['roi_5y']:.1f}x",
-                "回本(年)": f"{float((c.get('payback_years') or 0) or 0):.1f}",
-                "年节省": f"{float((c.get('annual_labor_saving', 0) + c.get('annual_efficiency_saving', 0))/10000 or 0):.1f}万",
+    "方案": ("🥇 " if c.get("scenario_name") == top_w else " ") + c.get("scenario_name", ""),
+    "5年ROI": f"{(c.get("roi_5y") or 0):.1f}x",
+    "回本(年)": f"{(c.get("payback_years") or 0):.1f}",
+    "节省(万)": f"{(c.get("annual_labor_saving", 0) + c.get("annual_efficiency_saving", 0))/10000:.1f}万",
+    "3年ROI": f"{(c.get("roi_3y") or 0):.1f}x",
                 "省人": f"{c['headcount_saved']}人",
             })
         st.dataframe(pd.DataFrame(rows), hide_index=True, use_container_width=True)
@@ -350,7 +350,7 @@ def _render_results_panel():
         k1, k2 = st.columns(2)
         k1.metric("🥇 推荐", best.get("scenario_name", "—"))
         k1.metric("5年ROI", f"{float(best.get('roi_5y', 0) or 0):.1f}x")
-        k2.metric("回本周期", f"{float(best.get('payback_years', 0) or 0):.1f}年")
+        k2.metric("回本周期", f"{(float(best.get('payback_years') or 0):.1f}年")
         k2.metric("年节省", f"{float((best.get('annual_labor_saving', 0) + best.get('annual_efficiency_saving', 0))/10000 or 0):.1f}万")
 
         t1, t2, t3 = st.tabs(["📊 投资节省", "📈 ROI", "🕸️ 雷达图"])
