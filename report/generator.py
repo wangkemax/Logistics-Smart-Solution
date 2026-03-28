@@ -67,6 +67,8 @@ def build_report_data(
     cost_summary: str,
     cost_recommendations: list,
     region: str = "华东",
+    company_name: str = "飞力达物流",
+    language: str = "cn",
 ) -> Dict[str, Any]:
     """
     Build the data dictionary passed to the Jinja2 template.
@@ -79,6 +81,8 @@ def build_report_data(
         cost_summary: Human-readable cost summary
         cost_recommendations: List of cost recommendation strings
         region: Geographic region for cost parameters
+        company_name: Company name to display in report header/footer
+        language: 'cn' for Chinese, 'en' for English
 
     Returns:
         Data dict ready for template rendering
@@ -104,6 +108,49 @@ def build_report_data(
             "efficiency_gain": rec.get("efficiency_gain", 0),
         })
 
+    # Language labels
+    LANG = {
+        "cn": {
+            "doc_title": "仓储自动化解决方案建议书",
+            "subtitle": "LOGISTICS AUTOMATION PROPOSAL",
+            "section_bg": "项目背景",
+            "section_analysis": "客户需求分析",
+            "section_rec": "自动化场景推荐",
+            "section_cost": "投资成本分析",
+            "section_roi": "ROI / 投资回报分析",
+            "section_plan": "项目实施规划",
+            "section_risk": "风险分析与应对",
+            "section_appendix": "附录",
+            "section_compare": "多方案对比分析",
+            "company_label": "编制单位",
+            "confidential": "机密文件 · 仅供内部使用",
+            "risk_low": "低",
+            "risk_mid": "中",
+            "risk_high": "高",
+            "risk_map": {"低": "低", "中": "中", "高": "高"},
+        },
+        "en": {
+            "doc_title": "Warehouse Automation Solution Proposal",
+            "subtitle": "LOGISTICS AUTOMATION PROPOSAL",
+            "section_bg": "Project Background",
+            "section_analysis": "Client Requirements Analysis",
+            "section_rec": "Automation Scenario Recommendations",
+            "section_cost": "Investment Cost Analysis",
+            "section_roi": "ROI / Investment Return Analysis",
+            "section_plan": "Implementation Plan",
+            "section_risk": "Risk Analysis & Mitigation",
+            "section_appendix": "Appendix",
+            "section_compare": "Multi-Scenario Comparison",
+            "company_label": "Prepared by",
+            "confidential": "Confidential · Internal Use Only",
+            "risk_low": "Low",
+            "risk_mid": "Medium",
+            "risk_high": "High",
+            "risk_map": {"低": "Low", "中": "Medium", "高": "High", "Low": "Low", "Medium": "Medium", "High": "High"},
+        },
+    }
+    labels = LANG.get(language, LANG["cn"])
+
     return {
         "project_name": project_name,
         "report_date": report_date,
@@ -112,6 +159,9 @@ def build_report_data(
         "cost": cost_data,
         "cost_summary": cost_summary,
         "cost_recommendations": cost_recommendations,
+        "company_name": company_name,
+        "language": language,
+        "labels": labels,
     }
 
 
@@ -238,6 +288,8 @@ def generate_pdf(
     cost_recommendations: list,
     region: str = "华东",
     output_filename: Optional[str] = None,
+    company_name: str = "飞力达物流",
+    language: str = "cn",
 ) -> str:
     """
     Generate a PDF report and save it to disk.
@@ -263,7 +315,8 @@ def generate_pdf(
     # Build data and render HTML
     data = build_report_data(
         project_name, profile, recommendations,
-        cost_data, cost_summary, cost_recommendations, region
+        cost_data, cost_summary, cost_recommendations, region,
+        company_name, language,
     )
     html_content = render_html(data)
 
@@ -298,6 +351,8 @@ def generate_pdf_bytes(
     cost_summary: str,
     cost_recommendations: list,
     region: str = "华东",
+    company_name: str = "飞力达物流",
+    language: str = "cn",
 ) -> tuple[bytes, str]:
     """
     Generate a PDF report and return as bytes (for API responses).
@@ -311,7 +366,8 @@ def generate_pdf_bytes(
     # Build data and render HTML
     data = build_report_data(
         project_name, profile, recommendations,
-        cost_data, cost_summary, cost_recommendations, region
+        cost_data, cost_summary, cost_recommendations, region,
+        company_name, language,
     )
     html_content = render_html(data)
 

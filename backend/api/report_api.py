@@ -39,6 +39,8 @@ class ReportRequest(BaseModel):
     automation_expectation: str = Field(default="中", description="自动化期望")
     region: str = Field(default="华东", description="所在区域")
     selected_scenario_id: Optional[int] = Field(default=None, description="指定方案ID")
+    company_name: str = Field(default="飞力达物流", description="报告编制单位名称")
+    language: str = Field(default="cn", description="报告语言: cn=中文, en=英文")
 
 
 class ReportCompareRequest(BaseModel):
@@ -103,6 +105,8 @@ def generate_proposal_report(request: ReportRequest):
             cost_summary=cost_summary,
             cost_recommendations=cost_recommendations,
             region=request.region,
+            company_name=request.company_name,
+            language=request.language,
         )
     except RuntimeError as e:
         raise HTTPException(status_code=503, detail=str(e))
