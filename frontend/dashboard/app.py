@@ -282,6 +282,116 @@ with st.sidebar:
         st.session_state.pipeline_results = None
 
 # =============================================================================
+# Results Panel Renderer (used by Pipeline Run right column)
+# =============================================================================
+def _render_results_panel():
+    profile = st.session_state.get("pipeline_profile", {}) or {}
+    recs = st.session_state.get("pipeline_recs", []) or []
+    comparisons = st.session_state.get("pipeline_comparisons", []) or []
+
+    # ---- Profile Summary Cards ----
+    st.markdown("**📋 项目画像**")
+    m1, m2 = st.columns(2)
+    m1.metric("行业", profile.get("industry", "—"))
+    m1.metric("地区", profile.get("region", "—"))
+    m2.metric("面积", f"{profile.get('warehouse_area', 0):,.0f}㎡")
+    m2.metric("日订单", f"{profile.get('daily_orders', 0):,}")
+    m3, m4 = st.columns(2)
+    m3.metric("SKU", f"{profile.get('sku_count', 0):,}")
+    m3.metric("库存", f"{profile.get('inventory', 0):,}")
+    m4.metric("预算", profile.get("budget_level", "—"))
+    m4.metric("人工", profile.get("labor_cost_level", "—"))
+
+    # ---- ROI Comparison ----
+    if comparisons:
+        st.markdown("---")
+        st.markdown("**⚖️ ROI 对比结果**")
+        w1, w2, w3 = st.columns([2, 1, 1])
+        with w1:
+            w_roi = st.slider("ROI权重", 0.0, 1.0, 0.4, 0.05, key="w_roi")
+        with w2:
+            w_pb = st.slider("回本权重", 0.0, 1.0, 0.3, 0.05, key="w_pb")
+        with w3:
+            w_sv = st.slider("节省权重", 0.0, 1.0, 0.3, 0.05, key="w_sv")
+        total_w = w_roi + w_pb + w_sv
+        w_roi_n = w_roi / total_w if total_w > 0 else 0.33
+        w_pb_n = w_pb / total_w if total_w > 0 else 0.33
+        w_sv_n = w_sv / total_w if total_w > 0 else 0.34
+
+        def weighted_score(c):
+            max_roi = max((x["roi_5y"] for x in comparisons), default=1) or 1
+            max_pb = max((x["payback_years"] for x in comparisons), default=1) or 1
+            max_sv = max((x["annual_saving"] for x in comparisons), default=1) or 1
+            return (c["roi_5y"]/max_roi)*100*w_roi_n + (1-c["payback_years"]/max_pb)*100*w_pb_n + (c["annual_saving"]/max_sv)*100*w_sv_n
+
+        ranked = sorted(comparisons, key=weighted_score, reverse=True)
+        top_w = ranked[0]["scenario_name"] if ranked else ""
+
+        rows = []
+        for c in ranked:
+            ws = weighted_score(c)
+            rows.append({
+                "方案": ("🥇 " if c["scenario_name"] == top_w else "  ") + c["scenario_name"],
+                "投资(万)": f"{c['automation_capex']/10000:.0f}",
+                "5年ROI": f"{c['roi_5y']:.1f}x",
+                "回本(年)": f"{c['payback_years']:.1f}",
+                "年节省": f"{c['annual_saving']/10000:.1f}万",
+                "省人": f"{c['headcount_saved']}人",
+            })
+        st.dataframe(pd.DataFrame(rows), hide_index=True, use_container_width=True)
+
+        best = next((c for c in comparisons if c.get("is_best")), comparisons[0])
+        k1, k2 = st.columns(2)
+        k1.metric("🥇 推荐", best.get("scenario_name", "—"))
+        k1.metric("5年ROI", f"{best.get('roi_5y', 0):.1f}x")
+        k2.metric("回本周期", f"{best.get('payback_years', 0):.1f}年")
+        k2.metric("年节省", f"{best.get('annual_saving', 0)/10000:.1f}万")
+
+        t1, t2 = st.tabs(["📊 投资节省", "📈 ROI"])
+        with t1:
+            st.plotly_chart(render_compare_bar_chart(comparisons), use_container_width=True)
+        with t2:
+            st.plotly_chart(render_compare_roi_chart(comparisons), use_container_width=True)
+
+    # ---- TOP5 Recommendations ----
+    if recs:
+        st.markdown("---")
+        st.markdown("**🎯 TOP 5 自动化方案**")
+        for i, rec in enumerate(recs[:5]):
+            medal = "🥇" if i == 0 else "🥈" if i == 1 else "🥉" if i == 2 else "📌"
+            with st.expander(f"{medal} #{i+1} {rec['scenario_name']} — {rec['score']:.0f}分", expanded=(i == 0)):
+                ca, cb = st.columns([2, 1])
+                with ca:
+                    st.markdown(f"**类别:** {rec.get('category','—')} | **风险:** {rec.get('risk','—')}")
+                    st.markdown(f"**理由:** {rec.get('reason', '—')}")
+                    st.markdown(f"**人工节省:** {rec.get('labor_saving',0)*100:.0f}% | "
+                              f"**效率提升:** {rec.get('efficiency_gain',0)*100:.0f}% | "
+                              f"**投资:** {rec.get('capex_range', '—')}")
+                with cb:
+                    st.plotly_chart(render_score_gauge(rec["score"]), use_container_width=True,
+                                   key=f"res_gauge_{i}")
+
+    # ---- PDF Download ----
+    st.markdown("---")
+    pdf_url = st.session_state.get("pipeline_pdf_url")
+    pdf_bytes = st.session_state.get("pipeline_pdf_bytes")
+    if not pdf_bytes and pdf_url:
+        try:
+            pr = requests.get(f"{API_BASE_URL}{pdf_url}", timeout=30)
+            if pr.status_code == 200:
+                pdf_bytes = pr.content
+        except Exception:
+            pass
+    if pdf_bytes:
+        st.success("✅ PDF报告已生成")
+        st.download_button("📄 下载完整PDF方案书", data=pdf_bytes,
+                          file_name="solution_report.pdf", mime="application/pdf",
+                          type="primary", width='stretch', use_container_width=True)
+    else:
+        st.warning("PDF未生成")
+
+
+# =============================================================================
 # Mode 1: Single Scenario
 # =============================================================================
 if app_mode == "📋 方案生成":
@@ -566,73 +676,261 @@ elif app_mode == "⚖️ 多方案对比":
 elif app_mode == "🚀 Pipeline Run":
     st.markdown('<div class="main-header">🚀 Pipeline Run — 端到端投标方案生成</div>', unsafe_allow_html=True)
 
-    # ---- Input Section ----
-    with st.expander("📂 第一步：上传招标文件 & 填写参数", expanded=True):
-        col_file, col_params = st.columns([1, 1])
+    # =====================================================================
+    # 3-Column Layout: [Left: Input] [Center: Execution Status] [Right: Results]
+    # =====================================================================
+    col_left, col_center, col_right = st.columns([1, 2, 2])
 
-        with col_file:
-            st.markdown("**上传招标文件（支持多文件）**")
-            uploaded_files = st.file_uploader(
-                "支持 PDF / TXT / Word (.docx)，可多选",
-                type=["pdf", "txt", "docx"],
-                accept_multiple_files=True,
-                help="上传招标文件（PDF、Word或TXT格式），支持多文件，系统将合并提取所有文本",
-            )
-            all_texts = []
-            if uploaded_files:
-                file_names = ", ".join(f.name for f in uploaded_files)
-                st.success(f"已上传 {len(uploaded_files)} 个文件: {file_names}")
-                with st.spinner("正在解析文件..."):
-                    texts = []
-                    for f in uploaded_files:
-                        t = extract_tender_text(f)
-                        if t and len(t) > 20:
-                            texts.append(t)
-                    tender_text = "\n\n--- 文件分隔: {f.name} ---\n\n".join(texts) if texts else ""
-                    all_texts = texts
-                if tender_text:
-                    total_chars = sum(len(t) for t in texts)
-                    st.session_state.tender_text = tender_text
-                    st.info(f"共提取 {len(texts)} 个文件，合计 {total_chars} 字符")
-                    with st.expander("🔍 查看提取的文本（前800字）"):
-                        st.text(tender_text[:800] + ("..." if len(tender_text) > 800 else ""))
-                else:
-                    st.warning("文件解析失败，请直接在下方填写参数")
-                    st.session_state.tender_text = ""
+    with col_left:
+        st.markdown("### 📂 招标文件 & 参数")
+
+        uploaded_files = st.file_uploader(
+            "上传招标文件",
+            type=["pdf", "txt", "docx"],
+            accept_multiple_files=True,
+            help="支持 PDF / TXT / Word，多文件自动合并",
+        )
+        all_texts = []
+        if uploaded_files:
+            file_names = ", ".join(f.name for f in uploaded_files)
+            st.success(f"已上传 {len(uploaded_files)} 个文件: {file_names}")
+            with st.spinner("解析中..."):
+                texts = []
+                for f in uploaded_files:
+                    t = extract_tender_text(f)
+                    if t and len(t) > 20:
+                        texts.append(t)
+                tender_text = "\n\n--- {f.name} ---\n\n".join(texts) if texts else ""
+                all_texts = texts
+            if tender_text:
+                total_chars = sum(len(t) for t in texts)
+                st.session_state.tender_text = tender_text
+                st.info(f"✅ {len(texts)}个文件，{total_chars}字符")
+                with st.expander("🔍 预览文本", expanded=False):
+                    st.text(tender_text[:600] + ("..." if len(tender_text) > 600 else ""))
             else:
+                st.warning("解析失败，请直接填参数")
                 st.session_state.tender_text = ""
+        else:
+            st.session_state.tender_text = ""
 
-            tender_text_manual = st.text_area(
-                "或直接粘贴招标文件摘要",
-                placeholder="粘贴招标文件中的关键信息（面积、SKU、订单量、行业、预算等）...",
-                height=120,
-            )
-            final_tender_text = (st.session_state.get("tender_text", "") or "") + "\n" + tender_text_manual
+        tender_text_manual = st.text_area(
+            "或粘贴摘要",
+            placeholder="粘贴关键信息（面积/SKU/订单量/行业/预算）...",
+            height=80,
+        )
+        final_tender_text = (st.session_state.get("tender_text", "") or "").strip() + "\n" + tender_text_manual
 
-        with col_params:
-            st.markdown("**项目参数**（可自动从文件中提取）")
-            industry_p = st.selectbox("行业类型",
-                options=["电商", "3PL", "零售", "制造", "快递", "医药", "食品", "生鲜"], index=0)
-            region_p = st.selectbox("所在区域",
-                options=["华东", "华南", "华北", "华中", "西部"], index=0)
-            warehouse_area_p = st.number_input("仓库面积 (㎡)", min_value=500, max_value=500000,
-                                               value=20000, step=1000)
-            sku_count_p = st.number_input("SKU数量", min_value=100, max_value=1000000,
-                                          value=30000, step=1000)
-            daily_orders_p = st.number_input("日均订单量", min_value=50, max_value=500000,
-                                               value=5000, step=100)
-            inventory_p = st.number_input("库存量 (件)", min_value=1000, max_value=10000000,
-                                           value=500000, step=10000)
-            labor_cost_level_p = st.select_slider("人工成本水平", options=["低", "中", "高"], value="中")
-            budget_level_p = st.select_slider("自动化预算", options=["低", "中", "高"], value="中")
+        st.divider()
+        st.markdown("**项目参数**")
+        industry_p = st.selectbox("行业", options=["电商", "3PL", "零售", "制造", "快递", "医药", "食品", "生鲜"], index=0)
+        region_p = st.selectbox("区域", options=["华东", "华南", "华北", "华中", "西部"], index=0)
+        warehouse_area_p = st.number_input("面积 (㎡)", min_value=500, max_value=500000, value=20000, step=1000)
+        sku_count_p = st.number_input("SKU数量", min_value=100, max_value=1000000, value=30000, step=1000)
+        daily_orders_p = st.number_input("日订单", min_value=50, max_value=500000, value=5000, step=100)
+        inventory_p = st.number_input("库存量", min_value=1000, max_value=10000000, value=500000, step=10000)
+        labor_cost_level_p = st.select_slider("人工成本", options=["低", "中", "高"], value="中")
+        budget_level_p = st.select_slider("自动化预算", options=["低", "中", "高"], value="中")
+        compare_sids_str = st.text_input("对比方案ID", value="1,2,3", placeholder="1,2,3,4,5")
 
-            st.markdown("**Pipeline 配置**")
-            compare_sids_str = st.text_input(
-                "对比方案ID（逗号分隔）",
-                value="1,2,3",
-                placeholder="如: 1,2,3,4,5",
-                help="留空则使用推荐TOP3方案",
-            )
+        st.session_state._pipeline_params = {
+            "industry": industry_p, "warehouse_area": float(warehouse_area_p),
+            "sku_count": int(sku_count_p), "daily_orders": int(daily_orders_p),
+            "inventory": int(inventory_p), "labor_cost_level": labor_cost_level_p,
+            "budget_level": budget_level_p, "region": region_p,
+            "compare_sids_str": compare_sids_str,
+            "tender_text": final_tender_text,
+        }
+
+    with col_center:
+        st.markdown("### ⚙️ 执行状态")
+
+        # ---- Polling UI (show when polling) ----
+        if st.session_state.get("pipeline_state") == "polling":
+            pipeline_id = st.session_state.get("_pipeline_id")
+            status_placeholder = st.empty()
+            log_placeholder = st.empty()
+            correction_placeholder = st.empty()
+
+            try:
+                resp = requests.get(f"{API_BASE_URL}/api/pipeline/status/{pipeline_id}", timeout=10)
+                if resp.status_code == 404:
+                    st.error(f"Pipeline {pipeline_id} 未找到")
+                    st.stop()
+                status_data = resp.json()
+                pipeline_status = status_data.get("status", "UNKNOWN")
+                stages = status_data.get("stages", [])
+                stage_map = {s["stage"]: s for s in stages}
+
+                done_count = sum(1 for s in stages if s.get("status") == "DONE")
+                progress_pct = int(done_count / max(len(stages), 1) * 100)
+                status_placeholder.progress(progress_pct)
+
+                step_labels = {
+                    "1_extraction": "① 解析招标",
+                    "2_recommendation": "② 推荐引擎",
+                    "3_cost_comparison": "③ ROI计算",
+                    "4_qa_review": "④ QA审核",
+                    "5_pdf_report": "⑤ PDF报告",
+                }
+                step_cols = st.columns(5)
+                for i, (stage_name, label) in enumerate(step_labels.items()):
+                    s = stage_map.get(stage_name, {})
+                    s_status = s.get("status", "PENDING")
+                    icon = "✅" if s_status == "DONE" else "❌" if s_status == "FAILED" else "⏳"
+                    dur = s.get("duration_seconds", 0)
+                    with step_cols[i]:
+                        st.markdown(f"**{icon} {label}**")
+                        if dur:
+                            st.caption(f"  {dur:.1f}s")
+                        if s.get("error"):
+                            with st.expander("详情"):
+                                st.text(s["error"][:200])
+
+                log_lines = []
+                for s in stages:
+                    label = step_labels.get(s.get("stage", ""), s.get("stage", ""))
+                    if s.get("status") == "DONE":
+                        log_lines.append(f"✅ {label} 完成 ({s.get('duration_seconds', 0):.1f}s)")
+                    elif s.get("status") == "FAILED":
+                        log_lines.append(f"❌ {label}: {s.get('error', '')[:80]}")
+                    elif s.get("status") == "RUNNING":
+                        log_lines.append(f"⏳ {label}...")
+                log_placeholder.text("\n".join(log_lines[-15:]) if log_lines else "等待开始...")
+
+                # Low-confidence correction
+                s1 = stage_map.get("1_extraction", {})
+                s2 = stage_map.get("2_recommendation", {})
+                if s1.get("status") == "DONE" and s2.get("status") in ("PENDING", None):
+                    prof = status_data.get("project_profile", {})
+                    missing_p0 = prof.get("missing_p0", [])
+                    confidence = prof.get("extraction_confidence", 0) or 0
+                    if missing_p0 or confidence < 0.65:
+                        correction_placeholder.warning(
+                            f"⚠️ 置信度 {confidence:.0%}" + (" | P0缺失" if missing_p0 else "")
+                        )
+                        with correction_placeholder.form("ext_corr", clear_on_submit=False):
+                            c1, c2 = st.columns(2)
+                            with c1:
+                                industries = ["电商", "3PL", "零售", "制造", "快递", "医药", "食品", "生鲜"]
+                                ind_idx = 0
+                                cur = prof.get("industry", "电商")
+                                if cur in industries:
+                                    ind_idx = industries.index(cur)
+                                ind_c = st.selectbox("行业", industries, index=ind_idx)
+                                area_c = st.number_input("面积", value=int(prof.get("warehouse_area", 20000) or 20000), step=1000)
+                            with c2:
+                                sku_c = st.number_input("SKU", value=int(prof.get("sku_count", 30000) or 30000), step=1000)
+                                ord_c = st.number_input("日订单", value=int(prof.get("daily_orders", 5000) or 5000), step=100)
+                            c3, c4 = st.columns(2)
+                            with c3:
+                                bud_c = st.select_slider("预算", options=["低", "中", "高"], value=prof.get("budget_level", "中"))
+                            with c4:
+                                lab_c = st.select_slider("人工", options=["低", "中", "高"], value=prof.get("labor_cost_level", "中"))
+                            if missing_p0:
+                                st.markdown(f"**⚠️ P0缺失：** {', '.join(missing_p0)}")
+                            sub = st.form_submit_button("✅ 确认并继续", width='stretch', type="primary")
+                            if sub:
+                                overrides = {"industry": ind_c, "warehouse_area": float(area_c),
+                                             "sku_count": int(sku_c), "daily_orders": int(ord_c),
+                                             "labor_cost_level": lab_c, "budget_level": bud_c,
+                                             "automation_expectation": "中"}
+                                try:
+                                    requests.patch(f"{API_BASE_URL}/api/pipeline/{pipeline_id}",
+                                                   json={"profile_overrides": overrides}, timeout=10)
+                                except Exception:
+                                    pass
+                                st.session_state._skip_correction = True
+                                st.rerun()
+                        st.stop()
+
+                st.session_state._skip_correction = False
+
+                if pipeline_status == "COMPLETE":
+                    st.success("✅ Pipeline 执行完成！")
+                    st.session_state.pipeline_profile = status_data.get("project_profile", {})
+                    st.session_state.pipeline_recs = status_data.get("recommendations", [])
+                    st.session_state.pipeline_comparisons = status_data.get("cost_comparisons", [])
+                    st.session_state.pipeline_pdf_url = status_data.get("pdf_download_url")
+                    st.session_state.pipeline_state = "done"
+                    st.rerun()
+                elif pipeline_status == "FAILED":
+                    st.error(f"❌ 失败: {status_data.get('error', '未知错误')}")
+                    st.session_state.pipeline_state = "done"
+                    st.rerun()
+                else:
+                    time.sleep(2)
+                    st.rerun()
+
+            except requests.exceptions.ConnectionError:
+                st.error("⚠️ 无法连接后端，请确保后端已启动")
+                st.stop()
+            except Exception as e:
+                st.error(f"轮询异常: {e}")
+                st.stop()
+
+        # ---- Idle: Show run button + step preview ----
+        if st.session_state.get("pipeline_state") in (None, "done"):
+            # Show step preview cards
+            step_info = {
+                "① 解析招标": "提取面积/SKU/行业/痛点",
+                "② 推荐引擎": "匹配自动化场景",
+                "③ ROI计算": "成本对比 + 5年ROI",
+                "④ QA审核": "质量检查 & 风险评估",
+                "⑤ PDF报告": "生成专业投标方案书",
+            }
+            for label, desc in step_info.items():
+                with st.container():
+                    ic, tx = st.columns([1, 4])
+                    with ic:
+                        st.markdown("⬜")
+                    with tx:
+                        st.markdown(f"**{label}**")
+                        st.caption(desc)
+            st.divider()
+
+            if st.button("🚀 开始运行 Pipeline", type="primary", width='stretch',
+                         help="异步执行，不阻塞页面"):
+                params = st.session_state.get("_pipeline_params", {})
+                tender_text = params.get("tender_text", "") or ""
+                overrides = {
+                    "industry": params.get("industry", "电商"),
+                    "warehouse_area": float(params.get("warehouse_area", 20000)),
+                    "sku_count": int(params.get("sku_count", 30000)),
+                    "daily_orders": int(params.get("daily_orders", 5000)),
+                    "inventory": int(params.get("inventory", 500000)),
+                    "labor_cost_level": params.get("labor_cost_level", "中"),
+                    "budget_level": params.get("budget_level", "中"),
+                    "automation_expectation": "中",
+                }
+                try:
+                    run_resp = requests.post(
+                        f"{API_BASE_URL}/api/pipeline/run",
+                        json={"tender_document": tender_text,
+                              "project_profile_overrides": overrides,
+                              "compare_scenario_ids": None,
+                              "generate_pdf": True,
+                              "api_base_url": API_BASE_URL},
+                        timeout=15,
+                    )
+                    if run_resp.status_code == 200:
+                        result = run_resp.json()
+                        st.session_state.pipeline_state = "polling"
+                        st.session_state._pipeline_id = result.get("pipeline_id")
+                        st.session_state._skip_correction = False
+                        st.rerun()
+                    else:
+                        st.error(f"启动失败: {run_resp.status_code}")
+                except Exception as e:
+                    st.error(f"无法连接后端: {e}")
+                st.stop()
+
+    with col_right:
+        st.markdown("### 📊 执行结果")
+        if st.session_state.get("pipeline_state") == "done":
+            _render_results_panel()
+        else:
+            st.info("⬆️ 请先上传招标文件并运行 Pipeline，结果将在此显示")
 
     # =============================================================================
     # Pipeline: State Machine via session_state
@@ -902,131 +1200,3 @@ elif app_mode == "🚀 Pipeline Run":
         st.stop()
 
     # =====================================================================
-    # Results Section (pipeline_state == "done")
-    # =====================================================================
-    if st.session_state.get("pipeline_state") == "done":
-        st.markdown("---")
-        st.markdown("## 📊 Pipeline 执行结果")
-
-        profile = st.session_state.get("pipeline_profile", {}) or {}
-        recs = st.session_state.get("pipeline_recs", []) or []
-        comparisons = st.session_state.get("pipeline_comparisons", []) or []
-        pdf_bytes = st.session_state.get("pipeline_pdf_bytes")
-        pdf_filename = st.session_state.get("pipeline_pdf_filename")
-
-        # Profile summary
-        with st.expander("📋 项目画像", expanded=True):
-            cols = st.columns(4)
-            cols[0].metric("行业", profile.get("industry", "—"))
-            cols[1].metric("地区", profile.get("region", "—"))
-            cols[2].metric("仓库面积", f"{profile.get('warehouse_area', 0):,.0f}㎡")
-            cols[3].metric("日均订单", f"{profile.get('daily_orders', 0):,}")
-            cols2 = st.columns(4)
-            cols2[0].metric("SKU数量", f"{profile.get('sku_count', 0):,}")
-            cols2[1].metric("库存量", f"{profile.get('inventory', 0):,}")
-            cols2[2].metric("预算水平", profile.get("budget_level", "—"))
-            cols2[3].metric("人工成本", profile.get("labor_cost_level", "—"))
-
-        # ---- Weight sliders ----
-        if comparisons:
-            st.subheader("⚖️ 多方案ROI对比结果")
-            st.info("💡 拖动权重滑块可动态调整最优方案排序")
-            w1, w2, w3 = st.columns(3)
-            with w1:
-                w_roi = st.slider("ROI权重", 0.0, 1.0, 0.4, 0.05, key="w_roi")
-            with w2:
-                w_payback = st.slider("回本周期权重", 0.0, 1.0, 0.3, 0.05, key="w_payback")
-            with w3:
-                w_saving = st.slider("年节省权重", 0.0, 1.0, 0.3, 0.05, key="w_saving")
-            total_w = w_roi + w_payback + w_saving
-            w_roi_n = w_roi / total_w if total_w > 0 else 0.33
-            w_payback_n = w_payback / total_w if total_w > 0 else 0.33
-            w_saving_n = w_saving / total_w if total_w > 0 else 0.34
-
-            def weighted_score(c):
-                max_roi = max((x["roi_5y"] for x in comparisons), default=1) or 1
-                max_payback = max((x["payback_years"] for x in comparisons), default=1) or 1
-                max_saving = max((x["annual_saving"] for x in comparisons), default=1) or 1
-                roi_score = (c["roi_5y"] / max_roi) * 100
-                pb_score = (1 - c["payback_years"] / max_payback) * 100
-                sav_score = (c["annual_saving"] / max_saving) * 100
-                return roi_score * w_roi_n + pb_score * w_payback_n + sav_score * w_saving_n
-
-            weighted_comps = sorted(comparisons, key=weighted_score, reverse=True)
-            top_w = weighted_comps[0]["scenario_name"] if weighted_comps else "—"
-
-            rows = []
-            for c in comparisons:
-                ws = weighted_score(c)
-                rows.append({
-                    "方案": ("🥇 " if c["scenario_name"] == top_w else "  ") + c["scenario_name"],
-                    "类别": c["category"],
-                    "投资 (万)": f"{c['automation_capex']/10000:.0f}",
-                    "年节省 (万)": f"{c['annual_saving']/10000:.1f}",
-                    "5年ROI": f"{c['roi_5y']:.1f}x",
-                    "回本周期": f"{c['payback_years']:.1f}年",
-                    "省人数": f"{c['headcount_saved']}人",
-                    "加权评分": f"{ws:.1f}",
-                })
-            st.dataframe(pd.DataFrame(rows), width='stretch', hide_index=True)
-
-            best = next((c for c in comparisons if c.get("is_best")), comparisons[0])
-            k1, k2, k3, k4 = st.columns(4)
-            k1.metric("🥇 推荐方案", best.get("scenario_name", "—"))
-            k2.metric("5年ROI", f"{best.get('roi_5y', 0):.1f}x")
-            k3.metric("回本周期", f"{best.get('payback_years', 0):.1f}年")
-            k4.metric("年节省", f"{best.get('annual_saving', 0)/10000:.1f}万")
-
-            t1, t2, t3 = st.tabs(["📊 投资与年节省", "📈 ROI对比", "🎯 综合雷达图"])
-            with t1:
-                st.plotly_chart(render_compare_bar_chart(comparisons), width='stretch')
-            with t2:
-                st.plotly_chart(render_compare_roi_chart(comparisons), width='stretch')
-            with t3:
-                st.plotly_chart(render_compare_radar(comparisons), width='stretch')
-
-        if recs:
-            st.subheader("🎯 自动化方案推荐 (TOP 5)")
-            for i, rec in enumerate(recs[:5]):
-                with st.expander(
-                    f"{'🥇' if i==0 else '🥈' if i==1 else '🥉' if i==2 else '📌'} "
-                    f"#{i+1} {rec['scenario_name']} — {rec['score']:.0f}分",
-                    expanded=(i == 0),
-                ):
-                    c_a, c_b = st.columns([2, 1])
-                    with c_a:
-                        st.markdown(f"**类别:** {rec['category']}  |  **风险:** {rec['risk']}")
-                        st.markdown(f"**推荐理由:** {rec['reason']}")
-                        st.markdown(f"**人工节省:** {rec['labor_saving']*100:.0f}%  |  "
-                                  f"**效率提升:** {rec['efficiency_gain']*100:.0f}%  |  "
-                                  f"**投资范围:** {rec['capex_range']}")
-                    with c_b:
-                        st.plotly_chart(render_score_gauge(rec["score"]),
-                                        width='stretch', key=f"result_score_{i}")
-
-        # PDF Download (handle both direct bytes and URL-based download)
-        pdf_url = st.session_state.get("pipeline_pdf_url")
-        if not pdf_bytes and pdf_url:
-            try:
-                pdf_resp = requests.get(f"{API_BASE_URL}{pdf_url}", timeout=30)
-                if pdf_resp.status_code == 200:
-                    pdf_bytes = pdf_resp.content
-                    pdf_filename = pdf_filename or "solution_report.pdf"
-            except Exception:
-                pass
-
-        if pdf_bytes:
-            st.markdown("---")
-            st.success("✅ Pipeline 执行完成！PDF报告已生成。")
-            st.download_button(
-                "📄 下载完整PDF方案建议书",
-                data=pdf_bytes,
-                file_name=pdf_filename or "solution_report.pdf",
-                mime="application/pdf",
-                type="primary",
-                width='stretch',
-            )
-        else:
-            st.warning("PDF报告未能生成，可尝试手动从『方案生成』模式导出")
-
-# =============================================================================
