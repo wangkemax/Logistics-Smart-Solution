@@ -112,6 +112,7 @@ def render_roi_chart(cost_data):
 
 
 def render_compare_bar_chart(comparisons):
+    # comparisons is already sorted by weighted score
     names = [c["scenario_name"][:8] for c in comparisons]
     capex = [c["automation_capex"] / 10000 for c in comparisons]
     savings = [c["annual_saving"] / 10000 for c in comparisons]
@@ -126,10 +127,10 @@ def render_compare_bar_chart(comparisons):
 
 
 def render_compare_roi_chart(comparisons):
-    sorted_comps = sorted(comparisons, key=lambda x: x["roi_5y"], reverse=True)
-    names = [c["scenario_name"][:10] for c in sorted_comps]
-    roi_5y = [c["roi_5y"] for c in sorted_comps]
-    colors = ["#27ae60" if c.get("is_best") else "#95a5a6" for c in sorted_comps]
+    # comparisons is already sorted by weighted score when called from results panel
+    names = [c["scenario_name"][:10] for c in comparisons]
+    roi_5y = [c["roi_5y"] for c in comparisons]
+    colors = ["#27ae60" if c.get("is_best") else "#95a5a6" for c in comparisons]
     fig = go.Figure(data=[go.Bar(
         y=names, x=roi_5y, orientation="h",
         marker_color=colors, text=[f"{r:.1f}x" for r in roi_5y], textposition="auto",
@@ -308,11 +309,11 @@ def _render_results_panel():
         st.markdown("**⚖️ ROI 对比结果**")
         w1, w2, w3 = st.columns([2, 1, 1])
         with w1:
-            w_roi = st.slider("ROI权重", 0.0, 1.0, 0.4, 0.05, key="w_roi")
+            w_roi = st.slider("ROI权重", 0.0, 1.0, 0.4, 0.05, key="w_roi", on_change=st.rerun)
         with w2:
-            w_pb = st.slider("回本权重", 0.0, 1.0, 0.3, 0.05, key="w_pb")
+            w_pb = st.slider("回本权重", 0.0, 1.0, 0.3, 0.05, key="w_pb", on_change=st.rerun)
         with w3:
-            w_sv = st.slider("节省权重", 0.0, 1.0, 0.3, 0.05, key="w_sv")
+            w_sv = st.slider("节省权重", 0.0, 1.0, 0.3, 0.05, key="w_sv", on_change=st.rerun)
         total_w = w_roi + w_pb + w_sv
         w_roi_n = w_roi / total_w if total_w > 0 else 0.33
         w_pb_n = w_pb / total_w if total_w > 0 else 0.33
@@ -347,11 +348,13 @@ def _render_results_panel():
         k2.metric("回本周期", f"{best.get('payback_years', 0):.1f}年")
         k2.metric("年节省", f"{best.get('annual_saving', 0)/10000:.1f}万")
 
-        t1, t2 = st.tabs(["📊 投资节省", "📈 ROI"])
+        t1, t2, t3 = st.tabs(["📊 投资节省", "📈 ROI", "🕸️ 雷达图"])
         with t1:
-            st.plotly_chart(render_compare_bar_chart(comparisons), use_container_width=True)
+            st.plotly_chart(render_compare_bar_chart(ranked), use_container_width=True)
         with t2:
-            st.plotly_chart(render_compare_roi_chart(comparisons), use_container_width=True)
+            st.plotly_chart(render_compare_roi_chart(ranked), use_container_width=True)
+        with t3:
+            st.plotly_chart(render_compare_radar(ranked), use_container_width=True)
 
     # ---- TOP5 Recommendations ----
     if recs:
@@ -707,7 +710,28 @@ elif app_mode == "🚀 Pipeline Run":
                 st.session_state.tender_text = tender_text
                 st.info(f"✅ {len(texts)}个文件，{total_chars}字符")
                 with st.expander("🔍 预览文本", expanded=False):
-                    st.text(tender_text[:600] + ("..." if len(tender_text) > 600 else ""))
+                    preview_text = tender_text[:800] + ("..." if len(tender_text) > 800 else "")
+                    # Highlight key fields
+                    import re
+                    highlights = {
+                        "仓库面积": r"(\d+\.?\d*)\s*(㎡|平方米|平方|m2|m²)",
+                        "SKU数量": r"(SKU|sku)[：:]?\s*(\d[\d,]+)",
+                        "日订单": r"(日均|每天|每日)\s*订单[：:]?\s*(\d[\d,]+)",
+                        "行业": r"(行业|产业)[：:]?\s*([\u4e00-\u9fa5]+)",
+                    }
+                    st.text(preview_text)
+                    # Show detected fields
+                    detected = {}
+                    for field, pattern in highlights.items():
+                        m = re.search(pattern, preview_text)
+                        if m:
+                            detected[field] = m.group(0)
+                    if detected:
+                        st.markdown("**🏷️ 识别到的关键字段：**")
+                        dc1, dc2 = st.columns(2)
+                        for idx, (field, val) in enumerate(detected.items()):
+                            col = dc1 if idx % 2 == 0 else dc2
+                            col.markdown(f"- **{field}**: `{val}`")
             else:
                 st.warning("解析失败，请直接填参数")
                 st.session_state.tender_text = ""
