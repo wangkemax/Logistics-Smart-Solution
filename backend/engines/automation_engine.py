@@ -1,5 +1,4 @@
 from typing import List, Dict, Any
-import pandas as pd
 import os
 
 
@@ -28,29 +27,21 @@ AUTOMATION_LEVEL_WEIGHTS = {
 
 
 def load_scenarios() -> List[Dict]:
-    """Load automation scenarios from CSV or return defaults."""
-    csv_path = os.path.join(os.path.dirname(__file__), "../../data/automation_scenarios.csv")
-    csv_path = os.path.normpath(csv_path)
+    """
+    Load automation scenarios from database (via repository).
 
-    if os.path.exists(csv_path):
-        df = pd.read_csv(csv_path)
-        return df.to_dict(orient="records")
+    Repository chain:
+      1. Read from automation_scenarios SQLite table
+      2. If table is empty or unavailable → fall back to hardcoded defaults
+         (printed to stderr for visibility during development)
 
-    # Fallback hardcoded scenarios
-    return [
-        {"scenario_id": 1, "scenario_name": "AMR拣选辅助", "category": "移动机器人",
-         "applicable_industry": "电商/3PL/零售", "sku_min": 5000, "sku_max": 100000,
-         "order_min": 500, "order_max": 50000, "capex_min": 500000, "capex_max": 2000000,
-         "labor_saving": 0.3, "efficiency_gain": 0.4, "risk_level": "中"},
-        {"scenario_id": 2, "scenario_name": "GTP货到人系统", "category": "货到人",
-         "applicable_industry": "电商/3PL", "sku_min": 10000, "sku_max": 200000,
-         "order_min": 1000, "order_max": 100000, "capex_min": 2000000, "capex_max": 8000000,
-         "labor_saving": 0.5, "efficiency_gain": 0.6, "risk_level": "高"},
-        {"scenario_id": 3, "scenario_name": "输送分拣线", "category": "输送分拣",
-         "applicable_industry": "电商/快递/零售", "sku_min": 1000, "sku_max": 50000,
-         "order_min": 2000, "order_max": 200000, "capex_min": 1000000, "capex_max": 5000000,
-         "labor_saving": 0.4, "efficiency_gain": 0.5, "risk_level": "中"},
-    ]
+    Data format returned matches what scoring functions expect:
+      scenario_id, scenario_name, category, applicable_industry,
+      sku_min, sku_max, order_min, order_max, capex_min, capex_max,
+      labor_saving, efficiency_gain, risk_level
+    """
+    from backend.repositories.scenario_repository import get_active_scenarios
+    return get_active_scenarios()
 
 
 def score_industry_match(scenario: Dict, industry: str) -> float:
