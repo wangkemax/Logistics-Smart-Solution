@@ -92,15 +92,15 @@ def extract_with_regex(text: str) -> dict:
             break
 
     # SKU
-    m = re.search(r"SKU[是为约：:\s]*(\d[\d,\.]*)", text)
+    m = re.search(r"SKU(?:数量|数|量)?[是为约：:\s]*(\d[\d,\.]*)", text, re.IGNORECASE)
     if not m:
-        m = re.search(r"(\d[\d,\.]*)\s*(?:SKU|种|品类)", text)
+        m = re.search(r"(\d[\d,\.]*)\s*(?:SKU|种|品类)", text, re.IGNORECASE)
     if m:
         profile["sku_count"] = int(float(m.group(1).replace(",", "")))
 
     # Daily orders — handle "日订单", "日均订单", "日收件", "日出货" etc.
     for pat in [
-        r"日[均]?(?:订单|收件|出货|收贷|处理|均)[为是]?[：:\s]*(\d[\d,]*)",
+        r"日[均]?(?:订单|订单量|收件|出货|收贷|处理|均)[为是约]?[：:\s]*(\d[\d,]*)",
         r"日[出进]?(?:货|件|单)[量为]?[：:\s]*(\d[\d,]*)",
         r"日[均]?[订单件][量为]?[为是约]?[：:\s]*(\d[\d,]*)",
         r"(\d[\d,]+)\s*(?:单|票|件)/(?:天|日)",
@@ -111,17 +111,19 @@ def extract_with_regex(text: str) -> dict:
             break
 
     # Inventory
-    m = re.search(r"库存[量为]?\s*(\d[\d,\.]*)", text)
+    m = re.search(r"库存(?:量)?[为是约：:\s]*(\d[\d,\.]*)", text)
     if m:
         profile["inventory"] = int(float(m.group(1).replace(",", "")))
 
     # Contract years
-    m = re.search(r"合同[期为]?\s*(\d)\s*年", text)
+    m = re.search(r"合同(?:期|期限)?[为是约]?\s*(\d+)\s*年", text)
     if m:
         profile["contract_years"] = int(m.group(1))
 
     # Budget
-    for level, keywords in [("高", ["高预算", "预算高", "预算充足"]), ("中", ["中档", "中等", "预算中"]), ("低", ["低预算", "预算紧张"])]:
+    for level, keywords in [("高", ["高预算", "预算高", "预算充足"]),
+        ("中", ["中档", "中等", "预算中"]),
+        ("低", ["低预算", "预算紧张", "预算有限", "控制在"])]:
         if any(kw in text for kw in keywords):
             profile["budget_level"] = level
             break
@@ -140,8 +142,6 @@ def extract_with_regex(text: str) -> dict:
         missing.append("sku_count")
     if not profile["daily_orders"]:
         missing.append("daily_orders")
-    if not profile["contract_years"]:
-        missing.append("contract_years")
     profile["missing_p0"] = missing
 
     return profile

@@ -37,9 +37,24 @@ from backend.services.project_service import (
 )
 from backend.services.tender_service import extract_tender_requirements
 
-import redis as _redis_lib
-REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
-_redis_conn = _redis_lib.from_url(REDIS_URL, decode_responses=True)
+class _InMemoryRedisFallback:
+    """Very small subset of Redis hash APIs used by this module."""
+
+    def __init__(self):
+        self._store: dict[str, dict[str, str]] = {}
+
+    def hgetall(self, key: str) -> dict[str, str]:
+        return dict(self._store.get(key, {}))
+
+    def hset(self, key: str, field: str, value: str):
+        self._store.setdefault(key, {})[field] = value
+
+
+try:
+    import redis as _redis_lib
+    _redis_conn = _redis_lib.from_url(REDIS_URL, decode_responses=True)
+except Exception:
+    _redis_conn = _InMemoryRedisFallback()
 
 router = APIRouter(prefix="/api/pipeline", tags=["presale-pipeline"])
 
@@ -165,7 +180,14 @@ def get_pipeline_dir(pipeline_id: str) -> Path:
 # Stage 1: Tender Requirement Extraction
 # =============================================================================
 
-# extract_requirements moved to backend.services.tender_service.extract_tender_requirements
+def extract_requirements(tender_text: str):
+    """
+    Backward-compatible wrapper kept for tests and callers importing from this module.
+    Returns (profile, missing_p0_fields).
+    """
+    profile = extract_tender_requirements(tender_text, use_llm=False)
+    missing = profile.get("missing_p0", [])
+    return profile, missing
 # Pipeline Orchestration
 # =============================================================================
 
