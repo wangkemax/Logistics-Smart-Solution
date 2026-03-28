@@ -374,43 +374,88 @@ def _render_results_panel():
     m4.metric("人工", profile.get("labor_cost_level", "—"))
 
     # ---- Extraction Review Panel ----
-    extraction_confidence = profile.get("extraction_confidence", 0)
-    field_confidence = profile.get("field_confidence", {})
-    source_trace = profile.get("source_trace", {})
-    warnings = profile.get("warnings", [])
+    # Enhanced: reads from best (comparison result) for field_confidence + source_trace
+    best_ec = best.get("extraction_confidence")
+    best_fc = best.get("field_confidence") or best.get("field_confidence_map") or {}
+    best_st = best.get("source_trace") or best.get("source") or {}
+    best_ew = best.get("extraction_warnings") or best.get("warnings") or []
 
-    if field_confidence or warnings:
+    if best_ec is not None or best_fc or best_st:
         with st.expander("📋 提取结果确认", expanded=False):
-            conf_pct = f"{extraction_confidence * 100:.0%}" if extraction_confidence else "N/A"
-            st.markdown(f"**总体置信度:** {conf_pct}")
+            if best_ec is not None:
+                conf_pct = float(best_ec) * 100
+                st.progress(min(conf_pct / 100, 1.0),
+                             text="总体置信度：" + str(int(conf_pct)) + "%")
 
-            # Field-level table
-            if field_confidence:
-                display_keys = [
-                    ("industry", "行业"), ("region", "地区"),
-                    ("warehouse_area", "仓库面积"), ("daily_orders", "日订单"),
-                    ("sku_count", "SKU数"), ("inventory", "库存量"),
-                    ("budget_level", "预算"), ("labor_cost_level", "人工成本"),
-                ]
-                rows = []
-                for key, label in display_keys:
-                    val = profile.get(key)
-                    conf = field_confidence.get(key)
-                    src = source_trace.get(key, "—")
-                    conf_str = f"{conf * 100:.0%}" if conf else "—"
-                    src_icon = "🔤" if src == "rule" else "🤖" if src == "llm" else "🔄" if src == "merged" else "⚙️"
-                    val_str = str(val) if val is not None else "—"
-                    rows.append({
-                        "字段": label, "提取值": val_str, "置信度": conf_str,
-                        "来源": f"{src_icon} {src}"
-                    })
-                st.dataframe(pd.DataFrame(rows), hide_index=True, use_container_width=True)
+            field_labels = {
+                "warehouse_area": "仓库面积",
+                "sku_count": "SKU数",
+                "daily_orders": "日订单量",
+                "inventory": "库存量",
+                "industry": "行业",
+                "region": "地区",
+                "labor_cost_level": "人工成本",
+                "budget_level": "预算等级",
+                "automation_expectation": "自动化期望",
+            }
+            source_icon = {"rule": "🔤", "llm": "🤖", "merged": "🔄", "default": "❓"}
 
-            # Warnings
-            if warnings:
-                st.markdown("**⚠️ 警告信息:**")
-                for w in warnings:
-                    st.warning(w)
+            rows = []
+            for fname, label in field_labels.items():
+                raw_val = best.get(fname)
+                conf = best_fc.get(fname)
+                src = best_st.get(fname, "default")
+                conf_str = str(int(conf * 100)) + "%" if conf else "—"
+                icon = source_icon.get(src, "❓")
+                val_str = str(raw_val) if raw_val is not None else "—"
+                rows.append({"字段": label, "提取值": val_str, "置信度": conf_str, "来源": icon + " " + src})
+
+            if rows:
+                st.dataframe(rows, hide_index=True, use_container_width=True)
+            else:
+                st.info("无可用置信度数据")
+
+            if best_ew and isinstance(best_ew, list):
+                st.markdown("**⚠️ 注意事项：**")
+                for w in best_ew:
+                    st.markdown("- " + str(w))
+    else:
+        # Fallback: profile-level data
+        extraction_confidence = profile.get("extraction_confidence", 0)
+        field_confidence = profile.get("field_confidence", {})
+        source_trace_p = profile.get("source_trace", {})
+        warnings = profile.get("warnings", [])
+
+        if field_confidence or warnings:
+            with st.expander("📋 提取结果确认", expanded=False):
+                conf_pct = f"{extraction_confidence * 100:.0%}" if extraction_confidence else "N/A"
+                st.markdown(f"**总体置信度:** {conf_pct}")
+
+                if field_confidence:
+                    display_keys = [
+                        ("industry", "行业"), ("region", "地区"),
+                        ("warehouse_area", "仓库面积"), ("daily_orders", "日订单"),
+                        ("sku_count", "SKU数"), ("inventory", "库存量"),
+                        ("budget_level", "预算"), ("labor_cost_level", "人工成本"),
+                    ]
+                    rows = []
+                    for key, label in display_keys:
+                        val = profile.get(key)
+                        conf = field_confidence.get(key)
+                        src = source_trace_p.get(key, "—")
+                        conf_str = f"{conf * 100:.0%}" if conf else "—"
+                        src_icon = "🔤" if src == "rule" else "🤖" if src == "llm" else "🔄" if src == "merged" else "⚙️"
+                        val_str = str(val) if val is not None else "—"
+                        rows.append({
+                            "字段": label, "提取值": val_str, "置信度": conf_str,
+                            "来源": f"{src_icon} {src}"
+                        })
+                    st.dataframe(pd.DataFrame(rows), hide_index=True, use_container_width=True)
+
+                if warnings:
+                    st.markdown("**⚠️ 警告信息:**")
+                    for w in warnings:
+                        st.warning(w)
 
     # ---- QA Verdict Panel ----
     # Check multiple sources: best (comparisons), results (pipeline_result), session state
