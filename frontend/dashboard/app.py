@@ -5,6 +5,11 @@ Three modes: 方案生成 | 多方案对比 | Pipeline Run
 
 import streamlit as st
 import requests
+    from frontend.dashboard.ui_formatters import (
+        fmt_text, fmt_number, fmt_integer, fmt_currency,
+        fmt_percent, fmt_years, fmt_area,
+        fmt_count, fmt_delta_percent,
+    )
 import json
 import time
 import os
@@ -285,6 +290,46 @@ with st.sidebar:
 # =============================================================================
 # Results Panel Renderer (used by Pipeline Run right column)
 # =============================================================================
+
+def _safe_best_result(results: dict) -> dict:
+    """Safely extract best result from pipeline results. Returns {} if empty."""
+    if not results:
+        return {}
+    comparison = results.get("financial_comparison") or []
+    if comparison and isinstance(comparison, list):
+        for item in comparison:
+            if item.get("is_best") is True:
+                return item
+        if comparison:
+            return comparison[0]
+    recs = results.get("recommendations") or []
+    if recs and isinstance(recs, list):
+        return recs[0]
+    return {}
+
+
+def _render_key_metrics(best: dict, profile: dict):
+    """Render 8 key metrics using safe formatters."""
+    c1, c2, c3, c4 = st.columns(4)
+    with c1:
+        st.metric("5年ROI", fmt_percent(best.get("roi_5y")))
+    with c2:
+        st.metric("回本周期", fmt_years(best.get("payback_years")))
+    with c3:
+        st.metric("投资额", fmt_currency(best.get("capex_estimate")))
+    with c4:
+        st.metric("年运维成本", fmt_currency(best.get("opex_annual")))
+    c5, c6, c7, c8 = st.columns(4)
+    with c5:
+        st.metric("节省人数", fmt_count(best.get("headcount_saved"), "人"))
+    with c6:
+        st.metric("仓库面积", fmt_area(profile.get("warehouse_area")))
+    with c7:
+        st.metric("SKU数", fmt_count(profile.get("sku_count")))
+    with c8:
+        st.metric("日订单量", fmt_count(profile.get("daily_orders")))
+
+
 def _render_results_panel():
     profile = st.session_state.get("pipeline_profile", {}) or {}
     recs = st.session_state.get("pipeline_recs", []) or []
