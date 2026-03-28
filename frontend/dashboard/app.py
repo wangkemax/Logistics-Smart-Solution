@@ -900,8 +900,8 @@ elif app_mode == "🚀 Pipeline Run":
         st.markdown("---")
         st.markdown("## 📊 Pipeline 执行结果")
 
-        profile = st.session_state.get("pipeline_profile", {})
-        params = st.session_state.get("_pipeline_params", {})
+        profile = st.session_state.get("pipeline_profile", {}) or {}
+        params = st.session_state.get("_pipeline_params", {}) or {}
         recs = st.session_state.get("pipeline_recs", []) or []
         comparisons = st.session_state.get("pipeline_comparisons", []) or []
         pdf_bytes = st.session_state.get("pipeline_pdf_bytes")
