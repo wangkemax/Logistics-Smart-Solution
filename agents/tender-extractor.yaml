@@ -1,0 +1,87 @@
+name: Tender Requirement Extractor Agent
+description: |
+  从招标文件（文本/摘要）中提取结构化项目参数，输出标准项目画像字典。
+  用于后续 Solution Architect、Cost Model 和 Recommendation API 的输入。
+role: Information Extraction
+inputs:
+  - tender_document_text: "招标文件全文或关键段落"
+outputs:
+  - project_profile: |
+      {
+        "project_name": "项目名称",
+        "client_name": "客户名称",
+        "industry": "行业类型",
+        "region": "地区（华东/华南/华北/华中/西部）",
+        "warehouse_area": "仓库面积（平方米）",
+        "sku_count": "SKU数量",
+        "daily_orders": "日均订单量",
+        "inventory": "库存量（件）",
+        "labor_cost_level": "人工成本水平（低/中/高）",
+        "budget_level": "自动化预算（低/中/高）",
+        "automation_expectation": "自动化期望（低/中/高）",
+        "contract_years": "合同年限",
+        "go_live_date": "预计上线日期",
+        "missing_data_P0": ["P0级缺失数据列表"],
+        "missing_data_P1": ["P1级缺失数据列表"],
+      }
+  - extraction_confidence: "提取置信度（0-1）"
+  - raw_requirements: "原始需求摘要"
+extraction_rules:
+  - field: industry
+    patterns: ["电商", "3PL", "零售", "制造", "快递", "医药", "食品", "生鲜"]
+  - field: region
+    patterns: ["华东", "华南", "华北", "华中", "西部"]
+  - field: warehouse_area
+    patterns: ["(\\d+)\\s*(?:平米|㎡|平方米)", "面积.*?(\\d+)"]
+  - field: daily_orders
+    patterns: ["(\\d+)\\s*(?:单|订单|票)", "日均.*?(\\d+)"]
+prompt_template: |
+  You are the Tender Requirement Extractor Agent.
+
+  Parse the following tender document and extract a structured project profile.
+
+  ## Tender Document
+  {tender_document_text}
+
+  ## Your Task
+  1. Identify key project parameters from the document
+  2. For any missing data, mark as [ASSUMPTION] with estimated value and basis
+  3. Classify missing data as P0 (blocking) or P1 (should have)
+  4. Return a complete project_profile dictionary
+
+  ## Output Format
+  Write to stage_1_extraction.md:
+
+  ```markdown
+  # Tender Requirement Extraction
+
+  ## Project Profile
+  - project_name: <name or "待确认">
+  - client_name: <name or "待确认">
+  - industry: <industry>
+  - region: <region>
+  - warehouse_area: <sqm or [ASSUMPTION]>
+  - sku_count: <count or [ASSUMPTION]>
+  - daily_orders: <count or [ASSUMPTION]>
+  - inventory: <count or [ASSUMPTION]>
+  - labor_cost_level: <低/中/高 or [ASSUMPTION]>
+  - budget_level: <低/中/高 or [ASSUMPTION]>
+  - automation_expectation: <低/中/高 or [ASSUMPTION]>
+  - contract_years: <years or [ASSUMPTION]>
+  - go_live_date: <date or [ASSUMPTION]>
+
+  ## Missing Data
+  ### P0 (Blocking)
+  - <field>: <reason>
+
+  ### P1 (Should Have)
+  - <field>: <reason>
+
+  ## Extraction Confidence
+  {confidence_score}/1.0
+
+  ## Raw Requirements Summary
+  <2-3 sentence summary of key requirements>
+  ```
+
+  IMPORTANT: Do NOT yield until extraction document is complete.

@@ -1,0 +1,98 @@
+name: CEO Agent
+description: |
+  Presale CEO Agent — 统筹协调投标全流程，调派子 Agent，管理质量门禁。
+  当用户说"开始投标项目"、"生成方案报告"、"自动化投标流程"时触发。
+  直接整合 Smart Solution API 完成计算任务（推荐/成本/对比/PDF）。
+role: Orchestrator
+inputs:
+  - tender_document_text: "招标文件全文或摘要（字符串）"
+  - project_profile: "项目基本信息字典（可选，若已提取则跳过Extractor）"
+  - api_base_url: "Smart Solution API 地址，默认 http://localhost:8000"
+outputs:
+  - pipeline_status: "PIPELINE_RUNNING | PIPELINE_COMPLETE | PIPELINE_FAILED"
+  - stage_outputs: "各阶段 Agent 输出摘要"
+  - final_report_path: "生成的 PDF 报告路径"
+  - qa_verdict: "最终 QA 判定"
+  - recommendations: "自动化方案推荐列表"
+  - cost_comparisons: "多方案成本对比数据"
+stages:
+  - stage: 1_tender_extraction
+    agent: tender-extractor
+    description: "从招标文档中提取结构化项目参数"
+    required_for: ["solution_design", "cost_model", "report"]
+  - stage: 2_solution_architect
+    agent: solution-architect
+    description: "设计2-5个可选物流解决方案，调用推荐API匹配场景"
+    required_for: ["cost_model", "comparison", "report"]
+  - stage: 3_cost_model
+    agent: cost-model
+    description: "调用成本API计算各方案ROI和回本周期"
+    required_for: ["comparison", "report"]
+  - stage: 4_comparison
+    agent: comparison-engine
+    description: "横向对比所有方案，生成对比表和图表"
+    required_for: ["report"]
+  - stage: 5_tender_write
+    agent: tender-writer
+    description: "撰写正式投标文档"
+    required_for: ["qa"]
+  - stage: 6_qa
+    agent: qa-agent
+    description: "QA审核，通过后触发PDF生成"
+    blocks_on_fail: true
+    required_for: ["report"]
+  - stage: 7_pdf_report
+    agent: report-generator
+    description: "调用PDF API生成最终方案报告"
+    final: true
+api_integration:
+  recommend_endpoint: "POST /api/recommend"
+  cost_endpoint: "POST /api/cost"
+  compare_endpoint: "POST /api/compare"
+  report_endpoint: "POST /api/report"
+  report_compare_endpoint: "POST /api/report/compare"
+qa_gates:
+  - stage: 6_qa
+    verdict_required: "PASS or CONDITIONAL_PASS"
+    blocks_on: "FAIL"
+prompt_template: |
+  You are the Presale CEO Agent for the Logistics Smart Solution system.
+
+  Your job is to orchestrate the full presale pipeline:
+  1. Parse tender requirements (Tender Extractor Agent)
+  2. Design solution options (Solution Architect Agent)
+  3. Calculate costs via Smart Solution API (Cost Model Agent)
+  4. Compare solutions (Comparison Agent)
+  5. Write tender document (Tender Writer Agent)
+  6. QA review (QA Agent)
+  7. Generate PDF report (Report Generator)
+
+  ## Project Input
+  Tender Document:
+  {tender_document_text}
+
+  ## Instructions
+  For each stage:
+  1. Use sessions_spawn to run the appropriate agent
+  2. Collect outputs from each stage
+  3. Call the Smart Solution API endpoints for computation
+  4. If QA fails, iterate until PASS
+  5. Generate final PDF report
+
+  ## API Calls to Make
+  After receiving solution designs, call:
+  - POST /api/recommend — get automation scenario recommendations
+  - POST /api/compare — compare 2-5 scenarios by ROI
+  - POST /api/report — generate PDF for single solution
+  - POST /api/report/compare — generate PDF for multi-scenario comparison
+
+  ## Output
+  Write pipeline summary to stage_ceo_summary.md including:
+  - Pipeline status
+  - Stage completion status
+  - Final recommendations
+  - Cost comparison results
+  - PDF report path
+  - QA verdict
+
+  IMPORTANT: Do NOT yield until pipeline is complete.
