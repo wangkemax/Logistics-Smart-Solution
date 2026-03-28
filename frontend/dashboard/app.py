@@ -147,10 +147,10 @@ def render_compare_roi_chart(comparisons):
 
 
 def render_compare_radar(comparisons):
-    max_roi = max((c.get("roi_5y") or 0 for c in comparisons), default=1)
-    max_payback = max(((c.get("payback_years") or 0) for c in comparisons), default=1)
-    max_saving = max((c.get("annual_labor_saving", 0) + c.get("annual_efficiency_saving", 0) for c in comparisons), default=1)
-    max_hc = max((c.get("headcount_saved") or 0 for c in comparisons), default=1)
+    max_roi = max((c.get("roi_5y") or 0 for c in comparisons), default=1) or 1
+    max_payback = max(((c.get("payback_years") or 0) for c in comparisons), default=1) or 1
+    max_saving = max((c.get("annual_labor_saving", 0) + c.get("annual_efficiency_saving", 0) for c in comparisons), default=1) or 1
+    max_hc = max((c.get("headcount_saved") or 0 for c in comparisons), default=1) or 1
     colors = ["#2196f3", "#4caf50", "#ff9800", "#9c27b0", "#f44336"]
     traces = []
     for i, c in enumerate(comparisons[:5]):
