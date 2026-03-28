@@ -6,6 +6,7 @@ Three modes: 方案生成 | 多方案对比 | Pipeline Run
 import streamlit as st
 import requests
 import json
+import time
 import os
 import pandas as pd
 import plotly.graph_objects as go
@@ -822,6 +823,17 @@ elif app_mode == "🚀 Pipeline Run":
             log_placeholder = st.empty()
             correction_placeholder = st.empty()
 
+            # Manual control buttons
+            ctl1, ctl2 = st.columns([1, 1])
+            with ctl1:
+                if st.button("🔄 手动刷新状态", use_container_width=True):
+                    st.rerun()
+            with ctl2:
+                if st.button("⏸️ 暂停自动刷新", use_container_width=True):
+                    st.session_state.pipeline_state = "done"
+                    st.info("已暂停自动刷新，可点击「开始运行 Pipeline」继续。")
+                    st.rerun()
+
             try:
                 resp = requests.get(f"{API_BASE_URL}/api/pipeline/status/{pipeline_id}", timeout=10)
                 if resp.status_code == 404:
@@ -930,11 +942,9 @@ elif app_mode == "🚀 Pipeline Run":
                     st.session_state.pipeline_state = "done"
                     st.rerun()
                 else:
-                    # Auto-rerun after 2s without blocking
-                    st.session_state._poll_countdown = getattr(st.session_state, '_poll_countdown', 2) - 1
-                    if st.session_state._poll_countdown <= 0:
-                        st.session_state._poll_countdown = 2
-                        st.rerun()
+                    # Auto-rerun after 2s to keep polling backend status
+                    time.sleep(2)
+                    st.rerun()
 
             except requests.exceptions.ConnectionError:
                 st.error("⚠️ 无法连接后端，请确保后端已启动")
