@@ -289,6 +289,8 @@ def _render_results_panel():
     profile = st.session_state.get("pipeline_profile", {}) or {}
     recs = st.session_state.get("pipeline_recs", []) or []
     comparisons = st.session_state.get("pipeline_comparisons", []) or []
+    state = st.session_state.get("pipeline_state", "UNKNOWN")
+    st.caption(f"[DEBUG] _render_results_panel called — state={state} comparisons={len(comparisons)} recs={len(recs)}")
 
     # ---- Profile Summary Cards ----
     st.markdown("**📋 项目画像**")
@@ -998,7 +1000,20 @@ elif app_mode == "🚀 Pipeline Run":
     with col_right:
         st.markdown("### 📊 执行结果")
         if st.session_state.get("pipeline_state") == "done":
-            _render_results_panel()
+            comparisons = st.session_state.get("pipeline_comparisons") or []
+            if not comparisons:
+                # Guard: only auto-refresh once per pipeline completion
+                last_refresh = st.session_state.get("_results_refresh_ts", 0)
+                now_ts = int(time.time())
+                if now_ts - last_refresh > 5:
+                    st.session_state._results_refresh_ts = now_ts
+                    st.rerun()
+                else:
+                    st.info("⏳ 等待 Pipeline 数据写入...")
+            else:
+                _render_results_panel()
+        elif st.session_state.get("pipeline_state") == "polling":
+            st.info("⬆️ Pipeline 执行中，结果完成后将显示在此...")
         else:
             st.info("⬆️ 请先上传招标文件并运行 Pipeline，结果将在此显示")
 
