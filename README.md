@@ -6,13 +6,15 @@ A web-based system that recommends warehouse automation scenarios, calculates co
 
 - **智能推荐**: AI-powered automation scenario recommendations based on project profile
 - **成本测算**: Accurate cost calculation with ROI analysis
-- **方案报告**: Comprehensive solution summary generation
+- **PDF方案报告**: One-click professional PDF proposal generation (Jinja2 + WeasyPrint)
+- **多方案对比**: Compare ROI across multiple automation scenarios
 - **15种自动化场景**: AMR, GTP, 输送分拣, 立体仓库, 跨带分拣, 等
 
 ## Tech Stack
 
 - **Backend**: FastAPI + SQLite + SQLAlchemy
 - **Frontend**: Streamlit + Plotly
+- **PDF**: Jinja2 templates + WeasyPrint
 - **Testing**: pytest
 
 ## Quick Start
@@ -25,11 +27,13 @@ A web-based system that recommends warehouse automation scenarios, calculates co
 ```bash
 cd logistics-presale-ai
 pip install -e ".[dev]"
+# For PDF generation (optional):
+pip install jinja2 weasyprint
 ```
 
 ### Initialize Database
 ```bash
-python scripts/init_db.py
+python3 scripts/init_db.py
 ```
 
 ### Run Backend
@@ -55,7 +59,41 @@ Once running, visit http://localhost:8000/docs for interactive API docs.
 | POST | /api/project | Create project |
 | POST | /api/recommend | Get recommendations |
 | POST | /api/cost | Calculate costs |
+| POST | /api/report | Generate PDF proposal report |
+| GET | /api/report/check | Check PDF capability |
 | GET | /api/health | Health check |
+
+### PDF Report Generation
+
+```bash
+curl -X POST "http://localhost:8000/api/report" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "project_name": "测试项目",
+    "industry": "电商",
+    "warehouse_area": 20000,
+    "sku_count": 30000,
+    "daily_orders": 5000,
+    "inventory": 500000,
+    "labor_cost_level": "中",
+    "budget_level": "中",
+    "automation_expectation": "中",
+    "region": "华东"
+  }' \
+  --output solution_report.pdf
+```
+
+## PDF Report Structure
+
+The generated PDF includes 8 sections:
+1. **项目背景** — Project overview and basic parameters
+2. **客户需求分析** — Operational analysis and pain points
+3. **自动化场景推荐** — Top 3 recommended automation scenarios
+4. **投资成本分析** — Cost breakdown (CAPEX + OPEX)
+5. **ROI/投资回报分析** — ROI, payback period, 5-year projection
+6. **项目实施规划** — Implementation timeline and phases
+7. **风险分析与应对** — Risk identification and mitigation
+8. **附录** — Scenario reference table and disclaimer
 
 ## Docker Deployment
 

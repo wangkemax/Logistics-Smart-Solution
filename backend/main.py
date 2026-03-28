@@ -19,6 +19,7 @@ app.add_middleware(
 )
 
 app.include_router(router)
+app.include_router(report_api.router)
 
 
 @app.on_event("startup")

@@ -382,6 +382,42 @@ if submitted:
                 mime="application/json",
             )
 
+            # PDF report download
+            if st.button("📄 生成并下载PDF方案报告", type="primary", use_container_width=True):
+                with st.spinner("正在生成PDF报告..."):
+                    try:
+                        pdf_payload = {
+                            "project_name": project_name,
+                            "industry": industry,
+                            "warehouse_area": float(warehouse_area),
+                            "sku_count": int(sku_count),
+                            "daily_orders": int(daily_orders),
+                            "inventory": int(inventory),
+                            "labor_cost_level": labor_cost_level,
+                            "budget_level": budget_level,
+                            "automation_expectation": automation_expectation,
+                            "region": region,
+                        }
+                        resp = requests.post(
+                            f"{API_BASE_URL}/api/report",
+                            json=pdf_payload,
+                            timeout=60,
+                        )
+                        if resp.status_code == 200:
+                            st.success("✅ PDF报告已生成！")
+                            st.download_button(
+                                "⬇️ 点击下载PDF方案建议书",
+                                data=resp.content,
+                                file_name=f"{project_name}_方案建议书.pdf",
+                                mime="application/pdf",
+                            )
+                        elif resp.status_code == 503:
+                            st.error("PDF服务暂不可用，请确保后端已安装 jinja2 和 weasyprint")
+                        else:
+                            st.error(f"生成失败: {resp.status_code} {resp.text}")
+                    except Exception as e:
+                        st.error(f"PDF生成出错: {str(e)}")
+
 else:
     # Welcome screen
     st.markdown("""

@@ -2,3 +2,5 @@ __pycache__/
 .pypytest_cache/
 *.db
 *.pyc
+.DS_Store
+data/reports/*.pdf
