@@ -103,12 +103,12 @@ def _call_minimax_llm(prompt: str, timeout: int = 30) -> Optional[dict]:
 
     # Detect provider
     base_url = 'https://api.minimaxi.com/anthropic'
-    model = 'MiniMax-M2.5'
+    model = 'MiniMax-M2.7-highspeed'
 
     if api_key.startswith('sk-api-'):
         # MiniMax API key (starts with sk-api-)
         base_url = 'https://api.minimaxi.com/anthropic'
-        model = 'MiniMax-M2.5'
+        model = 'MiniMax-M2.7-highspeed'
     elif 'OPENAI' in os.environ.get('MINIMAX_API_KEY', '') or (api_key or '').startswith('sk-'):
         base_url = 'https://api.openai.com/v1'
         model = 'gpt-4o-mini'
