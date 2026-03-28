@@ -35,6 +35,7 @@ from backend.services.project_service import (
     get_cost_analysis,
     get_scenario_comparison,
 )
+from backend.services.tender_service import extract_tender_requirements
 
 import redis as _redis_lib
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
@@ -138,180 +139,7 @@ def get_pipeline_dir(pipeline_id: str) -> Path:
 # Stage 1: Tender Requirement Extraction
 # =============================================================================
 
-def extract_requirements(tender_text: str) -> dict:
-    """
-    Extract structured project profile from tender document text.
-    Uses keyword matching + heuristics (lightweight, no LLM needed).
-    For full extraction, call Tender Extractor Agent via sessions_spawn.
-    """
-    import re
-
-    text = tender_text
-    profile = {
-        "project_name": "待确认",
-        "client_name": "待确认",
-        "industry": "电商",  # default
-        "region": "华东",     # default
-        "warehouse_area": None,
-        "sku_count": None,
-        "daily_orders": None,
-        "inventory": None,
-        "labor_cost_level": "中",
-        "budget_level": "中",
-        "automation_expectation": "中",
-        "contract_years": 3,
-        "go_live_date": "待确认",
-    }
-
-    # Industry detection
-    industry_map = {
-        "电商": ["电商", "电子商务", "天猫", "京东", "淘宝"],
-        "3PL": ["3PL", "第三方物流", "物流外包"],
-        "零售": ["零售", "商超", "便利店", "百货"],
-        "制造": ["制造", "生产商", "工厂"],
-        "快递": ["快递", "速运", "快运"],
-        "医药": ["医药", "制药", "医疗"],
-        "食品": ["食品", "饮料", "乳制品"],
-        "生鲜": ["生鲜", "冷链", "农产品"],
-    }
-    for industry, keywords in industry_map.items():
-        if any(kw in text for kw in keywords):
-            profile["industry"] = industry
-            break
-
-    # Region detection
-    region_map = {
-        "华东": ["上海", "江苏", "浙江", "安徽", "华东"],
-        "华南": ["广东", "广西", "海南", "华南"],
-        "华北": ["北京", "天津", "河北", "华北"],
-        "华中": ["湖北", "湖南", "河南", "华中"],
-        "西部": ["四川", "重庆", "陕西", "西部", "新疆", "甘肃"],
-    }
-    for region, keywords in region_map.items():
-        if any(kw in text for kw in keywords):
-            profile["region"] = region
-            break
-
-    # Warehouse area - match patterns like "25000平方米", "面积25000平米", "25000平米"
-    patterns_area = [
-        r"(\d[\d,\.]*)\s*(?:平米|㎡|平方米)",
-        r"面积[是为约：:\s]*(\d[\d,\.]*)",
-        r"仓库[面积是为约：:\s]+(\d[\d,\.]*)",
-    ]
-    for p in patterns_area:
-        m = re.search(p, text)
-        if m:
-            val = float(m.group(1).replace(",", ""))
-            if 100 < val < 500000:
-                profile["warehouse_area"] = val
-                break
-
-    # SKU count - must use labeled patterns (SKU/sku prefix) to avoid conflicts
-    patterns_sku = [
-        r"SKU[数量是为约：:\s]*(\d[\d,\.]*)",
-        r"sku[数量是为约：:\s]*(\d[\d,\.]*)",
-        r"品种[是为约：:\s]*(\d[\d,\.]*)",
-    ]
-    for p in patterns_sku:
-        m = re.search(p, text)
-        if m:
-            val = float(m.group(1).replace(",", ""))
-            if 100 < val < 5000000:
-                profile["sku_count"] = int(val)
-                break
-
-    # Daily orders - labeled patterns + explicit unit patterns
-    patterns_orders = [
-        r"(\d[\d,\.]*)\s*(?:单|票)[/天日月]?",  # explicit unit after number
-        r"日均[订单票量约为：:\s]*(\d[\d,\.]*)",
-        r"订单[量为约：:\s]*(\d[\d,\.]*)",
-        r"日均[为约：:\s]*(\d[\d,\.]*)",
-    ]
-    for p in patterns_orders:
-        m = re.search(p, text)
-        if m:
-            val = float(m.group(1).replace(",", ""))
-            if 5 < val < 5000000:
-                profile["daily_orders"] = int(val)
-                break
-
-    # Inventory - must use labeled patterns to avoid conflicts with SKU
-    patterns_inv = [
-        r"库存[量为约：:\s]*(\d[\d,\.]*)",
-        r"库容[量为约：:\s]*(\d[\d,\.]*)",
-        r"存储[量为约：:\s]*(\d[\d,\.]*)",
-        r"(\d[\d,\.]*)\s*件[/天日月]?",  # inventory: 1000000件
-    ]
-    for p in patterns_inv:
-        m = re.search(p, text)
-        if m:
-            val = float(m.group(1).replace(",", ""))
-            if 1000 < val < 100000000:
-                profile["inventory"] = int(val)
-                break
-
-    # Budget level
-    budget_map = {
-        "低": ["100万", "50万", "有限", "紧张", "100万元"],
-        "中": ["300万", "500万", "中等", "500万元"],
-        "高": ["1000万", "2000万", "充足", "高预算", "1000万元"],
-    }
-    for level, keywords in budget_map.items():
-        if any(kw in text for kw in keywords):
-            profile["budget_level"] = level
-            break
-
-    # Contract years
-    m = re.search(r"(\d+)\s*[+]?\s*年", text)
-    if m:
-        profile["contract_years"] = int(m.group(1))
-
-    # Go-live
-    m = re.search(r"(\d{4}[-/年]\d{1,2}[-/月]\d{1,2})", text)
-    if m:
-        profile["go_live_date"] = m.group(1)
-
-    # Missing data tracking
-    missing_p0 = []
-    for field in ["warehouse_area", "sku_count", "daily_orders"]:
-        if profile.get(field) is None:
-            missing_p0.append(field)
-
-    return profile, missing_p0
-
-
-# =============================================================================
-# Stage 2: Call Recommendation + Cost APIs
-# =============================================================================
-
-def call_recommend(profile: dict, api_base: str) -> dict:
-    """Call /api/recommend with project profile."""
-    try:
-        result = get_recommendations(profile)
-        return result
-    except Exception as e:
-        raise RuntimeError(f"Recommendation API failed: {e}")
-
-
-def call_compare(profile: dict, region: str, scenario_ids: list, api_base: str) -> dict:
-    """Call /api/compare with project profile and scenario IDs."""
-    try:
-        result = get_scenario_comparison(profile, region, scenario_ids)
-        return result
-    except Exception as e:
-        raise RuntimeError(f"Compare API failed: {e}")
-
-
-def call_cost(profile: dict, region: str, scenario_id: int, api_base: str) -> dict:
-    """Call /api/cost for single scenario cost."""
-    try:
-        result = get_cost_analysis(profile, region, scenario_id)
-        return result
-    except Exception as e:
-        raise RuntimeError(f"Cost API failed: {e}")
-
-
-# =============================================================================
+# extract_requirements moved to backend.services.tender_service.extract_tender_requirements
 # Pipeline Orchestration
 # =============================================================================
 
@@ -332,7 +160,8 @@ async def run_pipeline_async(request: PipelineRunRequest) -> PipelineRunResponse
             profile = request.project_profile_overrides
             missing_p0 = []
         else:
-            profile, missing_p0 = extract_requirements(request.tender_document)
+            profile = extract_tender_requirements(request.tender_document, use_llm=request.use_llm)
+            missing_p0 = profile.get("missing_p0", [])
 
         extraction_file = pipeline_dir / "stage_1_extraction.md"
         extraction_file.write_text(f"# Stage 1: Requirement Extraction\n\nProfile: {json.dumps(profile, ensure_ascii=False, indent=2)}\n\nMissing P0: {missing_p0}", encoding="utf-8")
@@ -606,10 +435,10 @@ async def extract_profile(request: ExtractionRequest):
     Set use_llm=False to use regex extraction only.
     """
     use_llm = getattr(request, 'use_llm', True)
-    from backend.services.llm_extractor import extract_requirements_llm
-    profile, missing_p0, confidence = extract_requirements_llm(
-        request.tender_document, use_llm=use_llm
-    )
+    from backend.services.tender_service import extract_tender_requirements
+    profile = extract_tender_requirements(request.tender_document, use_llm=use_llm)
+    missing_p0 = profile.get("missing_p0", [])
+    confidence = profile.get("extraction_confidence", 0.0)
 
     # Build raw summary
     raw_summary = (

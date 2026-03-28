@@ -79,7 +79,8 @@ class PipelineRun(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     pipeline_id = Column(String(20), unique=True, index=True)
-    status = Column(String(20), default="RUNNING")           # RUNNING / COMPLETE / FAILED
+    job_id = Column(String(40), index=True, nullable=True)  # external job identifier (unique enforced at service layer)
+    status = Column(String(20), default="RUNNING")           # RUNNING / COMPLETE / FAILED / CANCELLED / RETRY
     tender_document = Column(Text, default="")
     params_json = Column(Text, default="{}")                  # JSON string
     profile_json = Column(Text, default="{}")
@@ -90,8 +91,13 @@ class PipelineRun(Base):
     pdf_url = Column(String(200), nullable=True)
     error = Column(Text, nullable=True)
     total_duration_seconds = Column(Float, nullable=True)
+    retry_count = Column(Integer, default=0)                 # how many times retried
+    max_retries = Column(Integer, default=2)                 # max retries allowed
+    parent_job_id = Column(String(40), nullable=True)        # for retry chains
+    worker_pid = Column(Integer, nullable=True)              # tracking which worker
     created_at = Column(DateTime, default=datetime.utcnow)
     completed_at = Column(DateTime, nullable=True)
+    cancelled_at = Column(DateTime, nullable=True)
 
 
 class PipelineStage(Base):

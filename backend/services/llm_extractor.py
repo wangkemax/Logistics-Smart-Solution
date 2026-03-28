@@ -199,21 +199,11 @@ def _extract_with_regex(text: str) -> tuple[dict, list, float]:
     Enhanced regex-based extraction with higher confidence.
     Used as fallback when LLM is unavailable, or to fill missing fields.
     """
-    from agents.orchestrator import extract_requirements as base_extract
-
-    profile, missing_p0 = base_extract(text)
-    confidence = profile.get('extraction_confidence', 0)
-
-    # Post-process: try to fill None fields with additional patterns
-    _fill_missing_fields(text, profile)
-
-    # Re-calculate confidence based on filled fields
-    filled = sum(1 for v in profile.values()
-                 if v is not None and v != '待确认' and v != [])
-    total_fields = 12  # core fields
-    confidence = min(filled / total_fields, 1.0)
-    profile['extraction_confidence'] = confidence
-
+    # Import from tender_service to avoid duplicating regex logic
+    from backend.services.tender_service import extract_with_regex as _regex_extract
+    profile = _regex_extract(text)
+    missing_p0 = profile.get("missing_p0", [])
+    confidence = profile.get("extraction_confidence", 0.0)
     return profile, missing_p0, confidence
 
 
