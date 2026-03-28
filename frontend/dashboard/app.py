@@ -119,7 +119,7 @@ def render_roi_chart(cost_data):
 
 def render_compare_bar_chart(comparisons):
     # comparisons is already sorted by weighted score
-    names = [c["scenario_name"][:8] for c in comparisons]
+    names = [c.get("scenario_name", "—")[:8] for c in comparisons]
     capex = [c.get("capex_estimate", 0) / 10000 for c in comparisons]
     savings = [(c.get("annual_labor_saving", 0) + c.get("annual_efficiency_saving", 0)) / 10000 for c in comparisons]
     fig = go.Figure(data=[
@@ -134,7 +134,7 @@ def render_compare_bar_chart(comparisons):
 
 def render_compare_roi_chart(comparisons):
     # comparisons is already sorted by weighted score when called from results panel
-    names = [c["scenario_name"][:10] for c in comparisons]
+    names = [c.get("scenario_name", "—")[:10] for c in comparisons]
     roi_5y = [c.get("roi_5y") or 0 for c in comparisons]
     colors = ["#27ae60" if c.get("is_best") else "#95a5a6" for c in comparisons]
     fig = go.Figure(data=[go.Bar(
@@ -615,7 +615,7 @@ def _render_stage_retry_section(pipeline_id: str, stages: list, key_prefix: str 
             selected_stage = st.selectbox(
                 "选择阶段",
                 options=[sn for sn, _ in stage_options],
-                format_func=lambda sn: stage_labels.get(sn, sn),
+                format_func=lambda sn: stage_labels.get(sn, sn) or str(sn),
                 index=default_idx,
                 key=f"from_stage_select_{key_prefix}{pipeline_id}",
                 label_visibility="collapsed",
@@ -623,7 +623,7 @@ def _render_stage_retry_section(pipeline_id: str, stages: list, key_prefix: str 
         with retry_from_c2:
             retry_from_key = f"retry_from_{key_prefix}{pipeline_id}"
             if st.button("🚀 执行重试", key=retry_from_key, type="primary", use_container_width=True):
-                with st.spinner(f"正在从「{stage_labels.get(selected_stage, selected_stage)}」重试..."):
+                with st.spinner(f"正在从「{stage_labels.get(selected_stage, selected_stage) or selected_stage}」重试..."):
                     try:
                         resp = requests.post(
                             f"{API_BASE_URL}/api/pipeline/{pipeline_id}/retry",
@@ -860,7 +860,7 @@ def _render_results_panel():
                               f"**效率提升:** {fmt_percent(rec.get('efficiency_gain'))} | "
                               f"**投资:** {rec.get('capex_range', '—')}")
                 with cb:
-                    st.plotly_chart(render_score_gauge(rec["score"]), use_container_width=True,
+                    st.plotly_chart(render_score_gauge(rec.get("score", 0)), use_container_width=True,
                                    key=f"res_gauge_{i}")
 
     # ---- PDF Download ----
@@ -963,7 +963,7 @@ if app_mode == "📋 方案生成":
                                 st.markdown(f"**风险评估:** {rec.get('risk', '—')}")
                                 st.markdown(f"**投资范围:** {rec.get('capex_range', '—')}")
                             with col_b:
-                                st.plotly_chart(render_score_gauge(rec["score"]),
+                                st.plotly_chart(render_score_gauge(rec.get("score", 0)),
                                                 width='stretch', key=f"score_gauge_{i}")
 
             with tab2:
