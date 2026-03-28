@@ -133,7 +133,7 @@ def render_compare_roi_chart(comparisons):
     colors = ["#27ae60" if c.get("is_best") else "#95a5a6" for c in comparisons]
     fig = go.Figure(data=[go.Bar(
         y=names, x=roi_5y, orientation="h",
-        marker_color=colors, text=[f"{r:.1f}x" for r in roi_5y], textposition="auto",
+        marker_color=colors, text=[f"{(r or 0):.1f}x" for r in roi_5y], textposition="auto",
     )])
     fig.update_layout(title="5年ROI倍数对比", xaxis_title="ROI (倍)",
                      height=max(220, len(comparisons) * 60),
@@ -321,10 +321,14 @@ def _render_results_panel():
         w_sv_n = w_sv / total_w if total_w > 0 else 0.34
 
         def weighted_score(c):
-            max_roi = max((x["roi_5y"] for x in comparisons), default=1) or 1
-            max_pb = max((x["payback_years"] for x in comparisons), default=1) or 1
-            max_sv = max((x["annual_saving"] for x in comparisons), default=1) or 1
-            return (c["roi_5y"]/max_roi)*100*w_roi_n + (1-c["payback_years"]/max_pb)*100*w_pb_n + (c["annual_saving"]/max_sv)*100*w_sv_n
+            # Filter None values before max — prevents TypeError: None > None
+            max_roi = max((x["roi_5y"] for x in comparisons if x.get("roi_5y") is not None), default=1) or 1
+            max_pb = max((x["payback_years"] for x in comparisons if x.get("payback_years") is not None), default=1) or 1
+            max_sv = max((x["annual_saving"] for x in comparisons if x.get("annual_saving") is not None), default=1) or 1
+            c_roi = c.get("roi_5y") or 0
+            c_pb = c.get("payback_years") or max_pb
+            c_sv = c.get("annual_saving") or 0
+            return (c_roi/max_roi)*100*w_roi_n + (1-c_pb/max_pb)*100*w_pb_n + (c_sv/max_sv)*100*w_sv_n
 
         ranked = sorted(comparisons, key=weighted_score, reverse=True)
         top_w = ranked[0]["scenario_name"] if ranked else ""
