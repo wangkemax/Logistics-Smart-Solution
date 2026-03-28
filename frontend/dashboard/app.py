@@ -6,6 +6,7 @@ Three modes: 方案生成 | 多方案对比 | Pipeline Run
 import streamlit as st
 import requests
 from ui_formatters import (
+    safe_div, safe_max,
         fmt_text, fmt_number, fmt_integer, fmt_currency,
         fmt_percent, fmt_years, fmt_area,
         fmt_count, fmt_delta_percent,
@@ -147,18 +148,22 @@ def render_compare_roi_chart(comparisons):
 
 
 def render_compare_radar(comparisons):
-    max_roi = max((c.get("roi_5y") or 0 for c in comparisons), default=1) or 1
-    max_payback = max(((c.get("payback_years") or 0) for c in comparisons), default=1) or 1
-    max_saving = max((c.get("annual_labor_saving", 0) + c.get("annual_efficiency_saving", 0) for c in comparisons), default=1) or 1
-    max_hc = max((c.get("headcount_saved") or 0 for c in comparisons), default=1) or 1
+    max_roi     = safe_max(c.get("roi_5y") or 0 for c in comparisons)
+    max_pb      = safe_max(c.get("payback_years") or 0 for c in comparisons)
+    max_saving  = safe_max((c.get("annual_labor_saving") or 0) + (c.get("annual_efficiency_saving") or 0) for c in comparisons)
+    max_hc      = safe_max(c.get("headcount_saved") or 0 for c in comparisons)
     colors = ["#2196f3", "#4caf50", "#ff9800", "#9c27b0", "#f44336"]
     traces = []
     for i, c in enumerate(comparisons[:5]):
+        roi     = c.get("roi_5y") or 0
+        pb      = c.get("payback_years") or 0
+        saving  = (c.get("annual_labor_saving") or 0) + (c.get("annual_efficiency_saving") or 0)
+        hc      = c.get("headcount_saved") or 0
         values = [
-            ((c.get("roi_5y") or 0) / max_roi) * 100,
-            (1 - (c.get("payback_years") or 0) / max_payback) * 100,
-            ((c.get("annual_labor_saving", 0) + c.get("annual_efficiency_saving", 0)) / max_saving) * 100,
-            ((c.get("headcount_saved") or 0) / max_hc) * 100,
+            safe_div(roi,     max_roi)    * 100,
+            (1 - safe_div(pb, max_pb))   * 100,
+            safe_div(saving,  max_saving) * 100,
+            safe_div(hc,      max_hc)     * 100,
             100,
         ]
         traces.append(go.Scatterpolar(
@@ -367,9 +372,9 @@ def _render_results_panel():
 
         def weighted_score(c):
             # Filter None values before max — prevents TypeError: None > None
-            max_roi = max((x["roi_5y"] for x in comparisons if x.get("roi_5y") is not None), default=1) or 1
-            max_pb = max((x["payback_years"] for x in comparisons if x.get("payback_years") is not None), default=1) or 1
-            max_sv = max((x["annual_saving"] for x in comparisons if x.get("annual_saving") is not None), default=1) or 1
+            max_roi = safe_max(x.get("roi_5y") or 0 for x in comparisons)
+            max_pb = safe_max(x.get("payback_years") or 0 for x in comparisons)
+            max_sv = safe_max((x.get("annual_labor_saving") or 0) + (x.get("annual_efficiency_saving") or 0) for x in comparisons)
             c_roi = c.get("roi_5y") or 0
             c_pb = c.get("payback_years") or max_pb
             c_sv = c.get("annual_labor_saving", 0) + c.get("annual_efficiency_saving", 0)

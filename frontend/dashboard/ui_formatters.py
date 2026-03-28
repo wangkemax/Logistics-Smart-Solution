@@ -117,3 +117,21 @@ def fmt_delta_percent(value: Any, digits: int = 1, default: Optional[str] = None
     if num is None:
         return default
     return f"{num:.{digits}f}%"
+
+def safe_div(numerator, denominator, default=0.0):
+    """Safe division — returns default when denominator is 0, None, or any error occurs."""
+    if denominator in (0, None):
+        return default
+    try:
+        return numerator / denominator
+    except Exception:
+        return default
+
+
+def safe_max(values, default=1):
+    """
+    max() with safe guard — never returns 0, always >= 1.
+    Use this for denominators in ratio calculations.
+    """
+    m = max(values, default=0)
+    return m if m > 0 else default
