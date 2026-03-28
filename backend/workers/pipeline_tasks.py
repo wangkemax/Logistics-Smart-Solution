@@ -118,10 +118,10 @@ def pipeline_task(tender_document: str, project_profile_overrides: dict = None, 
             missing_p0 = []
         else:
             # Use unified tender service (LLM + regex, with fallback)
-            from backend.services.tender_service import extract_tender_requirements
-            profile = extract_tender_requirements(tender_document, use_llm=use_llm)
+            from backend.services.tender_service import extract_requirements
+            extraction_mode = os.environ.get("EXTRACTION_MODE", "hybrid")
+            profile = extract_requirements(tender_document, mode=extraction_mode)
             missing_p0 = profile.get("missing_p0", [])
-            confidence = profile.get("extraction_confidence", 0.0)
 
         extraction_file = pipeline_dir / "stage_1_extraction.md"
         extraction_file.write_text(

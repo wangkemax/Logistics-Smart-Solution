@@ -356,6 +356,45 @@ def _render_results_panel():
     m4.metric("预算", profile.get("budget_level", "—"))
     m4.metric("人工", profile.get("labor_cost_level", "—"))
 
+    # ---- Extraction Review Panel ----
+    extraction_confidence = profile.get("extraction_confidence", 0)
+    field_confidence = profile.get("field_confidence", {})
+    source_trace = profile.get("source_trace", {})
+    warnings = profile.get("warnings", [])
+
+    if field_confidence or warnings:
+        with st.expander("📋 提取结果确认", expanded=False):
+            conf_pct = f"{extraction_confidence * 100:.0%}" if extraction_confidence else "N/A"
+            st.markdown(f"**总体置信度:** {conf_pct}")
+
+            # Field-level table
+            if field_confidence:
+                display_keys = [
+                    ("industry", "行业"), ("region", "地区"),
+                    ("warehouse_area", "仓库面积"), ("daily_orders", "日订单"),
+                    ("sku_count", "SKU数"), ("inventory", "库存量"),
+                    ("budget_level", "预算"), ("labor_cost_level", "人工成本"),
+                ]
+                rows = []
+                for key, label in display_keys:
+                    val = profile.get(key)
+                    conf = field_confidence.get(key)
+                    src = source_trace.get(key, "—")
+                    conf_str = f"{conf * 100:.0%}" if conf else "—"
+                    src_icon = "🔤" if src == "rule" else "🤖" if src == "llm" else "🔄" if src == "merged" else "⚙️"
+                    val_str = str(val) if val is not None else "—"
+                    rows.append({
+                        "字段": label, "提取值": val_str, "置信度": conf_str,
+                        "来源": f"{src_icon} {src}"
+                    })
+                st.dataframe(pd.DataFrame(rows), hide_index=True, use_container_width=True)
+
+            # Warnings
+            if warnings:
+                st.markdown("**⚠️ 警告信息:**")
+                for w in warnings:
+                    st.warning(w)
+
     # ---- ROI Comparison ----
     if comparisons:
         st.markdown("---")

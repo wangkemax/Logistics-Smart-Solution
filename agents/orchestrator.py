@@ -213,7 +213,16 @@ async def run_pipeline_async(request: PipelineRunRequest) -> PipelineRunResponse
             missing_p0 = profile.get("missing_p0", [])
 
         extraction_file = pipeline_dir / "stage_1_extraction.md"
-        extraction_file.write_text(f"# Stage 1: Requirement Extraction\n\nProfile: {json.dumps(profile, ensure_ascii=False, indent=2)}\n\nMissing P0: {missing_p0}", encoding="utf-8")
+        extraction_file.write_text(
+            f"# Stage 1: Requirement Extraction\n\n"
+            f"Extraction Confidence: {profile.get('extraction_confidence', 'N/A')}\n"
+            f"Mode: {extraction_mode}\n\n"
+            f"## Profile\n{json.dumps(profile, ensure_ascii=False, indent=2)}\n\n"
+            f"## Field Confidence\n{json.dumps(profile.get('field_confidence', {}), ensure_ascii=False, indent=2)}\n\n"
+            f"## Source Trace\n{json.dumps(profile.get('source_trace', {}), ensure_ascii=False, indent=2)}\n\n"
+            f"## Warnings\n{json.dumps(profile.get('warnings', []), ensure_ascii=False, indent=2)}",
+            encoding="utf-8"
+        )
 
         stages.append(StageOutput(
             stage="1_extraction",
