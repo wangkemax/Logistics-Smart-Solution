@@ -229,7 +229,7 @@ def _render_welcome_single():
         "行业": ["电商/3PL/零售", "电商/3PL", "电商/快递/零售", "制造/3PL/医药", "快递/电商"],
         "人工节省": ["30%", "50%", "40%", "60%", "55%"],
         "投资规模": ["50-200万", "200-800万", "100-500万", "500-2000万", "300-1000万"],
-    }), use_container_width=True, hide_index=True)
+    }), width='stretch', hide_index=True)
 
 
 def _render_welcome_compare():
@@ -259,7 +259,7 @@ def _render_welcome_compare():
                  "视觉检测","搬运机器人","软件系统","移动机器人","包装自动化","冷链系统",
                  "高速分拣","密集存储","逆向物流"],
     })
-    st.dataframe(all_sc, use_container_width=True, hide_index=True)
+    st.dataframe(all_sc, width='stretch', hide_index=True)
 
 
 # =============================================================================
@@ -310,7 +310,7 @@ if app_mode == "📋 方案生成":
         automation_expectation = st.select_slider("自动化期望", options=["低", "中", "高"], value="中")
 
         single_submitted = st.form_submit_button("🚀 生成解决方案",
-                                                  use_container_width=True, type="primary")
+                                                  width='stretch', type="primary")
 
     if single_submitted:
         profile = {
@@ -361,7 +361,7 @@ if app_mode == "📋 方案生成":
                                 st.markdown(f"**投资范围:** {rec['capex_range']}")
                             with col_b:
                                 st.plotly_chart(render_score_gauge(rec["score"]),
-                                                use_container_width=True, key=f"score_gauge_{i}")
+                                                width='stretch', key=f"score_gauge_{i}")
 
             with tab2:
                 st.subheader("成本与ROI分析")
@@ -376,9 +376,9 @@ if app_mode == "📋 方案生成":
                 st.divider()
                 cc1, cc2 = st.columns(2)
                 with cc1:
-                    st.plotly_chart(render_cost_chart(cost_data), use_container_width=True)
+                    st.plotly_chart(render_cost_chart(cost_data), width='stretch')
                 with cc2:
-                    st.plotly_chart(render_roi_chart(cost_data), use_container_width=True)
+                    st.plotly_chart(render_roi_chart(cost_data), width='stretch')
                 st.subheader("优化建议")
                 for r in cost_result.get("recommendations", []):
                     st.markdown(f"- {r}")
@@ -410,7 +410,7 @@ if app_mode == "📋 方案生成":
                                    data=json.dumps(report_data, ensure_ascii=False, indent=2),
                                    file_name=f"{project_name}_solution.json",
                                    mime="application/json")
-                if st.button("📄 生成并下载PDF方案报告", type="primary", use_container_width=True):
+                if st.button("📄 生成并下载PDF方案报告", type="primary", width='stretch'):
                     with st.spinner("正在生成PDF报告..."):
                         pdf_payload = {
                             "project_name": project_name, "industry": industry,
@@ -481,7 +481,7 @@ elif app_mode == "⚖️ 多方案对比":
         )
         selected_ids = [sid for sid, label in ALL_SCENARIOS if label in selected_labels]
         compare_submitted = st.form_submit_button("⚖️ 开始对比",
-                                                  use_container_width=True, type="primary")
+                                                  width='stretch', type="primary")
 
     if compare_submitted:
         if len(selected_ids) < 2:
@@ -522,7 +522,7 @@ elif app_mode == "⚖️ 多方案对比":
                         "回本周期": f"{c['payback_years']:.1f}年",
                         "省人数": f"{c['headcount_saved']}人",
                     })
-                st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+                st.dataframe(pd.DataFrame(rows), width='stretch', hide_index=True)
 
                 # KPI row
                 best = next((c for c in comparisons if c.get("is_best")), comparisons[0] if comparisons else {})
@@ -536,11 +536,11 @@ elif app_mode == "⚖️ 多方案对比":
                 st.subheader("📈 可视化对比")
                 t1, t2, t3 = st.tabs(["投资与年节省", "5年ROI对比", "综合雷达图"])
                 with t1:
-                    st.plotly_chart(render_compare_bar_chart(comparisons), use_container_width=True)
+                    st.plotly_chart(render_compare_bar_chart(comparisons), width='stretch')
                 with t2:
-                    st.plotly_chart(render_compare_roi_chart(comparisons), use_container_width=True)
+                    st.plotly_chart(render_compare_roi_chart(comparisons), width='stretch')
                 with t3:
-                    st.plotly_chart(render_compare_radar(comparisons), use_container_width=True)
+                    st.plotly_chart(render_compare_radar(comparisons), width='stretch')
 
                 st.divider()
                 st.subheader("📋 详细参数")
@@ -555,7 +555,7 @@ elif app_mode == "⚖️ 多方案对比":
                         "回本周期": f"{c['payback_years']:.1f}年",
                         "节省人数": f"{c['headcount_saved']}/{c['headcount_required']}",
                     })
-                st.dataframe(pd.DataFrame(det), use_container_width=True, hide_index=True)
+                st.dataframe(pd.DataFrame(det), width='stretch', hide_index=True)
     else:
         _render_welcome_compare()
 
@@ -658,7 +658,7 @@ elif app_mode == "🚀 Pipeline Run":
 
     # ---- Run Button ----
     if st.button("🚀 开始运行 Pipeline",
-                 type="primary", use_container_width=True,
+                 type="primary", width='stretch',
                  help="点击开始Pipeline：提取→推荐→ROI→对比→PDF"):
         st.session_state.pipeline_state = "running"
         st.session_state.pipeline_log_lines = []
@@ -671,7 +671,7 @@ elif app_mode == "🚀 Pipeline Run":
             "compare_sids_str": compare_sids_str,
             "tender_text": tender_text,
                     "company_name": "飞力达物流",
-            "language": report_language,
+                    "language": "cn",
         }
         st.session_state.skip_extraction = False
         st.rerun()
@@ -786,7 +786,7 @@ elif app_mode == "🚀 Pipeline Run":
                     st.markdown(f"**⚠️ 缺失的P0字段：** {', '.join(missing_p0)}")
                 st.info("确认参数后点击下方按钮继续 Pipeline 执行")
                 submitted = st.form_submit_button(
-                    "✅ 确认参数并继续 Pipeline", type="primary", use_container_width=True,
+                    "✅ 确认参数并继续 Pipeline", type="primary", width='stretch',
                 )
                 if submitted:
                     profile_overrides = {
@@ -961,7 +961,7 @@ elif app_mode == "🚀 Pipeline Run":
                     "省人数": f"{c['headcount_saved']}人",
                     "加权评分": f"{ws:.1f}",
                 })
-            st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+            st.dataframe(pd.DataFrame(rows), width='stretch', hide_index=True)
 
             best = next((c for c in comparisons if c.get("is_best")), comparisons[0])
             k1, k2, k3, k4 = st.columns(4)
@@ -972,11 +972,11 @@ elif app_mode == "🚀 Pipeline Run":
 
             t1, t2, t3 = st.tabs(["📊 投资与年节省", "📈 ROI对比", "🎯 综合雷达图"])
             with t1:
-                st.plotly_chart(render_compare_bar_chart(comparisons), use_container_width=True)
+                st.plotly_chart(render_compare_bar_chart(comparisons), width='stretch')
             with t2:
-                st.plotly_chart(render_compare_roi_chart(comparisons), use_container_width=True)
+                st.plotly_chart(render_compare_roi_chart(comparisons), width='stretch')
             with t3:
-                st.plotly_chart(render_compare_radar(comparisons), use_container_width=True)
+                st.plotly_chart(render_compare_radar(comparisons), width='stretch')
 
         if recs:
             st.subheader("🎯 自动化方案推荐 (TOP 5)")
@@ -995,7 +995,7 @@ elif app_mode == "🚀 Pipeline Run":
                                   f"**投资范围:** {rec['capex_range']}")
                     with c_b:
                         st.plotly_chart(render_score_gauge(rec["score"]),
-                                        use_container_width=True, key=f"result_score_{i}")
+                                        width='stretch', key=f"result_score_{i}")
 
         # PDF Download
         if pdf_bytes:
@@ -1007,7 +1007,7 @@ elif app_mode == "🚀 Pipeline Run":
                 file_name=pdf_filename or "solution_report.pdf",
                 mime="application/pdf",
                 type="primary",
-                use_container_width=True,
+                width='stretch',
             )
         else:
             st.warning("PDF报告未能生成，可尝试手动从『方案生成』模式导出")
