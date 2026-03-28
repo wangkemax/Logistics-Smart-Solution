@@ -15,9 +15,10 @@
 - **PDF 下载接口**：`/api/pipeline/{id}/download`
 - **模板 None 防护**：所有 Jinja2 除法加 `or 0` 保护
 
-## v0.3 — 任务持久化
-- [ ] Pipeline 任务写入 SQLite，支持刷新页面不丢失
-- [ ] 历史任务列表页面
+## v0.3 — 任务持久化 ✅
+- [x] Pipeline 任务写入 SQLite，支持刷新页面不丢失
+- [x] 历史任务列表 API（`GET /api/pipeline/history`）
+- [ ] 前端历史任务列表页面
 - [ ] 单 Step 重试按钮
 - [ ] 任务超时自动标记
 
