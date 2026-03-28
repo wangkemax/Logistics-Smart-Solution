@@ -30,11 +30,13 @@
 - [ ] PDF 报告在线预览
 
 ## v0.5 — LLM Extractor
-- [ ] OpenClaw sessions_spawn 接入
-- [ ] 结构化 JSON 提取（项目名称/行业/面积/SKU/订单量/预算/痛点）
-- [ ] Prompt 优化：支持表格 + 非结构化文本
-- [ ] 提取置信度评分 → 自动触发参数确认表单
+- [x] MiniMax API 调用（环境变量 MINIMAX_API_KEY 或 OPENAI_API_KEY）
+- [x] OpenAI-compatible API 调用（gpt-4o-mini）
+- [x] 结构化 JSON 提取 Prompt（项目名称/行业/面积/SKU/订单量/预算等）
+- [x] LLM + 增强正则混合方案（use_llm 参数控制）
+- [x] 置信度评分 → extraction_confidence 字段返回
 - [ ] 异常字段提示 + 手动补充界面
+- [ ] OpenClaw sessions_spawn 深度集成
 
 ## v0.6 — 知识库与案例学习
 - [ ] 历史投标项目案例库
