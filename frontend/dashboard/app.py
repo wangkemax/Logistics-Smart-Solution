@@ -873,7 +873,7 @@ elif app_mode == "🚀 Pipeline Run":
                 s1 = stage_map.get("1_extraction", {})
                 s2 = stage_map.get("2_recommendation", {})
                 if s1.get("status") == "DONE" and s2.get("status") in ("PENDING", None):
-                    prof = status_data.get("project_profile", {})
+                    prof = status_data.get("profile", {})
                     missing_p0 = prof.get("missing_p0", [])
                     confidence = prof.get("extraction_confidence", 0) or 0
                     if missing_p0 or confidence < 0.65:
@@ -919,9 +919,9 @@ elif app_mode == "🚀 Pipeline Run":
 
                 if pipeline_status == "COMPLETE":
                     st.success("✅ Pipeline 执行完成！")
-                    st.session_state.pipeline_profile = status_data.get("project_profile", {})
+                    st.session_state.pipeline_profile = status_data.get("profile", {})
                     st.session_state.pipeline_recs = status_data.get("recommendations", [])
-                    st.session_state.pipeline_comparisons = status_data.get("cost_comparisons", [])
+                    st.session_state.pipeline_comparisons = status_data.get("comparisons", [])
                     st.session_state.pipeline_pdf_url = status_data.get("pdf_download_url")
                     st.session_state.pipeline_state = "done"
                     st.rerun()
