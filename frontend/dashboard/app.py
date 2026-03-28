@@ -5,7 +5,7 @@ Three modes: 方案生成 | 多方案对比 | Pipeline Run
 
 import streamlit as st
 import requests
-from frontend.dashboard.ui_formatters import (
+from ui_formatters import (
         fmt_text, fmt_number, fmt_integer, fmt_currency,
         fmt_percent, fmt_years, fmt_area,
         fmt_count, fmt_delta_percent,
