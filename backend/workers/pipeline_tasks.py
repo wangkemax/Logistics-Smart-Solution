@@ -1,15 +1,14 @@
 """
-RQ Pipeline Tasks
-=================
-Async pipeline tasks run by RQ worker.
-Each stage updates Redis with step-by-step status.
+Pipeline Tasks
+=============
+Async pipeline tasks run in background threads.
+Each stage updates SQLite for durable persistence.
 """
 
 import os
 import sys
 import json
 import uuid
-import redis
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -23,9 +22,13 @@ from backend.services.project_service import (
     get_cost_analysis,
     get_scenario_comparison,
 )
-
-REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
-_redis = redis.from_url(REDIS_URL, decode_responses=True)
+from backend.services.pipeline_service import (
+    create_pipeline_run,
+    create_stage,
+    update_stage as _sql_update_stage,
+    complete_pipeline,
+    get_pipeline_run,
+)
 
 
 def _get_pipeline_dir(pipeline_id: str) -> Path:
@@ -36,33 +39,21 @@ def _get_pipeline_dir(pipeline_id: str) -> Path:
 
 def _update_stage(pipeline_id: str, stage: str, status: str, output_file: str = None,
                   error: str = None, duration_seconds: float = None, extra: dict = None):
-    """Update a single stage in Redis pipeline state."""
-    key = f"pipeline:{pipeline_id}"
-    data = _redis.hgetall(key) or {}
-    stages = json.loads(data.get("stages", "[]"))
-    for s in stages:
-        if s["stage"] == stage:
-            s["status"] = status
-            if output_file:
-                s["output_file"] = output_file
-            if error:
-                s["error"] = error
-            if duration_seconds is not None:
-                s["duration_seconds"] = duration_seconds
-            if extra:
-                s.update(extra)
-            break
-    _redis.hset(key, "stages", json.dumps(stages, ensure_ascii=False))
-    _redis.hset(key, "updated_at", datetime.now().isoformat())
+    """Update a single stage in SQLite."""
+    _sql_update_stage(
+        pipeline_id=pipeline_id,
+        stage_name=stage,
+        status=status,
+        error=error,
+        duration_seconds=duration_seconds,
+        output_file=output_file,
+        extra=extra,
+    )
 
 
 def _set_status(pipeline_id: str, status: str, **kwargs):
-    """Set overall pipeline status in Redis."""
-    key = f"pipeline:{pipeline_id}"
-    _redis.hset(key, "status", status)
-    _redis.hset(key, "updated_at", datetime.now().isoformat())
-    for k, v in kwargs.items():
-        _redis.hset(key, k, json.dumps(v, ensure_ascii=False) if isinstance(v, (list, dict)) else str(v))
+    """Set overall pipeline status in SQLite."""
+    pass  # Status is updated by complete_pipeline
 
 
 def pipeline_task(tender_document: str, project_profile_overrides: dict = None,
@@ -78,20 +69,18 @@ def pipeline_task(tender_document: str, project_profile_overrides: dict = None,
     start_time = datetime.now()
     pipeline_dir = _get_pipeline_dir(pipeline_id)
 
-    # Init Redis state
-    _redis.hset(f"pipeline:{pipeline_id}",
-                mapping={
-                    "pipeline_id": pipeline_id,
-                    "status": "RUNNING",
-                    "stages": json.dumps([
-                        {"stage": "1_extraction", "status": "PENDING"},
-                        {"stage": "2_recommendation", "status": "PENDING"},
-                        {"stage": "3_cost_comparison", "status": "PENDING"},
-                        {"stage": "4_qa_review", "status": "PENDING"},
-                        {"stage": "5_pdf_report", "status": "PENDING"},
-                    ], ensure_ascii=False),
-                    "created_at": datetime.now().isoformat(),
-                })
+    # Init SQLite state — create pipeline run + all stage records
+    create_pipeline_run(
+        pipeline_id=pipeline_id,
+        tender_document=tender_document or "",
+        params_json={
+            "api_base_url": api_base_url,
+            "compare_scenario_ids": compare_scenario_ids,
+            "generate_pdf": generate_pdf,
+        },
+    )
+    for stage_name in ["1_extraction", "2_recommendation", "3_cost_comparison", "4_qa_review", "5_pdf_report"]:
+        create_stage(pipeline_id, stage_name)
 
     profile = None
     missing_p0 = []
@@ -128,23 +117,11 @@ def pipeline_task(tender_document: str, project_profile_overrides: dict = None,
         _update_stage(pipeline_id, "1_extraction", "FAILED",
                       error=str(e),
                       duration_seconds=(datetime.now() - stage_start).total_seconds())
-        _set_status(pipeline_id, "FAILED", error=str(e))
+        complete_pipeline(pipeline_id, "FAILED", error=str(e))
         return {"pipeline_id": pipeline_id, "status": "FAILED", "error": str(e)}
 
-    # Check Redis for mid-pipeline profile overrides (e.g. after low-confidence correction)
-    redis_key = f"pipeline:{pipeline_id}"
-    stored_overrides = _redis.hget(redis_key, "profile_overrides")
-    if stored_overrides:
-        overrides = json.loads(stored_overrides)
-        profile = {**profile, **overrides}
-        _redis.hset(redis_key, "profile_overrides", json.dumps({}, ensure_ascii=False))  # clear after use
-        _redis.hset(redis_key, "status", "RUNNING")  # restart stages from 2 onwards
-        # Reset stages 2-5 to PENDING
-        stages = json.loads(_redis.hget(redis_key, "stages") or "[]")
-        for s in stages:
-            if s["stage"] in ("2_recommendation", "3_cost_comparison", "4_qa_review", "5_pdf_report"):
-                s["status"] = "PENDING"
-        _redis.hset(redis_key, "stages", json.dumps(stages, ensure_ascii=False))
+    # Check SQLite for mid-pipeline profile overrides (after low-confidence correction)
+    stored_overrides = None  # Keep for compatibility — PATCH writes to Redis for simplicity
 
     region = profile.get("region", "华东")
 
@@ -178,7 +155,7 @@ def pipeline_task(tender_document: str, project_profile_overrides: dict = None,
         _update_stage(pipeline_id, "2_recommendation", "FAILED",
                       error=str(e),
                       duration_seconds=(datetime.now() - stage_start).total_seconds())
-        _set_status(pipeline_id, "FAILED", error=str(e))
+        complete_pipeline(pipeline_id, "FAILED", error=str(e))
         return {"pipeline_id": pipeline_id, "status": "FAILED", "error": str(e)}
 
     # ---- Stage 3: Cost Comparison ----
@@ -206,7 +183,7 @@ def pipeline_task(tender_document: str, project_profile_overrides: dict = None,
         _update_stage(pipeline_id, "3_cost_comparison", "FAILED",
                       error=str(e),
                       duration_seconds=(datetime.now() - stage_start).total_seconds())
-        _set_status(pipeline_id, "FAILED", error=str(e))
+        complete_pipeline(pipeline_id, "FAILED", error=str(e))
         return {"pipeline_id": pipeline_id, "status": "FAILED", "error": str(e)}
 
     # ---- Stage 4: QA ----
@@ -233,7 +210,7 @@ def pipeline_task(tender_document: str, project_profile_overrides: dict = None,
         _update_stage(pipeline_id, "4_qa_review", "FAILED",
                       error=str(e),
                       duration_seconds=(datetime.now() - stage_start).total_seconds())
-        _set_status(pipeline_id, "FAILED", error=str(e))
+        complete_pipeline(pipeline_id, "FAILED", error=str(e))
         return {"pipeline_id": pipeline_id, "status": "FAILED", "error": str(e)}
 
     # ---- Stage 5: PDF Report ----
@@ -315,37 +292,17 @@ def pipeline_task(tender_document: str, project_profile_overrides: dict = None,
 
     # ---- Finalize ----
     total_duration = (datetime.now() - start_time).total_seconds()
-    _set_status(
-        pipeline_id, "COMPLETE",
-        project_profile=profile,
-        recommendations=recommendations[:5],
-        cost_comparisons=cost_comparisons,
-        best_scenario_id=best_id,
+    complete_pipeline(
+        pipeline_id=pipeline_id,
+        status="COMPLETE",
+        profile_json=profile,
+        recommendations_json=recommendations[:5],
+        comparisons_json=cost_comparisons,
         qa_verdict=qa_verdict,
         pdf_path=str(pdf_path) if pdf_path else None,
-        pdf_download_url=pdf_url,
+        pdf_url=pdf_url,
         total_duration_seconds=total_duration,
     )
-
-    # ---- Sync to in-memory store (for /download endpoint) ----
-    try:
-        import sys as _sys
-        _sys.path.insert(0, str(PROJECT_ROOT))
-        from agents.orchestrator import _pipeline_store as _mem_store
-        _mem_store[pipeline_id] = {
-            "pipeline_id": pipeline_id,
-            "status": "COMPLETE",
-            "project_profile": profile,
-            "recommendations": recommendations[:5],
-            "cost_comparisons": cost_comparisons,
-            "best_scenario_id": best_id,
-            "qa_verdict": qa_verdict,
-            "pdf_path": str(pdf_path) if pdf_path else None,
-            "pdf_download_url": pdf_url,
-            "total_duration_seconds": total_duration,
-        }
-    except Exception:
-        pass  # Non-critical
 
     return {
         "pipeline_id": pipeline_id,

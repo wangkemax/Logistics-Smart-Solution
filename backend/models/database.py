@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine, Column, Integer, String, Float, Text, DateTime
+from sqlalchemy import create_engine, Column, Integer, String, Float, Text, DateTime, JSON
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from datetime import datetime
@@ -71,6 +71,42 @@ class CostParameter(Base):
     equipment_maintenance_rate = Column(Float)
     overhead_rate = Column(Float)
     pallet_density = Column(Float, default=4)
+
+
+class PipelineRun(Base):
+    """Pipeline execution record — survives page refresh."""
+    __tablename__ = "pipeline_runs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    pipeline_id = Column(String(20), unique=True, index=True)
+    status = Column(String(20), default="RUNNING")           # RUNNING / COMPLETE / FAILED
+    tender_document = Column(Text, default="")
+    params_json = Column(Text, default="{}")                  # JSON string
+    profile_json = Column(Text, default="{}")
+    recommendations_json = Column(Text, default="[]")
+    comparisons_json = Column(Text, default="[]")
+    qa_verdict = Column(String(20), default="")
+    pdf_path = Column(String(500), nullable=True)
+    pdf_url = Column(String(200), nullable=True)
+    error = Column(Text, nullable=True)
+    total_duration_seconds = Column(Float, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    completed_at = Column(DateTime, nullable=True)
+
+
+class PipelineStage(Base):
+    """Individual stage record within a pipeline run."""
+    __tablename__ = "pipeline_stages"
+
+    id = Column(Integer, primary_key=True, index=True)
+    pipeline_id = Column(String(20), index=True)
+    stage_name = Column(String(50))
+    status = Column(String(20))                               # PENDING / RUNNING / DONE / FAILED / SKIPPED
+    duration_seconds = Column(Float, nullable=True)
+    error = Column(Text, nullable=True)
+    output_file = Column(String(500), nullable=True)
+    extra_json = Column(Text, default="{}")                   # stage-specific extra data
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
 def get_db():

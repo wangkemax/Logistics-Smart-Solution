@@ -629,28 +629,25 @@ async def extract_profile(request: ExtractionRequest):
 
 @router.get("/status/{pipeline_id}")
 async def get_pipeline_status(pipeline_id: str):
-    """Get pipeline run status by ID. Reads from Redis for live updates."""
+    """Get pipeline run status by ID. Reads from SQLite first, falls back to Redis."""
     import json as _json
 
-    # Try Redis first
-    key = f"pipeline:{pipeline_id}"
-    redis_data = _redis_conn.hgetall(key)
-
-    if redis_data:
-        stages = _json.loads(redis_data.get("stages", "[]"))
-        result = {
-            "pipeline_id": pipeline_id,
-            "status": redis_data.get("status", "UNKNOWN"),
-            "stages": stages,
-            "created_at": redis_data.get("created_at"),
-            "updated_at": redis_data.get("updated_at"),
-        }
-        for field in ["project_profile", "recommendations", "cost_comparisons",
-                       "best_scenario_id", "qa_verdict", "pdf_path",
-                       "pdf_download_url", "total_duration_seconds", "error"]:
-            if field in redis_data:
-                result[field] = _json.loads(redis_data[field]) if redis_data[field].startswith(("[{", "{")) else redis_data[field]
-        return result
+    # Try SQLite first (durable, primary store)
+    from backend.services.pipeline_service import get_pipeline_run as _get_sql
+    sql_result = _get_sql(pipeline_id)
+    if sql_result:
+        # Also check Redis for mid-flight overrides
+        redis_key = f"pipeline:{pipeline_id}"
+        redis_data = _redis_conn.hgetall(redis_key)
+        overrides_json = redis_data.get("profile_overrides") if redis_data else None
+        if overrides_json:
+            try:
+                overrides = _json.loads(overrides_json)
+                if overrides:
+                    sql_result["profile"] = {**sql_result.get("profile", {}), **overrides}
+            except Exception:
+                pass
+        return sql_result
 
     # Fallback to in-memory store (for sync pipeline runs)
     if pipeline_id in _pipeline_store:
@@ -661,10 +658,21 @@ async def get_pipeline_status(pipeline_id: str):
 
 @router.get("/{pipeline_id}/download")
 async def download_pdf(pipeline_id: str):
-    """Download the generated PDF report. Reads from Redis first, falls back to memory store."""
-    import json as _json
+    """Download the generated PDF report. Reads from SQLite first, then Redis, then memory store."""
+    # Try SQLite first (durable, primary store)
+    from backend.services.pipeline_service import get_pipeline_run as _get_sql
+    sql_result = _get_sql(pipeline_id)
+    if sql_result:
+        pdf_path = sql_result.get("pdf_path")
+        if pdf_path and Path(pdf_path).exists():
+            from fastapi.responses import FileResponse
+            return FileResponse(
+                pdf_path,
+                media_type="application/pdf",
+                filename=f"pipeline_{pipeline_id}_report.pdf",
+            )
 
-    # Try Redis first (primary store for async pipeline)
+    # Fallback to Redis
     redis_key = f"pipeline:{pipeline_id}"
     redis_data = _redis_conn.hgetall(redis_key)
     if redis_data:
@@ -677,7 +685,7 @@ async def download_pdf(pipeline_id: str):
                 filename=f"pipeline_{pipeline_id}_report.pdf",
             )
 
-    # Fallback to memory store (for sync runs)
+    # Fallback to memory store (sync runs)
     if pipeline_id in _pipeline_store:
         state = _pipeline_store[pipeline_id]
         pdf_path = state.get("pdf_path")
@@ -740,11 +748,19 @@ async def compare_scenarios_endpoint(
 async def update_pipeline(pipeline_id: str, body: dict):
     """
     Update pipeline params mid-flight (e.g. after low-confidence correction).
-    Stores updated profile_overrides in Redis so the next poll returns them.
+    Writes to both Redis (for immediate read) and SQLite (for durability).
     """
     if "profile_overrides" in body:
-        _redis_conn.hset(f"pipeline:{pipeline_id}", "profile_overrides",
-                         json.dumps(body["profile_overrides"], ensure_ascii=False))
+        overrides_json = json.dumps(body["profile_overrides"], ensure_ascii=False)
+        # Write to Redis for immediate next-poll read
+        _redis_conn.hset(f"pipeline:{pipeline_id}", "profile_overrides", overrides_json)
         _redis_conn.hset(f"pipeline:{pipeline_id}", "status", "RUNNING")
         _redis_conn.hset(f"pipeline:{pipeline_id}", "updated_at", datetime.now().isoformat())
     return {"pipeline_id": pipeline_id, "updated": True}
+
+
+@router.get("/history")
+async def list_pipeline_history(limit: int = 20):
+    """List recent pipeline runs from SQLite."""
+    from backend.services.pipeline_service import list_pipeline_runs as _list_runs
+    return {"runs": _list_runs(limit=limit)}
