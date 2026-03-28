@@ -131,6 +131,21 @@ def pipeline_task(tender_document: str, project_profile_overrides: dict = None,
         _set_status(pipeline_id, "FAILED", error=str(e))
         return {"pipeline_id": pipeline_id, "status": "FAILED", "error": str(e)}
 
+    # Check Redis for mid-pipeline profile overrides (e.g. after low-confidence correction)
+    redis_key = f"pipeline:{pipeline_id}"
+    stored_overrides = _redis.hget(redis_key, "profile_overrides")
+    if stored_overrides:
+        overrides = json.loads(stored_overrides)
+        profile = {**profile, **overrides}
+        _redis.hset(redis_key, "profile_overrides", json.dumps({}, ensure_ascii=False))  # clear after use
+        _redis.hset(redis_key, "status", "RUNNING")  # restart stages from 2 onwards
+        # Reset stages 2-5 to PENDING
+        stages = json.loads(_redis.hget(redis_key, "stages") or "[]")
+        for s in stages:
+            if s["stage"] in ("2_recommendation", "3_cost_comparison", "4_qa_review", "5_pdf_report"):
+                s["status"] = "PENDING"
+        _redis.hset(redis_key, "stages", json.dumps(stages, ensure_ascii=False))
+
     region = profile.get("region", "华东")
 
     # ---- Stage 2: Recommendation ----

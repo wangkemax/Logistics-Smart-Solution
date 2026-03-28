@@ -712,3 +712,21 @@ async def compare_scenarios_endpoint(
 
     result = get_scenario_comparison(profile, region, sids)
     return result
+
+
+# =============================================================================
+# Retry single step
+# =============================================================================
+
+@router.patch("/{pipeline_id}")
+async def update_pipeline(pipeline_id: str, body: dict):
+    """
+    Update pipeline params mid-flight (e.g. after low-confidence correction).
+    Stores updated profile_overrides in Redis so the next poll returns them.
+    """
+    if "profile_overrides" in body:
+        _redis_conn.hset(f"pipeline:{pipeline_id}", "profile_overrides",
+                         json.dumps(body["profile_overrides"], ensure_ascii=False))
+        _redis_conn.hset(f"pipeline:{pipeline_id}", "status", "RUNNING")
+        _redis_conn.hset(f"pipeline:{pipeline_id}", "updated_at", datetime.now().isoformat())
+    return {"pipeline_id": pipeline_id, "updated": True}

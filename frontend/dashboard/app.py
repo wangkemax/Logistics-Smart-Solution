@@ -10,6 +10,7 @@ import os
 import pandas as pd
 import plotly.graph_objects as go
 from datetime import datetime
+import time
 
 API_BASE_URL = os.getenv("API_BASE_URL", "http://localhost:8000")
 
@@ -639,14 +640,14 @@ elif app_mode == "🚀 Pipeline Run":
     # Initialize session state for pipeline
     for key in ["pipeline_state", "pipeline_profile", "pipeline_recs",
                  "pipeline_comparisons", "pipeline_pdf_bytes", "pipeline_pdf_filename",
-                 "pipeline_log_lines"]:
+                 "pipeline_log_lines", "pipeline_pdf_url", "_pipeline_id", "_skip_correction"]:
         if key not in st.session_state:
             st.session_state[key] = [] if key == "pipeline_log_lines" else None
 
     def reset_pipeline():
         for key in ["pipeline_state", "pipeline_profile", "pipeline_recs",
                      "pipeline_comparisons", "pipeline_pdf_bytes", "pipeline_pdf_filename",
-                     "pipeline_log_lines"]:
+                     "pipeline_log_lines", "pipeline_pdf_url", "_pipeline_id", "_skip_correction"]:
             st.session_state[key] = [] if key == "pipeline_log_lines" else None
 
     pipeline_state = st.session_state.get("pipeline_state")
@@ -674,220 +675,231 @@ elif app_mode == "🚀 Pipeline Run":
         st.session_state.skip_extraction = False
         st.rerun()
 
-    # ---- Pipeline Execution ----
-    if st.session_state.get("pipeline_state") == "running":
-        params = st.session_state.get("_pipeline_params", {})
-
-        # ---- Progress + Log UI ----
+    # =====================================================================
+    # Async Polling State — non-blocking pipeline via RQ + Redis
+    # =====================================================================
+    if st.session_state.get("pipeline_state") == "polling":
+        pipeline_id = st.session_state.get("_pipeline_id")
         st.markdown("---")
         st.markdown("### 🔄 Pipeline 执行进度")
-        progress_bar = st.progress(0)
+        status_placeholder = st.empty()
         log_placeholder = st.empty()
+        correction_placeholder = st.empty()
 
-        def log(msg: str):
-            lines = st.session_state.pipeline_log_lines or []
-            lines.append(f"[{datetime.now().strftime('%H:%M:%S')}] {msg}")
-            st.session_state.pipeline_log_lines = lines
-            log_placeholder.text("\n".join(lines[-50:]))  # keep last 50 lines
+        try:
+            resp = requests.get(f"{API_BASE_URL}/api/pipeline/status/{pipeline_id}", timeout=10)
+            if resp.status_code == 404:
+                st.error(f"Pipeline {pipeline_id} 未找到，请重试")
+                if st.button("🔄 重置"):
+                    reset_pipeline()
+                    st.rerun()
+                st.stop()
 
-        profile_overrides = {
+            status_data = resp.json()
+            pipeline_status = status_data.get("status", "UNKNOWN")
+            stages = status_data.get("stages", [])
+
+            # Stage map: stage_name -> {status, error, duration_seconds}
+            stage_map = {s["stage"]: s for s in stages}
+
+            # Progress based on how many stages are DONE
+            done_count = sum(1 for s in stages if s.get("status") == "DONE")
+            total_stages = max(len(stages), 1)
+            progress_pct = int(done_count / total_stages * 100)
+            status_placeholder.progress(progress_pct)
+
+            # Step-by-step status display
+            step_labels = {
+                "1_extraction": "① 招标文件解析",
+                "2_recommendation": "② 推荐引擎",
+                "3_cost_comparison": "③ ROI成本计算",
+                "4_qa_review": "④ QA审核",
+                "5_pdf_report": "⑤ PDF报告生成",
+            }
+            cols = st.columns(5)
+            for i, (stage_name, label) in enumerate(step_labels.items()):
+                s = stage_map.get(stage_name, {})
+                s_status = s.get("status", "PENDING")
+                icon = "✅" if s_status == "DONE" else "❌" if s_status == "FAILED" else "⏳"
+                with cols[i]:
+                    st.markdown(f"{icon} {label}")
+                    if s.get("duration_seconds"):
+                        st.caption(f"  {s['duration_seconds']:.1f}s")
+                    if s.get("error"):
+                        with st.expander("详情"):
+                            st.text(s["error"][:200])
+
+            # Log lines from stage completions
+            log_lines = []
+            for s in stages:
+                stage_name = s.get("stage", "")
+                label = step_labels.get(stage_name, stage_name)
+                duration = s.get("duration_seconds", 0)
+                if s.get("status") == "DONE":
+                    log_lines.append(f"✅ {label} 完成 ({duration:.1f}s)")
+                elif s.get("status") == "FAILED":
+                    log_lines.append(f"❌ {label} 失败: {s.get('error', '')[:100]}")
+                elif s.get("status") == "RUNNING":
+                    log_lines.append(f"⏳ {label} 执行中...")
+            log_placeholder.text("\n".join(log_lines[-20:]))
+
+            # ---- Low-confidence correction (Stage 1 done, Stage 2 not yet) ----
+            s1 = stage_map.get("1_extraction", {})
+            s2 = stage_map.get("2_recommendation", {})
+            if s1.get("status") == "DONE" and s2.get("status") in ("PENDING", None):
+                profile = status_data.get("project_profile", {})
+                missing_p0 = profile.get("missing_p0", [])
+                confidence = profile.get("extraction_confidence", 0) or 0
+                needs_correction = (missing_p0 or confidence < 0.65)
+
+                if needs_correction and not st.session_state.get("_skip_correction", False):
+                    correction_placeholder.warning(
+                        f"⚠️ 提取置信度 {confidence:.0%}"
+                        + (" | 部分关键字段缺失（P0）" if missing_p0 else "")
+                        + "，请确认并修正以下参数："
+                    )
+                    with correction_placeholder.form("extraction_correction", clear_on_submit=False):
+                        st.markdown("**📝 参数修正**")
+                        c1, c2 = st.columns(2)
+                        with c1:
+                            industries = ["电商", "3PL", "零售", "制造", "快递", "医药", "食品", "生鲜"]
+                            ind_idx = 0
+                            cur = profile.get("industry", "电商")
+                            if cur in industries:
+                                ind_idx = industries.index(cur)
+                            ind_c = st.selectbox("行业", industries, index=ind_idx)
+                            area_c = st.number_input(
+                                "仓库面积 (㎡)",
+                                value=int(profile.get("warehouse_area", 20000) or 20000),
+                                step=1000, min_value=500, max_value=500000,
+                            )
+                        with c2:
+                            sku_c = st.number_input(
+                                "SKU数量",
+                                value=int(profile.get("sku_count", 30000) or 30000),
+                                step=1000, min_value=100,
+                            )
+                            ord_c = st.number_input(
+                                "日均订单量",
+                                value=int(profile.get("daily_orders", 5000) or 5000),
+                                step=100, min_value=50,
+                            )
+                        c3, c4, c5 = st.columns(3)
+                        with c3:
+                            bud_c = st.select_slider("自动化预算", options=["低", "中", "高"],
+                                                      value=profile.get("budget_level", "中"))
+                        with c4:
+                            lab_c = st.select_slider("人工成本", options=["低", "中", "高"],
+                                                      value=profile.get("labor_cost_level", "中"))
+                        with c5:
+                            inv_c = st.number_input(
+                                "库存量 (件)",
+                                value=int(profile.get("inventory", 500000) or 500000),
+                                step=10000, min_value=1000,
+                            )
+                        if missing_p0:
+                            st.markdown(f"**⚠️ 缺失的P0字段：** {', '.join(missing_p0)}")
+                        sub = st.form_submit_button("✅ 确认参数并继续", type="primary", width='stretch')
+                        if sub:
+                            overrides = {
+                                "industry": ind_c, "warehouse_area": float(area_c),
+                                "sku_count": int(sku_c), "daily_orders": int(ord_c),
+                                "inventory": int(inv_c), "labor_cost_level": lab_c,
+                                "budget_level": bud_c, "automation_expectation": "中",
+                            }
+                            # Submit to Redis mid-flight
+                            try:
+                                requests.patch(
+                                    f"{API_BASE_URL}/api/pipeline/{pipeline_id}",
+                                    json={"profile_overrides": overrides}, timeout=10
+                                )
+                            except Exception:
+                                pass
+                            st.session_state._skip_correction = True
+                            st.rerun()
+                    st.stop()
+
+            st.session_state._skip_correction = False
+
+            # ---- Check final status ----
+            if pipeline_status == "COMPLETE":
+                st.success("✅ Pipeline 执行完成！")
+                profile = status_data.get("project_profile", {})
+                recs = status_data.get("recommendations", [])
+                comparisons = status_data.get("cost_comparisons", [])
+                pdf_url = status_data.get("pdf_download_url")
+
+                st.session_state.pipeline_profile = profile
+                st.session_state.pipeline_recs = recs
+                st.session_state.pipeline_comparisons = comparisons
+                st.session_state.pipeline_pdf_url = pdf_url
+                st.session_state.pipeline_state = "done"
+                st.rerun()
+
+            elif pipeline_status == "FAILED":
+                error_msg = status_data.get("error", "未知错误")
+                st.error(f"❌ Pipeline 失败: {error_msg}")
+                st.session_state.pipeline_state = "done"
+                st.rerun()
+
+            else:
+                # Still running — poll again in 2s
+                time.sleep(2)
+                st.rerun()
+
+        except requests.exceptions.ConnectionError:
+            st.error("⚠️ 无法连接后端服务，请确保后端已启动 (uvicorn)")
+            if st.button("🔄 重试"):
+                st.rerun()
+            st.stop()
+        except Exception as e:
+            st.error(f"轮询异常: {e}")
+            if st.button("🔄 重试"):
+                st.rerun()
+            st.stop()
+
+        st.stop()
+
+    # ---- Run Button: enqueue async pipeline ----
+    if st.button("🚀 开始运行 Pipeline",
+                 type="primary", width='stretch',
+                 help="点击开始Pipeline（异步执行，不阻塞页面）"):
+        params = st.session_state.get("_pipeline_params", {})
+        tender_text = (st.session_state.get("tender_text", "") or "").strip()
+        overrides = {
             "industry": params.get("industry", "电商"),
-            "warehouse_area": params.get("warehouse_area", 20000.0),
-            "sku_count": params.get("sku_count", 30000),
-            "daily_orders": params.get("daily_orders", 5000),
-            "inventory": params.get("inventory", 500000),
+            "warehouse_area": float(params.get("warehouse_area", 20000)),
+            "sku_count": int(params.get("sku_count", 30000)),
+            "daily_orders": int(params.get("daily_orders", 5000)),
+            "inventory": int(params.get("inventory", 500000)),
             "labor_cost_level": params.get("labor_cost_level", "中"),
             "budget_level": params.get("budget_level", "中"),
             "automation_expectation": "中",
         }
-
-        # ---- Step 1: Extract ----
-        log("① 开始解析招标文件...")
-        extract_resp, err1 = call_api(
-            "/api/pipeline/extract",
-            {"tender_document": params.get("tender_text", "")},
-            timeout=30,
-        )
-        if err1:
-            log(f"❌ 需求提取失败: {err1}")
-            st.session_state.pipeline_state = "done"
-            st.rerun()
-
-        profile = extract_resp.get("project_profile", {})
-        missing_p0 = extract_resp.get("missing_p0", [])
-        confidence = extract_resp.get("extraction_confidence", 0)
-        log(f"① 需求提取完成 | 置信度: {confidence:.0%} | 行业: {profile.get('industry','?')} | 缺失P0: {missing_p0 or '无'}")
-        progress_bar.progress(20)
-
-        # ---- Low-confidence correction form ----
-        needs_correction = (missing_p0 or confidence < 0.65)
-        # Skip if user just submitted the form (flag set below)
-        if needs_correction and not st.session_state.get("skip_extraction", False):
-            st.warning(
-                f"⚠️ 提取置信度 {confidence:.0%}"
-                + (" | 部分关键字段缺失（P0）" if missing_p0 else "")
-                + "，请确认并修正以下参数："
-            )
-            with st.form("extraction_correction", clear_on_submit=False):
-                st.markdown("**📝 参数修正（请填写正确的值）**")
-
-                def safe_int(val, default):
-                    if val is None:
-                        return default
-                    try:
-                        return int(val)
-                    except (TypeError, ValueError):
-                        return default
-
-                c1, c2 = st.columns(2)
-                with c1:
-                    industries = ["电商", "3PL", "零售", "制造", "快递", "医药", "食品", "生鲜"]
-                    ind_idx = 0
-                    cur_ind = profile.get("industry", "电商")
-                    if cur_ind in industries:
-                        ind_idx = industries.index(cur_ind)
-                    ind_correct = st.selectbox("行业", industries, index=ind_idx)
-                    area_correct = st.number_input(
-                        "仓库面积 (㎡)",
-                        value=safe_int(profile.get("warehouse_area"), int(params.get("warehouse_area", 20000))),
-                        step=1000, min_value=500, max_value=500000,
-                    )
-                with c2:
-                    sku_correct = st.number_input(
-                        "SKU数量",
-                        value=safe_int(profile.get("sku_count"), int(params.get("sku_count", 30000))),
-                        step=1000, min_value=100,
-                    )
-                    ord_correct = st.number_input(
-                        "日均订单量",
-                        value=safe_int(profile.get("daily_orders"), int(params.get("daily_orders", 5000))),
-                        step=100, min_value=50,
-                    )
-                c3, c4, c5 = st.columns(3)
-                with c3:
-                    bud_correct = st.select_slider(
-                        "自动化预算", options=["低", "中", "高"],
-                        value=profile.get("budget_level", "中"),
-                    )
-                with c4:
-                    lab_correct = st.select_slider(
-                        "人工成本", options=["低", "中", "高"],
-                        value=profile.get("labor_cost_level", "中"),
-                    )
-                with c5:
-                    inv_correct = st.number_input(
-                        "库存量 (件)",
-                        value=safe_int(profile.get("inventory"), int(params.get("inventory", 500000))),
-                        step=10000, min_value=1000,
-                    )
-                if missing_p0:
-                    st.markdown(f"**⚠️ 缺失的P0字段：** {', '.join(missing_p0)}")
-                st.info("确认参数后点击下方按钮继续 Pipeline 执行")
-                submitted = st.form_submit_button(
-                    "✅ 确认参数并继续 Pipeline", type="primary", width='stretch',
-                )
-                if submitted:
-                    profile_overrides = {
-                        "industry": ind_correct, "warehouse_area": float(area_correct),
-                        "sku_count": int(sku_correct), "daily_orders": int(ord_correct),
-                        "inventory": int(inv_correct),
-                        "labor_cost_level": lab_correct, "budget_level": bud_correct,
-                        "automation_expectation": "中",
-                    }
-                    log(f"① 参数已修正 | 行业: {ind_correct} | 面积: {area_correct}㎡")
-                    # Update params and signal: skip form on next run, continue to step 2
-                    st.session_state._pipeline_params = {**params, **profile_overrides}
-                    st.session_state.skip_extraction = True
-                    st.rerun()
-
-            # Form was rendered but not submitted — stop here
-            st.stop()
-
-        # Clear skip flag after handling form
-        st.session_state.skip_extraction = False
-
-        # Apply overrides and continue pipeline
-        profile.update(profile_overrides)
-        progress_bar.progress(20)
-
-        # ---- Step 2: Recommend ----
-        log("② 正在调用推荐引擎...")
-        rec_result, err2 = call_api("/api/recommend", profile, timeout=30)
-        if err2:
-            log(f"❌ 推荐失败: {err2}")
-            st.session_state.pipeline_state = "done"
-            st.rerun()
-        recs = rec_result.get("recommendations", [])
-        progress_bar.progress(40)
-        log(f"② 推荐完成 | 生成 {len(recs)} 个方案 | 首选: {recs[0]['scenario_name'] if recs else 'N/A'}")
-        st.session_state.pipeline_recs = recs
-
-        # ---- Step 3: Cost Comparison ----
-        log("③ 正在计算各方案成本与ROI...")
-        compare_sids_str_corr = params.get("compare_sids_str", "")
-        compare_ids = None
-        if compare_sids_str_corr.strip():
-            try:
-                compare_ids = [int(s.strip()) for s in compare_sids_str_corr.split(",") if s.strip()]
-            except ValueError:
-                compare_ids = None
-
-        if compare_ids and len(compare_ids) >= 2:
-            cmp_ids = compare_ids
-        else:
-            cmp_ids = [r["scenario_id"] for r in recs[:3]]
-
-        cmp_payload = {**profile, "region": params.get("region", "华东"), "scenario_ids": cmp_ids}
-        cmp_result, err3 = call_api("/api/compare", cmp_payload, timeout=30)
-        comparisons = cmp_result.get("comparisons", []) if cmp_result else []
-        progress_bar.progress(60)
-        if comparisons:
-            best_cmp = next((c for c in comparisons if c.get("is_best")), comparisons[0])
-            log(f"③ ROI计算完成 | 最佳: {best_cmp['scenario_name']} | ROI: {best_cmp.get('roi_5y', 0):.1f}x | 回本: {best_cmp.get('payback_years', 0):.1f}年")
-        else:
-            log("⚠️ 未能生成有效成本对比结果")
-        st.session_state.pipeline_comparisons = comparisons
-
-        # ---- Step 4: Compare ----
-        log(f"④ 多方案横向对比完成 | 共 {len(comparisons)} 个方案已排序")
-        progress_bar.progress(80)
-
-        # ---- Step 5: PDF ----
-        log("⑤ 正在生成PDF报告...")
-        pdf_bytes = None
-        pdf_filename = None
         try:
-            pdf_resp = requests.post(
-                f"{API_BASE_URL}/api/report",
+            run_resp = requests.post(
+                f"{API_BASE_URL}/api/pipeline/run",
                 json={
-                    "project_name": profile.get("project_name", "投标项目"),
-                    "industry": profile.get("industry", "电商"),
-                    "warehouse_area": float(profile.get("warehouse_area", 20000)),
-                    "sku_count": int(profile.get("sku_count", 30000)),
-                    "daily_orders": int(profile.get("daily_orders", 5000)),
-                    "inventory": int(profile.get("inventory", 500000)),
-                    "labor_cost_level": profile.get("labor_cost_level", "中"),
-                    "budget_level": profile.get("budget_level", "中"),
-                    "automation_expectation": profile.get("automation_expectation", "中"),
-                    "region": params.get("region", "华东"),
+                    "tender_document": tender_text,
+                    "project_profile_overrides": overrides,
+                    "compare_scenario_ids": None,
+                    "generate_pdf": True,
+                    "api_base_url": API_BASE_URL,
                 },
-                timeout=60,
+                timeout=15,
             )
-            if pdf_resp.status_code == 200:
-                pdf_bytes = pdf_resp.content
-                pdf_filename = f"{profile.get('project_name', '投标项目')}_方案建议书.pdf"
-                log(f"⑤ PDF生成完成 | 大小: {len(pdf_bytes)/1024:.0f}KB ✅")
+            if run_resp.status_code == 200:
+                result = run_resp.json()
+                pipeline_id = result.get("pipeline_id")
+                st.session_state.pipeline_state = "polling"
+                st.session_state._pipeline_id = pipeline_id
+                st.session_state._skip_correction = False
+                st.rerun()
             else:
-                log(f"⚠️ PDF生成失败: HTTP {pdf_resp.status_code}")
+                st.error(f"启动失败: HTTP {run_resp.status_code} — {run_resp.text[:200]}")
         except Exception as e:
-            log(f"⚠️ PDF生成异常: {e}")
-
-        st.session_state.pipeline_pdf_bytes = pdf_bytes
-        st.session_state.pipeline_pdf_filename = pdf_filename
-        st.session_state.pipeline_profile = profile
-        st.session_state.pipeline_state = "done"
-        progress_bar.progress(100)
-        st.rerun()
+            st.error(f"无法连接后端: {e}")
+        st.stop()
 
     # =====================================================================
     # Results Section (pipeline_state == "done")
@@ -992,7 +1004,17 @@ elif app_mode == "🚀 Pipeline Run":
                         st.plotly_chart(render_score_gauge(rec["score"]),
                                         width='stretch', key=f"result_score_{i}")
 
-        # PDF Download
+        # PDF Download (handle both direct bytes and URL-based download)
+        pdf_url = st.session_state.get("pipeline_pdf_url")
+        if not pdf_bytes and pdf_url:
+            try:
+                pdf_resp = requests.get(f"{API_BASE_URL}{pdf_url}", timeout=30)
+                if pdf_resp.status_code == 200:
+                    pdf_bytes = pdf_resp.content
+                    pdf_filename = pdf_filename or "solution_report.pdf"
+            except Exception:
+                pass
+
         if pdf_bytes:
             st.markdown("---")
             st.success("✅ Pipeline 执行完成！PDF报告已生成。")
