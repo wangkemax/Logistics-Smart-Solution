@@ -217,11 +217,11 @@ def recommend_automation(project_profile: Dict) -> List[Dict[str, Any]]:
         industry_score = score_industry_match(scenario, profile["industry"])
         sku_score = score_sku_match(scenario, profile["sku_count"])
         order_score = score_order_match(scenario, profile["daily_orders"])
-        budget_score = score_budget_match(scenario, project_profile.get("budget_level", "中"))
+        budget_score = score_budget_match(scenario, profile.get("budget_level", "中"))
         warehouse_score = score_warehouse_conditions(
             scenario,
-            project_profile.get("warehouse_area", 0),
-            project_profile.get("automation_expectation", "中")
+            profile.get("warehouse_area", 0),
+            profile.get("automation_expectation", "中")
         )
 
         # Filter: use unweighted raw score (sum of all dimensions, max 100)
@@ -259,8 +259,8 @@ def recommend_automation(project_profile: Dict) -> List[Dict[str, Any]]:
             "category": scenario.get("category"),
             "score": round(total_score, 1),
             "score_breakdown": score_breakdown,
-            "reason": generate_reason(scenario, project_profile),
-            "risk": generate_risk_text(scenario, project_profile),
+            "reason": generate_reason(scenario, profile),
+            "risk": generate_risk_text(scenario, profile),
             "capex_range": capex_range,
             "labor_saving": scenario.get("labor_saving", 0),
             "efficiency_gain": scenario.get("efficiency_gain", 0),
