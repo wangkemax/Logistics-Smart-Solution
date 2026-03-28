@@ -262,6 +262,8 @@ def recommend_automation(project_profile: Dict) -> List[Dict[str, Any]]:
             "reason": generate_reason(scenario, profile),
             "risk": generate_risk_text(scenario, profile),
             "capex_range": capex_range,
+            "capex_min": scenario.get("capex_min", 0) or 0,
+            "capex_max": scenario.get("capex_max", 0) or 999999999,
             "labor_saving": scenario.get("labor_saving", 0),
             "efficiency_gain": scenario.get("efficiency_gain", 0),
             "scoring_strategy": "weighted_v1",

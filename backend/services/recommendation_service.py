@@ -191,6 +191,8 @@ def recommend_solutions(
             "match_level": match_level,
             "input_profile_snapshot": normalized.copy(),
             "capex_range": _format_capex_range(scenario),
+            "capex_min": scenario.get("capex_min", 0) or 0,
+            "capex_max": scenario.get("capex_max", 0) or 999999999,
             "labor_saving": scenario.get("labor_saving", 0),
             "efficiency_gain": scenario.get("efficiency_gain", 0),
             "risk_level": scenario.get("risk_level", "中"),
