@@ -59,7 +59,9 @@ Once running, visit http://localhost:8000/docs for interactive API docs.
 | POST | /api/project | Create project |
 | POST | /api/recommend | Get recommendations |
 | POST | /api/cost | Calculate costs |
+| POST | /api/compare | Compare multiple scenarios (2-5) |
 | POST | /api/report | Generate PDF proposal report |
+| POST | /api/report/compare | Generate PDF comparison report |
 | GET | /api/report/check | Check PDF capability |
 | GET | /api/health | Health check |
 
@@ -83,6 +85,25 @@ curl -X POST "http://localhost:8000/api/report" \
   --output solution_report.pdf
 ```
 
+### Multi-Scenario Comparison
+
+```bash
+curl -X POST "http://localhost:8000/api/compare" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "industry": "电商",
+    "warehouse_area": 20000,
+    "sku_count": 30000,
+    "daily_orders": 5000,
+    "inventory": 500000,
+    "labor_cost_level": "中",
+    "budget_level": "中",
+    "automation_expectation": "中",
+    "region": "华东",
+    "scenario_ids": [1, 2, 3]
+  }'
+```
+
 ## PDF Report Structure
 
 The generated PDF includes 8 sections:
@@ -94,6 +115,17 @@ The generated PDF includes 8 sections:
 6. **项目实施规划** — Implementation timeline and phases
 7. **风险分析与应对** — Risk identification and mitigation
 8. **附录** — Scenario reference table and disclaimer
+9. **多方案对比** (when comparison data is present) — Side-by-side comparison table with best recommendation highlighted
+
+## Multi-Scenario Comparison
+
+The Dashboard supports comparing 2-5 automation scenarios side-by-side:
+- **Comparison table**: Investment, annual savings, maintenance, ROI, payback period
+- **Bar chart**: Investment vs. annual savings
+- **ROI bar chart**: 5-year ROI sorted descending
+- **Radar chart**: Normalized multi-dimensional comparison (ROI, payback, savings, labor)
+- **Best recommendation**: Auto-highlighted with ✅ badge
+- **PDF export**: Comparison report with full detail table
 
 ## Docker Deployment
 

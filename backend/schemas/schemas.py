@@ -87,3 +87,45 @@ class CostResponse(BaseModel):
     cost_breakdown: CostBreakdown
     summary: str
     recommendations: List[str]
+
+
+# ---- Multi-Scenario Comparison ----
+
+class CompareRequest(BaseModel):
+    industry: str
+    warehouse_area: float
+    sku_count: int
+    daily_orders: int
+    inventory: int
+    labor_cost_level: str = "中"
+    budget_level: str = "中"
+    automation_expectation: str = "中"
+    region: str = "华东"
+    scenario_ids: List[int] = Field(
+        ..., min_length=2, max_length=5,
+        description="要对比的方案ID列表（2-5个），参考自动化场景表"
+    )
+
+
+class ScenarioComparisonRow(BaseModel):
+    scenario_id: int
+    scenario_name: str
+    category: str
+    automation_capex: float
+    annual_saving: float
+    annual_maintenance: float
+    net_annual_benefit: float
+    five_year_net_benefit: float
+    roi: float
+    roi_5y: float
+    payback_years: float
+    headcount_saved: int
+    headcount_required: int
+    total_annual_cost: float
+    is_best: bool = False
+
+
+class CompareResponse(BaseModel):
+    comparisons: List[ScenarioComparisonRow]
+    best_scenario_id: Optional[int] = None
+    analysis_summary: str

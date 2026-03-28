@@ -4,10 +4,11 @@ from backend.models.database import get_db
 from backend.schemas.schemas import (
     ProjectProfileCreate, ProjectProfileResponse,
     RecommendationRequest, RecommendationResponse,
-    CostRequest, CostResponse
+    CostRequest, CostResponse,
+    CompareRequest, CompareResponse,
 )
 from backend.services.project_service import (
-    create_project, get_project, get_recommendations, get_cost_analysis
+    create_project, get_project, get_recommendations, get_cost_analysis, get_scenario_comparison
 )
 
 router = APIRouter(prefix="/api", tags=["presale"])
@@ -49,3 +50,18 @@ def calculate_cost_endpoint(request: CostRequest):
 @router.get("/health")
 def health_check():
     return {"status": "healthy", "service": "logistics-presale-ai"}
+
+
+@router.post("/compare", response_model=CompareResponse)
+def compare_scenarios_endpoint(request: CompareRequest):
+    """
+    Compare ROI and costs across multiple automation scenarios.
+
+    Returns side-by-side comparison of 2-5 scenarios,
+    sorted by 5-year ROI descending. Best option is marked.
+    """
+    profile_dict = request.model_dump()
+    scenario_ids = profile_dict.pop("scenario_ids")
+    region = profile_dict.pop("region", "华东")
+    result = get_scenario_comparison(profile_dict, region, scenario_ids)
+    return result

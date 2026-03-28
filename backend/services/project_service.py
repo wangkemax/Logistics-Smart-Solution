@@ -2,7 +2,10 @@ from sqlalchemy.orm import Session
 from backend.models.database import Project, Solution
 from backend.schemas.schemas import ProjectProfileCreate
 from backend.engines.automation_engine import recommend_automation
-from backend.engines.cost_engine import calculate_costs, generate_cost_summary, generate_cost_recommendations
+from backend.engines.cost_engine import (
+    calculate_costs, generate_cost_summary, generate_cost_recommendations,
+    compare_scenarios as engine_compare_scenarios, SCENARIO_NAMES
+)
 import json
 
 
@@ -67,4 +70,33 @@ def get_cost_analysis(profile_dict: dict, region: str = "华东",
         "cost_breakdown": cost_data,
         "summary": summary,
         "recommendations": recommendations,
+    }
+
+
+def get_scenario_comparison(profile_dict: dict, region: str,
+                             scenario_ids: list) -> dict:
+    """Compare multiple automation scenarios side by side."""
+    comparisons = engine_compare_scenarios(profile_dict, region, scenario_ids)
+
+    best = next((c for c in comparisons if c.get("is_best")), None)
+    best_id = best["scenario_id"] if best else None
+
+    # Generate analysis summary
+    industry = profile_dict.get("industry", "")
+    if best:
+        best_name = best["scenario_name"]
+        roi_5y = best["roi_5y"]
+        payback = best["payback_years"]
+        summary = (
+            f"基于{industry}行业的运营特征，在{len(comparisons)}个方案中，"
+            f"【{best_name}】综合表现最优：5年ROI {roi_5y:.1f}x，回本周期 {payback:.1f}年，"
+            f"建议作为首选方案。"
+        )
+    else:
+        summary = f"未能生成有效对比结果，请检查所选方案ID是否正确。"
+
+    return {
+        "comparisons": comparisons,
+        "best_scenario_id": best_id,
+        "analysis_summary": summary,
     }

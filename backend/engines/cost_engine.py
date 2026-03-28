@@ -236,3 +236,93 @@ def generate_cost_recommendations(cost_data: Dict, profile: Dict) -> list:
         recommendations.append("方案整体经济性良好，建议推进详细可行性研究")
 
     return recommendations
+
+
+# =============================================================================
+# Multi-Scenario Comparison
+# =============================================================================
+
+SCENARIO_NAMES = {
+    1: "AMR拣选辅助",
+    2: "GTP货到人系统",
+    3: "输送分拣线",
+    4: "自动贴标系统",
+    5: "立体仓库AS/RS",
+    6: "自动化输送线",
+    7: "视觉识别质检",
+    8: "拆码垛机器人",
+    9: "WMS仓储管理系统",
+    10: "AGV搬运系统",
+    11: "自动包装线",
+    12: "冷链自动化仓储",
+    13: "跨带分拣机",
+    14: "货架式密集存储",
+    15: "自动化退货处理",
+}
+
+SCENARIO_CATEGORIES = {
+    1: "移动机器人", 2: "货到人", 3: "输送分拣",
+    4: "自动化辅助", 5: "立体仓库", 6: "输送系统",
+    7: "视觉检测", 8: "搬运机器人", 9: "软件系统",
+    10: "移动机器人", 11: "包装自动化", 12: "冷链系统",
+    13: "高速分拣", 14: "密集存储", 15: "逆向物流",
+}
+
+
+def compare_scenarios(
+    profile: Dict,
+    region: str,
+    scenario_ids: list,
+) -> list:
+    """
+    Compare costs and ROI across multiple automation scenarios.
+
+    Args:
+        profile: Project profile dict
+        region: Geographic region
+        scenario_ids: List of scenario IDs to compare (max 5)
+
+    Returns:
+        List of comparison rows sorted by ROI descending
+    """
+    results = []
+    for sid in scenario_ids[:5]:  # max 5 at a time
+        cost_data = calculate_costs(profile, region, selected_scenario_id=sid)
+        name = SCENARIO_NAMES.get(sid, f"方案{sid}")
+        category = SCENARIO_CATEGORIES.get(sid, "")
+
+        roi = cost_data.get("roi", 0)
+        payback = cost_data.get("payback_years", 99)
+        annual_saving = cost_data.get("automation_savings_annual", 0)
+        capex = cost_data.get("automation_capex", 0)
+        headcount_saved = cost_data.get("headcount_saved", 0)
+        annual_maintenance = cost_data.get("annual_maintenance", 0)
+
+        # 5-year net benefit
+        five_year_benefit = (annual_saving - annual_maintenance) * 5 - capex
+
+        results.append({
+            "scenario_id": sid,
+            "scenario_name": name,
+            "category": category,
+            "automation_capex": capex,
+            "annual_saving": annual_saving,
+            "annual_maintenance": annual_maintenance,
+            "net_annual_benefit": cost_data.get("net_annual_benefit", 0),
+            "five_year_net_benefit": round(five_year_benefit, 0),
+            "roi": roi,
+            "roi_5y": round((annual_saving - annual_maintenance) * 5 / capex, 2) if capex > 0 else 0,
+            "payback_years": payback,
+            "headcount_saved": headcount_saved,
+            "headcount_required": cost_data.get("headcount_required", 0),
+            "total_annual_cost": cost_data.get("total_annual_cost", 0),
+        })
+
+    # Sort by 5-year ROI descending
+    results.sort(key=lambda x: x["roi_5y"], reverse=True)
+
+    # Mark the best option
+    if results:
+        results[0]["is_best"] = True
+
+    return results

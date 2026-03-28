@@ -565,3 +565,116 @@
 
 </body>
 </html>
+
+{# ============================================================
+   APPENDIX: Multi-Scenario Comparison Section
+   Only rendered when data.comparisons is present
+   ============================================================ #}
+{% if data.comparisons %}
+<div class="content-page">
+  <div class="page-header">
+    <div class="page-header-title">09 多方案对比分析</div>
+    <div class="page-header-logo">Logistics Smart Solution</div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">
+      <span class="section-number">09</span>
+      方案比选总览
+    </div>
+    <div class="section-body">
+      <p>{{ data.cost_summary or ("对比" + data.comparisons|length|string + "个方案的5年ROI及成本结构") }}</p>
+
+      <table class="compare-table">
+        <tr>
+          <th>方案</th>
+          <th>投资 (万)</th>
+          <th>年节省 (万)</th>
+          <th>年维护 (万)</th>
+          <th>净年收益 (万)</th>
+          <th>5年ROI</th>
+          <th>回本周期</th>
+          <th>省人数</th>
+        </tr>
+        {% for c in data.comparisons %}
+        <tr class="{% if c.is_best %}best{% endif %}">
+          <td style="text-align:left; font-weight: bold;">
+            {% if c.is_best %}✅ {% endif %}{{ c.scenario_name }}
+          </td>
+          <td>{{ (c.automation_capex / 10000)|round(0) }}</td>
+          <td>{{ (c.annual_saving / 10000)|round(1) }}</td>
+          <td>{{ (c.annual_maintenance / 10000)|round(1) }}</td>
+          <td>{{ (c.net_annual_benefit / 10000)|round(1) }}</td>
+          <td><strong>{{ c.roi_5y }}x</strong></td>
+          <td>{{ c.payback_years }}年</td>
+          <td>{{ c.headcount_saved }}人</td>
+        </tr>
+        {% endfor %}
+      </table>
+      <p class="text-light mt-12">* ✅ 标记为该维度最优方案 | 5年ROI = (年节省 - 年维护) × 5 / 投资额</p>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">
+      <span class="section-number">09</span>
+      综合评价
+    </div>
+    <div class="section-body">
+      <div class="kpi-row">
+        {% set best_cmp = (data.comparisons|selectattr('is_best')|list)[0] if (data.comparisons|selectattr('is_best')|list) else data.comparisons[0] %}
+        <div class="kpi-card highlight">
+          <div class="kpi-card-value">{{ best_cmp.scenario_name }}</div>
+          <div class="kpi-card-label">推荐首选方案</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-card-value">{{ best_cmp.roi_5y }}x</div>
+          <div class="kpi-card-label">5年ROI</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-card-value">{{ best_cmp.payback_years }}年</div>
+          <div class="kpi-card-label">投资回收期</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-card-value">{{ (best_cmp.annual_saving / 10000)|round(1) }}万</div>
+          <div class="kpi-card-label">年节省</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">
+      <span class="section-number">09</span>
+      各方案详细参数
+    </div>
+    <div class="section-body">
+      <table class="data-table">
+        <tr>
+          <th>方案</th>
+          <th>类别</th>
+          <th>自动化投资</th>
+          <th>5年累计净收益</th>
+          <th>5年ROI</th>
+          <th>回本周期</th>
+          <th>节省人数/总人数</th>
+        </tr>
+        {% for c in data.comparisons %}
+        <tr>
+          <td><strong>{% if c.is_best %}✅ {% endif %}{{ c.scenario_name }}</strong></td>
+          <td>{{ c.category }}</td>
+          <td>¥{{ (c.automation_capex / 10000)|round(0) }}万</td>
+          <td>¥{{ (c.five_year_net_benefit / 10000)|round(1) }}万</td>
+          <td><strong>{{ c.roi_5y }}x</strong></td>
+          <td>{{ c.payback_years }}年</td>
+          <td>{{ c.headcount_saved }}/{{ c.headcount_required }}</td>
+        </tr>
+        {% endfor %}
+      </table>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+</body>
+</html>
