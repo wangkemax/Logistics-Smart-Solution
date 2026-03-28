@@ -121,6 +121,32 @@ class ExtractionResponse(BaseModel):
     missing_p1: list[str]
 
 
+class DemoRequest(BaseModel):
+    """Lightweight demo endpoint: takes a project profile directly, no tender doc needed."""
+    industry: str = Field(default="电商", description="行业")
+    region: str = Field(default="华东", description="地区")
+    warehouse_area: float = Field(default=20000.0, description="仓库面积 m²")
+    sku_count: int = Field(default=30000, description="SKU 品类数")
+    daily_orders: int = Field(default=5000, description="日均订单量")
+    inventory: int = Field(default=0, description="库存量")
+    labor_cost_level: str = Field(default="中", description="人工成本水平：低/中/高")
+    budget_level: str = Field(default="中", description="预算水平：低/中/高")
+    automation_expectation: str = Field(default="中", description="自动化期望：低/中/高")
+    contract_years: int = Field(default=3, description="合同期（年）")
+    top_n: int = Field(default=5, ge=1, le=15, description="返回方案数量")
+    generate_pdf: bool = Field(default=False, description="是否生成 PDF 报告")
+
+
+class DemoResponse(BaseModel):
+    """Response from /api/pipeline/demo endpoint."""
+    project_profile: dict                      # normalized input snapshot
+    recommendations: list[dict]               # top N with reasons + breakdown
+    financial_comparison: list[dict]           # cost/ROI for each recommendation
+    pdf_url: str | None
+    scoring_strategy: str                      # e.g. "weighted_v1"
+    match_distribution: dict                  # {高: int, 中: int, 低: int}
+
+
 # =============================================================================
 # In-Memory Pipeline Store (simple, per-process)
 # =============================================================================
@@ -574,6 +600,110 @@ async def extract_profile(request: ExtractionRequest):
         raw_requirements_summary=raw_summary,
         missing_p0=missing_p0 or [],
         missing_p1=[],
+    )
+
+
+@router.post("/demo", response_model=DemoResponse)
+async def run_demo(request: DemoRequest):
+    """
+    Lightweight end-to-end demo: takes a project profile directly, no tender doc.
+
+    Returns:
+        - Normalized input profile
+        - Top N automation recommendations with score_breakdown + reasons
+        - Financial comparison (CAPEX / OPEX / ROI / payback)
+        - Optional PDF download URL
+
+    Use this for:
+        - Internal demos and rapid prototyping
+        - Validating recommendation logic
+        - Quick ROI estimation without uploading documents
+    """
+    from backend.services.recommendation_service import recommend_solutions
+    from backend.services.cost_service import compare_solution_financials
+    import uuid as _uuid
+
+    # Build profile dict from request
+    profile = {
+        "industry": request.industry,
+        "region": request.region,
+        "warehouse_area": request.warehouse_area,
+        "sku_count": request.sku_count,
+        "daily_orders": request.daily_orders,
+        "inventory": request.inventory,
+        "labor_cost_level": request.labor_cost_level,
+        "budget_level": request.budget_level,
+        "automation_expectation": request.automation_expectation,
+        "contract_years": request.contract_years,
+    }
+
+    # Get recommendations (includes reasons + breakdown)
+    rec_result = recommend_solutions(profile, top_n=request.top_n, include_reasons=True)
+    recommendations = rec_result.get("recommendations", [])
+    normalized_profile = rec_result.get("total_profiles_normalized", profile)
+    match_distribution = rec_result.get("match_distribution", {})
+
+    if not recommendations:
+        return DemoResponse(
+            project_profile=normalized_profile,
+            recommendations=[],
+            financial_comparison=[],
+            pdf_url=None,
+            scoring_strategy="weighted_v1",
+            match_distribution=match_distribution,
+        )
+
+    # Get financial comparison for each recommended scenario
+    financial_comparison = compare_solution_financials(
+        normalized_profile, recommendations, region=request.region
+    )
+
+    # PDF generation for demo (best-effort — full PDF via report_service later)
+    pdf_url = None
+    if request.generate_pdf:
+        # Placeholder: demo PDF not yet implemented
+        # Will be added via backend/services/report_service.generate_demo_report()
+        pass
+
+    return DemoResponse(
+        project_profile=normalized_profile,
+        recommendations=[
+            {
+                "scenario_id": r["scenario_id"],
+                "scenario_name": r["scenario_name"],
+                "category": r.get("category", ""),
+                "score": r["score"],
+                "score_breakdown": r.get("score_breakdown", {}),
+                "match_level": r.get("match_level", "中"),
+                "reasons": r.get("reasons", []),
+                "scoring_strategy": r.get("scoring_strategy", "weighted_v1"),
+                "capex_range": r.get("capex_range", ""),
+                "labor_saving": r.get("labor_saving", 0),
+                "efficiency_gain": r.get("efficiency_gain", 0),
+                "risk_level": r.get("risk_level", "中"),
+            }
+            for r in recommendations
+        ],
+        financial_comparison=[
+            {
+                "scenario_name": f["scenario_name"],
+                "category": f.get("category", ""),
+                "capex_estimate": f.get("capex_estimate", 0),
+                "capex_range": f.get("currency_fmt", {}).get("capex", "—"),
+                "opex_annual": f.get("opex_annual", 0),
+                "roi_5y": f.get("roi_5y", 0),
+                "roi_3y": f.get("roi_3y", 0),
+                "payback_years": f.get("payback_years"),
+                "payback_years_str": f.get("payback_years_str", "—"),
+                "headcount_saved": f.get("headcount_saved", 0),
+                "is_best": f.get("is_best", False),
+                "warnings": f.get("warnings", []),
+            }
+            for f in financial_comparison
+        ],
+        pdf_url=pdf_url,
+        scoring_strategy="weighted_v1",
+        match_distribution=match_distribution,
     )
 
 
