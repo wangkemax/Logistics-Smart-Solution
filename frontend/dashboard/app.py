@@ -336,21 +336,23 @@ def _render_key_metrics(best: dict, profile: dict):
 
 
 def _render_results_panel():
+    results = st.session_state.get("pipeline_result") or {}
     profile = st.session_state.get("pipeline_profile", {}) or {}
     recs = st.session_state.get("pipeline_recs", []) or []
     comparisons = st.session_state.get("pipeline_comparisons", []) or []
     state = st.session_state.get("pipeline_state", "UNKNOWN")
+    best = _safe_best_result(results)
 
     # ---- Profile Summary Cards ----
     st.markdown("**📋 项目画像**")
     m1, m2 = st.columns(2)
     m1.metric("行业", profile.get("industry", "—"))
     m1.metric("地区", profile.get("region", "—"))
-    m2.metric("面积", f"{profile.get('warehouse_area', 0):,.0f}㎡")
-    m2.metric("日订单", f"{profile.get('daily_orders', 0):,}")
+    m2.metric("面积", fmt_area(profile.get("warehouse_area")))
+    m2.metric("日订单", fmt_count(profile.get("daily_orders")))
     m3, m4 = st.columns(2)
-    m3.metric("SKU", f"{profile.get('sku_count', 0):,}")
-    m3.metric("库存", f"{profile.get('inventory', 0):,}")
+    m3.metric("SKU", fmt_count(profile.get("sku_count")))
+    m3.metric("库存", fmt_count(profile.get("inventory")))
     m4.metric("预算", profile.get("budget_level", "—"))
     m4.metric("人工", profile.get("labor_cost_level", "—"))
 
@@ -376,9 +378,9 @@ def _render_results_panel():
             max_pb = safe_max(x.get("payback_years") or 0 for x in comparisons)
             max_sv = safe_max((x.get("annual_labor_saving") or 0) + (x.get("annual_efficiency_saving") or 0) for x in comparisons)
             c_roi = c.get("roi_5y") or 0
-            c_pb = c.get("payback_years") or max_pb
-            c_sv = c.get("annual_labor_saving", 0) + c.get("annual_efficiency_saving", 0)
-            return (c_roi/max_roi)*100*w_roi_n + (1-c_pb/max_pb)*100*w_pb_n + (c_sv/max_sv)*100*w_sv_n
+            c_pb = c.get("payback_years") or 0
+            c_sv = (c.get("annual_labor_saving") or 0) + (c.get("annual_efficiency_saving") or 0)
+            return (safe_div(c_roi, max_roi))*100*w_roi_n + (1 - safe_div(c_pb, max_pb))*100*w_pb_n + safe_div(c_sv, max_sv)*100*w_sv_n
 
         ranked = sorted(comparisons, key=weighted_score, reverse=True)
         top_w = ranked[0]["scenario_name"] if ranked else ""
@@ -511,7 +513,7 @@ if app_mode == "📋 方案生成":
                 if recommendations:
                     top = recommendations[0]
                     c1, c2, c3, c4 = st.columns(4)
-                    c1.metric("首选方案", top["scenario_name"])
+                    c1.metric("首选方案", fmt_text(top.get("scenario_name"), "—"))
                     c2.metric("匹配评分", f"{top['score']:.0f}/100")
                     c3.metric("人工节省", f"{int(top['labor_saving']*100)}%")
                     c4.metric("效率提升", f"{int(top['efficiency_gain']*100)}%")
@@ -698,8 +700,8 @@ elif app_mode == "⚖️ 多方案对比":
                 c1, c2, c3, c4 = st.columns(4)
                 c1.metric("🥇 最佳方案", fmt_text(best.get("scenario_name"), "—"))
                 c2.metric("5年ROI", fmt_percent(best.get("roi_5y")))
-                c3.metric("回本周期", f"{float(best.get('payback_years', 0) or 0):.1f}年")
-                c4.metric("年节省", f"{float(best.get('annual_saving', 0)/10000 or 0):.1f}万")
+                c3.metric("回本周期", fmt_years(best.get("payback_years")))
+                c4.metric("年节省", fmt_currency((best.get("annual_labor_saving") or 0) + (best.get("annual_efficiency_saving") or 0)))
 
                 st.divider()
                 st.subheader("📈 可视化对比")
