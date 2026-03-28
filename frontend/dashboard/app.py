@@ -340,7 +340,7 @@ def _render_results_panel():
                 "方案": ("🥇 " if c["scenario_name"] == top_w else "  ") + c["scenario_name"],
                 "投资(万)": f"{c.get('capex_estimate', 0)/10000:.0f}",
                 "5年ROI": f"{c['roi_5y']:.1f}x",
-                "回本(年)": f"{c['payback_years']:.1f}",
+                "回本(年)": f"{(c.get('payback_years') or 0):.1f}",
                 "年节省": f"{(c.get('annual_labor_saving', 0) + c.get('annual_efficiency_saving', 0))/10000:.1f}万",
                 "省人": f"{c['headcount_saved']}人",
             })
