@@ -633,67 +633,95 @@ elif app_mode == "🚀 Pipeline Run":
                 help="留空则使用推荐TOP3方案",
             )
 
-    # ---- Run Button ----
+    # =============================================================================
+    # Pipeline: State Machine via session_state
+    # =============================================================================
+
+    # Initialize session state for pipeline
+    for key in ["pipeline_state", "pipeline_profile", "pipeline_recs",
+                 "pipeline_comparisons", "pipeline_pdf_bytes", "pipeline_pdf_filename",
+                 "pipeline_log_lines", "pipeline_extraction_done"]:
+        if key not in st.session_state:
+            st.session_state[key] = None if key != "pipeline_log_lines" else []
+
+    def reset_pipeline():
+        for key in ["pipeline_state", "pipeline_profile", "pipeline_recs",
+                     "pipeline_comparisons", "pipeline_pdf_bytes", "pipeline_pdf_filename",
+                     "pipeline_log_lines", "pipeline_extraction_done"]:
+            st.session_state[key] = [] if key == "pipeline_log_lines" else None
+
+    pipeline_state = st.session_state.get("pipeline_state")
+
+    # ---- Reset button ----
+    if st.button("🔄 重置 Pipeline", help="清除当前结果，重新开始"):
+        reset_pipeline()
+        st.rerun()
+
+    # ---- Run Button: start pipeline ----
     run_clicked = st.button("🚀 开始运行 Pipeline",
-                             type="primary",
-                             use_container_width=True,
+                             type="primary", use_container_width=True,
                              help="点击开始完整Pipeline：提取需求→推荐→成本→对比→PDF")
 
-    # =============================================================================
-    # Pipeline Execution
-    # =============================================================================
     if run_clicked:
-        pipeline_tender = final_tender_text.strip()
+        pipeline_tender = (st.session_state.get("tender_text", "") or "").strip()
         if not pipeline_tender:
             st.warning("⚠️ 请上传招标文件或粘贴文本摘要")
             st.stop()
+        st.session_state.pipeline_state = "running"
+        st.session_state.pipeline_log_lines = []
+        # Store sidebar params in session
+        st.session_state._pipeline_params = {
+            "industry": industry_p, "warehouse_area": float(warehouse_area_p),
+            "sku_count": int(sku_count_p), "daily_orders": int(daily_orders_p),
+            "inventory": int(inventory_p), "labor_cost_level": labor_cost_level_p,
+            "budget_level": budget_level_p, "region": region_p,
+            "compare_sids_str": compare_sids_str,
+            "tender_text": pipeline_tender,
+        }
+        st.rerun()
 
-        # ---- Parse scenario IDs ----
-        compare_ids = None
-        if compare_sids_str.strip():
-            try:
-                compare_ids = [int(s.strip()) for s in compare_sids_str.split(",") if s.strip()]
-            except ValueError:
-                st.warning("方案ID格式错误，已使用默认TOP3")
-                compare_ids = None
+    # ---- Pipeline Execution (runs after button click or rerun) ----
+    if st.session_state.get("pipeline_state") == "running":
+        params = st.session_state.get("_pipeline_params", {})
 
         # ---- Progress + Log UI ----
         st.markdown("---")
         st.markdown("### 🔄 Pipeline 执行进度")
         progress_bar = st.progress(0)
         log_placeholder = st.empty()
-        log_lines = []
 
         def log(msg: str):
-            log_lines.append(f"[{datetime.now().strftime('%H:%M:%S')}] {msg}")
-            log_placeholder.text("\n".join(log_lines))
+            lines = st.session_state.pipeline_log_lines or []
+            lines.append(f"[{datetime.now().strftime('%H:%M:%S')}] {msg}")
+            st.session_state.pipeline_log_lines = lines
+            log_placeholder.text("\n".join(lines[-50:]))  # keep last 50 lines
 
-        def set_progress(pct: float, label: str = ""):
-            progress_bar.progress(min(int(pct), 100) // 100)
-            if label:
-                st.caption(label)
-
-        # ---- Step 1: Extract ----
-        set_progress(0.1, "① 提取中...")
-        log("① 开始解析招标文件...")
         profile_overrides = {
-            "industry": industry_p, "warehouse_area": float(warehouse_area_p),
-            "sku_count": int(sku_count_p), "daily_orders": int(daily_orders_p),
-            "inventory": int(inventory_p),
-            "labor_cost_level": labor_cost_level_p, "budget_level": budget_level_p,
+            "industry": params.get("industry", "电商"),
+            "warehouse_area": params.get("warehouse_area", 20000.0),
+            "sku_count": params.get("sku_count", 30000),
+            "daily_orders": params.get("daily_orders", 5000),
+            "inventory": params.get("inventory", 500000),
+            "labor_cost_level": params.get("labor_cost_level", "中"),
+            "budget_level": params.get("budget_level", "中"),
             "automation_expectation": "中",
         }
-        extract_resp, err1 = call_api("/api/pipeline/extract",
-                                       {"tender_document": pipeline_tender}, timeout=30)
+
+        # ---- Step 1: Extract ----
+        log("① 开始解析招标文件...")
+        extract_resp, err1 = call_api(
+            "/api/pipeline/extract",
+            {"tender_document": params.get("tender_text", "")},
+            timeout=30,
+        )
         if err1:
-            set_progress(1.0)
             log(f"❌ 需求提取失败: {err1}")
-            st.stop()
+            st.session_state.pipeline_state = "done"
+            st.rerun()
 
         profile = extract_resp.get("project_profile", {})
         missing_p0 = extract_resp.get("missing_p0", [])
         confidence = extract_resp.get("extraction_confidence", 0)
-        summary_text = extract_resp.get("raw_requirements_summary", "")
         log(f"① 需求提取完成 | 置信度: {confidence:.0%} | 行业: {profile.get('industry','?')} | 缺失P0: {missing_p0 or '无'}")
         progress_bar.progress(20)
 
@@ -725,19 +753,21 @@ elif app_mode == "🚀 Pipeline Run":
                         ind_idx = industries.index(cur_ind)
                     ind_correct = st.selectbox("行业", industries, index=ind_idx)
                     area_correct = st.number_input(
-                        "仓库面积 (㎡)", value=safe_int(profile.get("warehouse_area"), int(warehouse_area_p)),
+                        "仓库面积 (㎡)",
+                        value=safe_int(profile.get("warehouse_area"), int(params.get("warehouse_area", 20000))),
                         step=1000, min_value=500, max_value=500000,
                     )
                 with c2:
                     sku_correct = st.number_input(
-                        "SKU数量", value=safe_int(profile.get("sku_count"), int(sku_count_p)),
+                        "SKU数量",
+                        value=safe_int(profile.get("sku_count"), int(params.get("sku_count", 30000))),
                         step=1000, min_value=100,
                     )
                     ord_correct = st.number_input(
-                        "日均订单量", value=safe_int(profile.get("daily_orders"), int(daily_orders_p)),
+                        "日均订单量",
+                        value=safe_int(profile.get("daily_orders"), int(params.get("daily_orders", 5000))),
                         step=100, min_value=50,
                     )
-
                 c3, c4, c5 = st.columns(3)
                 with c3:
                     bud_correct = st.select_slider(
@@ -751,53 +781,66 @@ elif app_mode == "🚀 Pipeline Run":
                     )
                 with c5:
                     inv_correct = st.number_input(
-                        "库存量 (件)", value=safe_int(profile.get("inventory"), int(inventory_p)),
+                        "库存量 (件)",
+                        value=safe_int(profile.get("inventory"), int(params.get("inventory", 500000))),
                         step=10000, min_value=1000,
                     )
-
                 if missing_p0:
                     st.markdown(f"**⚠️ 缺失的P0字段：** {', '.join(missing_p0)}")
+                st.info("确认参数后点击下方按钮继续 Pipeline 执行")
                 submitted = st.form_submit_button(
-                    "✅ 确认参数并继续", type="primary", use_container_width=True
+                    "✅ 确认参数并继续 Pipeline", type="primary", use_container_width=True,
                 )
-                if not submitted:
-                    st.stop()
+                if submitted:
+                    # Update overrides with corrected values
+                    profile_overrides = {
+                        "industry": ind_correct, "warehouse_area": float(area_correct),
+                        "sku_count": int(sku_correct), "daily_orders": int(ord_correct),
+                        "inventory": int(inv_correct),
+                        "labor_cost_level": lab_correct, "budget_level": bud_correct,
+                        "automation_expectation": "中",
+                    }
+                    log(f"① 参数已修正 | 行业: {ind_correct} | 面积: {area_correct}㎡")
+                    # Continue pipeline by rerunning
+                    st.session_state.pipeline_state = "running"
+                    st.session_state._pipeline_params = {**params, **profile_overrides}
+                    st.rerun()
 
-                profile_overrides = {
-                    "industry": ind_correct, "warehouse_area": float(area_correct),
-                    "sku_count": int(sku_correct), "daily_orders": int(ord_correct),
-                    "inventory": int(inv_correct),
-                    "labor_cost_level": lab_correct, "budget_level": bud_correct,
-                    "automation_expectation": "中",
-                }
-                log(f"① 参数已修正 | 行业: {ind_correct} | 面积: {area_correct}㎡")
+            # Form was rendered but not submitted — stop here (don't continue pipeline)
+            st.stop()
 
-        # Apply overrides to extracted profile
+        # Apply overrides and continue pipeline
         profile.update(profile_overrides)
         progress_bar.progress(20)
 
         # ---- Step 2: Recommend ----
-        set_progress(0.3, "② 推荐中...")
         log("② 正在调用推荐引擎...")
         rec_result, err2 = call_api("/api/recommend", profile, timeout=30)
         if err2:
             log(f"❌ 推荐失败: {err2}")
-            st.stop()
+            st.session_state.pipeline_state = "done"
+            st.rerun()
         recs = rec_result.get("recommendations", [])
         progress_bar.progress(40)
         log(f"② 推荐完成 | 生成 {len(recs)} 个方案 | 首选: {recs[0]['scenario_name'] if recs else 'N/A'}")
+        st.session_state.pipeline_recs = recs
 
         # ---- Step 3: Cost Comparison ----
-        set_progress(0.5, "③ 计算ROI...")
         log("③ 正在计算各方案成本与ROI...")
+        compare_sids_str_corr = params.get("compare_sids_str", "")
+        compare_ids = None
+        if compare_sids_str_corr.strip():
+            try:
+                compare_ids = [int(s.strip()) for s in compare_sids_str_corr.split(",") if s.strip()]
+            except ValueError:
+                compare_ids = None
+
         if compare_ids and len(compare_ids) >= 2:
             cmp_ids = compare_ids
         else:
-            cmp_ids = [r["scenario_id"] for r in recs[:3] if len([r["scenario_id"] for r in recs[:3]]) >= 2]
-            if len(cmp_ids) < 2 and len(recs) >= 2:
-                cmp_ids = [r["scenario_id"] for r in recs[:5]]
+            cmp_ids = [r["scenario_id"] for r in recs[:3]]
 
-        cmp_payload = {**profile, "region": region_p, "scenario_ids": cmp_ids}
+        cmp_payload = {**profile, "region": params.get("region", "华东"), "scenario_ids": cmp_ids}
         cmp_result, err3 = call_api("/api/compare", cmp_payload, timeout=30)
         comparisons = cmp_result.get("comparisons", []) if cmp_result else []
         progress_bar.progress(60)
@@ -806,14 +849,13 @@ elif app_mode == "🚀 Pipeline Run":
             log(f"③ ROI计算完成 | 最佳: {best_cmp['scenario_name']} | ROI: {best_cmp.get('roi_5y', 0):.1f}x | 回本: {best_cmp.get('payback_years', 0):.1f}年")
         else:
             log("⚠️ 未能生成有效成本对比结果")
+        st.session_state.pipeline_comparisons = comparisons
 
-        # ---- Step 4: Multi-Solution Compare ----
-        set_progress(0.75, "④ 对比中...")
+        # ---- Step 4: Compare ----
         log(f"④ 多方案横向对比完成 | 共 {len(comparisons)} 个方案已排序")
         progress_bar.progress(80)
 
-        # ---- Step 5: PDF Generation ----
-        set_progress(0.85, "⑤ 生成PDF...")
+        # ---- Step 5: PDF ----
         log("⑤ 正在生成PDF报告...")
         pdf_bytes = None
         pdf_filename = None
@@ -830,28 +872,41 @@ elif app_mode == "🚀 Pipeline Run":
                     "labor_cost_level": profile.get("labor_cost_level", "中"),
                     "budget_level": profile.get("budget_level", "中"),
                     "automation_expectation": profile.get("automation_expectation", "中"),
-                    "region": region_p,
+                    "region": params.get("region", "华东"),
                 },
                 timeout=60,
             )
             if pdf_resp.status_code == 200:
                 pdf_bytes = pdf_resp.content
                 pdf_filename = f"{profile.get('project_name', '投标项目')}_方案建议书.pdf"
-                progress_bar.progress(100)
                 log(f"⑤ PDF生成完成 | 大小: {len(pdf_bytes)/1024:.0f}KB ✅")
             else:
                 log(f"⚠️ PDF生成失败: HTTP {pdf_resp.status_code}")
         except Exception as e:
             log(f"⚠️ PDF生成异常: {e}")
 
-        # =====================================================================
-        # Results Section
-        # =====================================================================
+        st.session_state.pipeline_pdf_bytes = pdf_bytes
+        st.session_state.pipeline_pdf_filename = pdf_filename
+        st.session_state.pipeline_profile = profile
+        st.session_state.pipeline_state = "done"
+        progress_bar.progress(100)
+        st.rerun()
+
+    # =====================================================================
+    # Results Section (pipeline_state == "done")
+    # =====================================================================
+    if st.session_state.get("pipeline_state") == "done":
         st.markdown("---")
         st.markdown("## 📊 Pipeline 执行结果")
 
+        profile = st.session_state.get("pipeline_profile", {})
+        recs = st.session_state.get("pipeline_recs", []) or []
+        comparisons = st.session_state.get("pipeline_comparisons", []) or []
+        pdf_bytes = st.session_state.get("pipeline_pdf_bytes")
+        pdf_filename = st.session_state.get("pipeline_pdf_filename")
+
         # Profile summary
-        with st.expander("📋 提取的项目画像", expanded=True):
+        with st.expander("📋 项目画像", expanded=True):
             cols = st.columns(4)
             cols[0].metric("行业", profile.get("industry", "—"))
             cols[1].metric("地区", profile.get("region", "—"))
@@ -863,42 +918,39 @@ elif app_mode == "🚀 Pipeline Run":
             cols2[2].metric("预算水平", profile.get("budget_level", "—"))
             cols2[3].metric("人工成本", profile.get("labor_cost_level", "—"))
 
-        # ---- Weight sliders for comparison ----
+        # ---- Weight sliders ----
         if comparisons:
             st.subheader("⚖️ 多方案ROI对比结果")
-            st.info("💡 拖动权重滑块可调整最优方案评分标准")
-            w_col1, w_col2, w_col3 = st.columns(3)
-            with w_col1:
+            st.info("💡 拖动权重滑块可动态调整最优方案排序")
+            w1, w2, w3 = st.columns(3)
+            with w1:
                 w_roi = st.slider("ROI权重", 0.0, 1.0, 0.4, 0.05, key="w_roi")
-            with w_col2:
+            with w2:
                 w_payback = st.slider("回本周期权重", 0.0, 1.0, 0.3, 0.05, key="w_payback")
-            with w_col3:
+            with w3:
                 w_saving = st.slider("年节省权重", 0.0, 1.0, 0.3, 0.05, key="w_saving")
-
             total_w = w_roi + w_payback + w_saving
-            if total_w > 0:
-                w_roi_n, w_payback_n, w_saving_n = w_roi/total_w, w_payback/total_w, w_saving/total_w
-            else:
-                w_roi_n, w_payback_n, w_saving_n = 0.33, 0.33, 0.34
+            w_roi_n = w_roi / total_w if total_w > 0 else 0.33
+            w_payback_n = w_payback / total_w if total_w > 0 else 0.33
+            w_saving_n = w_saving / total_w if total_w > 0 else 0.34
 
-            # Normalize scores
             def weighted_score(c):
                 max_roi = max((x["roi_5y"] for x in comparisons), default=1) or 1
                 max_payback = max((x["payback_years"] for x in comparisons), default=1) or 1
                 max_saving = max((x["annual_saving"] for x in comparisons), default=1) or 1
                 roi_score = (c["roi_5y"] / max_roi) * 100
-                payback_score = (1 - c["payback_years"] / max_payback) * 100
-                saving_score = (c["annual_saving"] / max_saving) * 100
-                return (roi_score * w_roi_n + payback_score * w_payback_n + saving_score * w_saving_n)
+                pb_score = (1 - c["payback_years"] / max_payback) * 100
+                sav_score = (c["annual_saving"] / max_saving) * 100
+                return roi_score * w_roi_n + pb_score * w_payback_n + sav_score * w_saving_n
 
             weighted_comps = sorted(comparisons, key=weighted_score, reverse=True)
-            top_by_weight = weighted_comps[0]["scenario_name"] if weighted_comps else "—"
+            top_w = weighted_comps[0]["scenario_name"] if weighted_comps else "—"
 
             rows = []
             for c in comparisons:
                 ws = weighted_score(c)
                 rows.append({
-                    "方案": ("✅ " if c.get("is_best") else "🥇 " if c["scenario_name"] == top_by_weight else "  ") + c["scenario_name"],
+                    "方案": ("🥇 " if c["scenario_name"] == top_w else "  ") + c["scenario_name"],
                     "类别": c["category"],
                     "投资 (万)": f"{c['automation_capex']/10000:.0f}",
                     "年节省 (万)": f"{c['annual_saving']/10000:.1f}",
@@ -907,10 +959,8 @@ elif app_mode == "🚀 Pipeline Run":
                     "省人数": f"{c['headcount_saved']}人",
                     "加权评分": f"{ws:.1f}",
                 })
-            df_cmp = pd.DataFrame(rows)
-            st.dataframe(df_cmp, use_container_width=True, hide_index=True)
+            st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
 
-            # KPI cards
             best = next((c for c in comparisons if c.get("is_best")), comparisons[0])
             k1, k2, k3, k4 = st.columns(4)
             k1.metric("🥇 推荐方案", best.get("scenario_name", "—"))
@@ -918,7 +968,6 @@ elif app_mode == "🚀 Pipeline Run":
             k3.metric("回本周期", f"{best.get('payback_years', 0):.1f}年")
             k4.metric("年节省", f"{best.get('annual_saving', 0)/10000:.1f}万")
 
-            # Charts
             t1, t2, t3 = st.tabs(["📊 投资与年节省", "📈 ROI对比", "🎯 综合雷达图"])
             with t1:
                 st.plotly_chart(render_compare_bar_chart(comparisons), use_container_width=True)
@@ -927,7 +976,6 @@ elif app_mode == "🚀 Pipeline Run":
             with t3:
                 st.plotly_chart(render_compare_radar(comparisons), use_container_width=True)
 
-        # Recommendations
         if recs:
             st.subheader("🎯 自动化方案推荐 (TOP 5)")
             for i, rec in enumerate(recs[:5]):
@@ -945,7 +993,7 @@ elif app_mode == "🚀 Pipeline Run":
                                   f"**投资范围:** {rec['capex_range']}")
                     with c_b:
                         st.plotly_chart(render_score_gauge(rec["score"]),
-                                        use_container_width=True, key=f"pipeline_score_{i}")
+                                        use_container_width=True, key=f"result_score_{i}")
 
         # PDF Download
         if pdf_bytes:
@@ -954,7 +1002,7 @@ elif app_mode == "🚀 Pipeline Run":
             st.download_button(
                 "📄 下载完整PDF方案建议书",
                 data=pdf_bytes,
-                file_name=pdf_filename,
+                file_name=pdf_filename or "solution_report.pdf",
                 mime="application/pdf",
                 type="primary",
                 use_container_width=True,
