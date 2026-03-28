@@ -216,6 +216,170 @@ def render_step_status(name: str, status: str, details: str = ""):
 
 
 # =============================================================================
+# QA Correction Panel
+# =============================================================================
+
+# Field metadata: frontend label → (profile_key, widget_type, extra_kwargs)
+_QA_FIELD_META = {
+    "warehouse_area":          ("仓库面积",          "number",   {"min_value": 500,      "max_value": 500000,  "step": 500,   "format": "%.0f"}),
+    "sku_count":               ("SKU数量",            "number",   {"min_value": 100,      "max_value": 1000000, "step": 1000,  "format": "%.0f"}),
+    "daily_orders":            ("日订单量",           "number",   {"min_value": 50,       "max_value": 500000,  "step": 100,   "format": "%.0f"}),
+    "inventory":               ("库存量",             "number",   {"min_value": 1000,     "max_value": 10000000,"step": 10000, "format": "%.0f"}),
+    "contract_years":          ("合同年限",           "number",   {"min_value": 1,        "max_value": 20,       "step": 1,     "format": "%.0f"}),
+    "industry":                ("行业",               "select",   {"options": ["电商", "3PL", "零售", "制造", "快递", "医药", "食品", "生鲜"]}),
+    "region":                  ("地区",               "select",   {"options": ["华东", "华南", "华北", "华中", "西部"]}),
+    "labor_cost_level":        ("人工成本等级",       "select",   {"options": ["低", "中", "高"]}),
+    "budget_level":            ("预算等级",           "select",   {"options": ["低", "中", "高"]}),
+    "automation_expectation":  ("自动化期望",         "select",   {"options": ["低", "中", "高"]}),
+    "go_live_date":            ("预计上线日期",       "text",     {"placeholder": "YYYY-MM"}),
+}
+
+
+def _submit_qa_correction(pipeline_id: str, overrides: dict) -> tuple[bool, str]:
+    """
+    Submit QA correction: call POST /api/pipeline/{pipeline_id}/retry
+    with from_stage=1_extraction and profile_overrides.
+    Returns (success, message).
+    """
+    try:
+        resp = requests.post(
+            f"{API_BASE_URL}/api/pipeline/{pipeline_id}/retry",
+            json={"from_stage": "1_extraction", "profile_overrides": overrides},
+            timeout=15,
+        )
+        if resp.status_code == 200:
+            return True, "✅ 已提交修正，Pipeline 正在重新运行…"
+        else:
+            return False, f"❌ 重试失败 [{resp.status_code}]: {resp.text[:120]}"
+    except Exception as e:
+        return False, f"❌ 请求失败: {e}"
+
+
+def _render_qa_correction_panel(pipeline_id: str, qa_verdict: str, qa_issues: list, existing_profile: dict) -> None:
+    """
+    Render the QA correction form when verdict is CONDITIONAL_PASS or FAIL.
+
+    - qa_verdict: "CONDITIONAL_PASS" | "FAIL"
+    - qa_issues: list of issue dicts (or strings from legacy pipelines)
+    - existing_profile: current project profile dict for pre-filling values
+    """
+    if qa_verdict not in ("CONDITIONAL_PASS", "FAIL"):
+        return
+
+    # ---- Header warning ----
+    if qa_verdict == "FAIL":
+        st.error("❌ QA审核未通过，请修正以下问题后重试")
+    else:
+        st.warning("⚠️ QA条件通过，以下事项请确认")
+
+    with st.expander("📝 修正 QA 问题", expanded=True):
+        # ---- Build the set of fields mentioned in issues ----
+        issue_fields = set()
+        for issue in qa_issues:
+            if isinstance(issue, dict):
+                # New format: {"field": "warehouse_area", "message": "...", "severity": "high"}
+                f = issue.get("field")
+                if f:
+                    issue_fields.add(f)
+            elif isinstance(issue, str):
+                # Legacy string format: "P0缺失数据: ['warehouse_area', 'sku_count']"
+                for key in _QA_FIELD_META:
+                    if key in issue:
+                        issue_fields.add(key)
+
+        if not issue_fields:
+            st.info("无可修正字段，请使用「从指定阶段重试」手动调整输入。")
+            return
+
+        # ---- Show issue list with severity icons ----
+        severity_icon_map = {
+            "high":   "🔴 P0",
+            "medium": "🟡 P1",
+            "low":    "⚪ P2",
+        }
+        severity_order = ["high", "medium", "low"]
+
+        for issue in qa_issues:
+            if isinstance(issue, dict):
+                sev = issue.get("severity", "low")
+                icon = severity_icon_map.get(sev, "⚪")
+                field_label = _QA_FIELD_META.get(issue.get("field", ""), (issue.get("field", ""),))[0]
+                msg = issue.get("message", "")
+                st.markdown(f"{icon} **{field_label}** — {msg}")
+            elif isinstance(issue, str):
+                st.markdown(f"⚪ {issue}")
+
+        st.divider()
+
+        # ---- Collect all QA-correctable fields (always show for convenience) ----
+        # Show all fields that appear in issues + a few common ones at the top
+        priority_fields = ["warehouse_area", "sku_count", "daily_orders", "inventory",
+                           "industry", "region", "labor_cost_level", "budget_level",
+                           "automation_expectation", "contract_years", "go_live_date"]
+
+        collected_overrides = {}
+
+        # Pre-fill from existing profile
+        for fkey in priority_fields:
+            if fkey not in _QA_FIELD_META:
+                continue
+            label, wtype, kwargs = _QA_FIELD_META[fkey]
+            current_val = existing_profile.get(fkey)
+            col1, col2 = st.columns([2, 1])
+            with col1:
+                if wtype == "number":
+                    default_val = float(current_val) if current_val is not None else kwargs.get("min_value", 0)
+                    val = st.number_input(
+                        label,
+                        value=default_val,
+                        **kwargs,
+                        key=f"qa_corr_{fkey}",
+                    )
+                    collected_overrides[fkey] = val
+                elif wtype == "select":
+                    options = kwargs["options"]
+                    default_idx = 0
+                    if current_val in options:
+                        default_idx = options.index(current_val)
+                    val = st.selectbox(
+                        label,
+                        options=options,
+                        index=default_idx,
+                        key=f"qa_corr_{fkey}",
+                    )
+                    collected_overrides[fkey] = val
+                elif wtype == "text":
+                    default_val = str(current_val) if current_val is not None else ""
+                    val = st.text_input(
+                        label,
+                        value=default_val,
+                        placeholder=kwargs.get("placeholder", ""),
+                        key=f"qa_corr_{fkey}",
+                    )
+                    collected_overrides[fkey] = val
+            with col2:
+                st.markdown("")  # spacer
+
+        st.divider()
+
+        submit_label = "📝 修正并重试"
+        submitted = st.button(submit_label, type="primary", use_container_width=True)
+
+        if submitted:
+            # Filter out None / empty overrides so we don't blast existing values
+            clean_overrides = {k: v for k, v in collected_overrides.items()
+                               if v is not None and v != ""}
+            success, msg = _submit_qa_correction(pipeline_id, clean_overrides)
+            if success:
+                st.session_state.pipeline_state = "polling"
+                st.session_state._skip_correction = False
+                st.success(msg)
+                st.rerun()
+            else:
+                st.error(msg)
+
+
+# =============================================================================
 # Welcome Screens
 # =============================================================================
 
@@ -321,24 +485,25 @@ def _render_key_metrics(best: dict, profile: dict):
     with c2:
         st.metric("回本周期", fmt_years(best.get("payback_years")))
     with c3:
-
-            # QA verdict display
-            qa_verdict = best.get("qa_verdict", "UNKNOWN")
-            if qa_verdict == "PASS":
-                st.success("✅ QA审核通过")
-            elif qa_verdict == "CONDITIONAL_PASS":
-                issues = best.get("qa_issues") or []
-                st.warning("⚠️ QA条件通过 — 以下事项需确认：")
-                for issue in issues:
+        # QA verdict display — handles both string and dict issue formats
+        qa_verdict = best.get("qa_verdict", "UNKNOWN")
+        if qa_verdict == "PASS":
+            st.success("✅ QA审核通过")
+        elif qa_verdict == "CONDITIONAL_PASS":
+            issues = best.get("qa_issues") or []
+            st.warning("⚠️ QA条件通过 — 以下事项需确认：")
+            for issue in issues:
+                if isinstance(issue, dict):
                     sev = issue.get("severity", "low")
                     sev_icon = {"high": "🔴", "medium": "🟡", "low": "🟢"}.get(sev, "⚪")
                     st.markdown(f"{sev_icon} **{issue.get('message', '')}**")
-            elif qa_verdict == "FAIL":
-                st.error("❌ QA审核未通过")
-                failed_stage = best.get("last_failed_stage", "")
-                retry_count = best.get("retry_count", 0)
-                st.markdown(f"失败阶段：{fmt_text(failed_stage)} | 已重试：{retry_count}次")
-
+                elif isinstance(issue, str):
+                    st.markdown(f"⚪ {issue}")
+        elif qa_verdict == "FAIL":
+            st.error("❌ QA审核未通过")
+            failed_stage = best.get("last_failed_stage", "")
+            retry_count = best.get("retry_count", 0)
+            st.markdown(f"失败阶段：{fmt_text(failed_stage)} | 已重试：{retry_count}次")
     with c4:
         st.metric("投资额", fmt_currency(best.get("capex_estimate")))
     c5, c6, c7, c8 = st.columns(4)
@@ -549,6 +714,12 @@ def _render_results_panel():
         st.session_state.get("pipeline_qa_verdict") or
         "UNKNOWN"
     )
+    qa_issues = (
+        best.get("qa_issues") or
+        results.get("qa_issues") or
+        st.session_state.get("pipeline_qa_issues") or
+        []
+    )
     retry_count = (
         best.get("retry_count") or
         results.get("retry_count") or
@@ -585,6 +756,10 @@ def _render_results_panel():
                 failed_stage = s.get("stage", "")
                 break
 
+    # Store qa_issues in session state for the correction panel to access
+    if qa_issues and qa_verdict in ("CONDITIONAL_PASS", "FAIL"):
+        st.session_state.pipeline_qa_issues = qa_issues
+
     if qa_verdict == "PASS":
         st.success("✅ QA 审核通过")
     elif qa_verdict == "CONDITIONAL_PASS":
@@ -598,6 +773,12 @@ def _render_results_panel():
         st.markdown(f"已重试：**{retry_count}** 次")
     else:
         st.caption(f"QA Verdict: `{qa_verdict or 'UNKNOWN'}`")
+
+    # ---- QA Correction Panel (CONDITIONAL_PASS / FAIL only) ----
+    if qa_verdict in ("CONDITIONAL_PASS", "FAIL") and qa_issues:
+        pipeline_id = st.session_state.get("_pipeline_id") or results.get("pipeline_id", "")
+        if pipeline_id:
+            _render_qa_correction_panel(pipeline_id, qa_verdict, qa_issues, profile)
 
     # ---- Retry History ----
     if retry_history:
