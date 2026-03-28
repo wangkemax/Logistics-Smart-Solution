@@ -381,22 +381,22 @@ def _render_results_panel():
         rows = []
         for c in ranked:
             ws = weighted_score(c)
-            rows.append({float(
-    "方案": ("🥇 " if c.get("scenario_name") == top_w else " ") + c.get("scenario_name", ""),
-    "5年ROI": f"{(c.get("roi_5y") or 0):.1f}x",
-    "回本(年)": f"{(c.get("payback_years") or 0):.1f}",
-    "节省(万)": f"{(c.get("annual_labor_saving", 0) + c.get("annual_efficiency_saving", 0))/10000:.1f}万",
-    "3年ROI": f"{(c.get("roi_3y") or 0):.1f}x",
-                "省人": f"{c['headcount_saved']}人",
+            rows.append({
+                "方案": ("🥇 " if c.get("scenario_name") == top_w else "  ") + fmt_text(c.get("scenario_name", "")),
+                "5年ROI": fmt_percent(c.get("roi_5y")),
+                "回本(年)": fmt_years(c.get("payback_years")),
+                "节省(万)": fmt_currency((c.get("annual_labor_saving") or 0) + (c.get("annual_efficiency_saving") or 0)),
+                "3年ROI": fmt_percent(c.get("roi_3y")),
+                "省人": fmt_count(c.get("headcount_saved"), "人"),
             })
         st.dataframe(pd.DataFrame(rows), hide_index=True, use_container_width=True)
 
         best = next((c for c in comparisons if c.get("is_best")), comparisons[0])
         k1, k2 = st.columns(2)
-        k1.metric("🥇 推荐", best.get("scenario_name", "—"))
-        k1.metric("5年ROI", f"{float(best.get('roi_5y', 0) or 0):.1f}x")
-        k2.metric("回本周期", f"{(float(best.get('payback_years') or 0):.1f}年")
-        k2.metric("年节省", f"{float((best.get('annual_labor_saving', 0) + best.get('annual_efficiency_saving', 0))/10000 or 0):.1f}万")
+        k1.metric("🥇 推荐", fmt_text(best.get("scenario_name"), "—"))
+        k1.metric("5年ROI", fmt_percent(best.get("roi_5y")))
+        k2.metric("回本周期", fmt_years(best.get("payback_years")))
+        k2.metric("年节省", fmt_currency((best.get("annual_labor_saving") or 0) + (best.get("annual_efficiency_saving") or 0)))
 
         t1, t2, t3 = st.tabs(["📊 投资节省", "📈 ROI", "🕸️ 雷达图"])
         with t1:
@@ -675,24 +675,24 @@ elif app_mode == "⚖️ 多方案对比":
                 st.subheader("📊 方案对比总览")
                 rows = []
                 for c in comparisons:
-                    rows.append({float(
-                        "方案": ("✅ " if c.get("is_best") else "  ") + c["scenario_name"],
-                        "类别": c["category"],
-                        "投资 (万)": f"{c['automation_capex']/10000 or 0):.0f}",
-                        "年节省 (万)": f"{c['annual_saving']/10000:.1f}",
-                        "年维护 (万)": f"{c['annual_maintenance']/10000:.1f}",
-                        "净年收益 (万)": f"{c['net_annual_benefit']/10000:.1f}",
-                        "5年ROI": f"{c['roi_5y']:.1f}x",
-                        "回本周期": f"{c['payback_years']:.1f}年",
-                        "省人数": f"{c['headcount_saved']}人",
+                    rows.append({
+                        "方案": ("✅ " if c.get("is_best") else "  ") + fmt_text(c.get("scenario_name")),
+                        "类别": fmt_text(c.get("category", "—")),
+                        "投资 (万)": fmt_currency(c.get("automation_capex") or 0),
+                        "年节省 (万)": fmt_currency(c.get("annual_saving") or 0),
+                        "年维护 (万)": fmt_currency(c.get("annual_maintenance") or 0),
+                        "净年收益 (万)": fmt_currency(c.get("net_annual_benefit") or 0),
+                        "5年ROI": fmt_percent(c.get("roi_5y")),
+                        "回本周期": fmt_years(c.get("payback_years")),
+                        "省人数": fmt_count(c.get("headcount_saved"), "人"),
                     })
                 st.dataframe(pd.DataFrame(rows), width='stretch', hide_index=True)
 
                 # KPI row
                 best = next((c for c in comparisons if c.get("is_best")), comparisons[0] if comparisons else {})
                 c1, c2, c3, c4 = st.columns(4)
-                c1.metric("🥇 最佳方案", best.get("scenario_name", "—"))
-                c2.metric("5年ROI", f"{float(best.get('roi_5y', 0) or 0):.1f}x")
+                c1.metric("🥇 最佳方案", fmt_text(best.get("scenario_name"), "—"))
+                c2.metric("5年ROI", fmt_percent(best.get("roi_5y")))
                 c3.metric("回本周期", f"{float(best.get('payback_years', 0) or 0):.1f}年")
                 c4.metric("年节省", f"{float(best.get('annual_saving', 0)/10000 or 0):.1f}万")
 
