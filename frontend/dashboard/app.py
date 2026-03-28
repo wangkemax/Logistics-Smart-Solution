@@ -175,12 +175,17 @@ def extract_tender_text(uploaded_file) -> str:
         if fname.endswith(".pdf"):
             import io
             from PyPDF2 import PdfReader
+            # Reset pointer in case file was already read
+            if hasattr(uploaded_file, "seek"):
+                uploaded_file.seek(0)
             reader = PdfReader(io.BytesIO(uploaded_file.read()))
             return "\n".join(page.extract_text() or "" for page in reader.pages)
         elif fname.endswith(".txt"):
             return uploaded_file.read().decode("utf-8", errors="replace")
         elif fname.endswith(".docx"):
             from docx import Document
+            if hasattr(uploaded_file, "seek"):
+                uploaded_file.seek(0)
             doc = Document(uploaded_file)
             return "\n".join(p.text for p in doc.paragraphs)
         else:
@@ -565,21 +570,31 @@ elif app_mode == "🚀 Pipeline Run":
         col_file, col_params = st.columns([1, 1])
 
         with col_file:
-            st.markdown("**上传招标文件**")
-            uploaded_file = st.file_uploader(
-                "支持 PDF / TXT / Word (.docx)",
+            st.markdown("**上传招标文件（支持多文件）**")
+            uploaded_files = st.file_uploader(
+                "支持 PDF / TXT / Word (.docx)，可多选",
                 type=["pdf", "txt", "docx"],
-                help="上传招标文件（PDF、Word或TXT格式），系统将自动提取项目参数",
+                accept_multiple_files=True,
+                help="上传招标文件（PDF、Word或TXT格式），支持多文件，系统将合并提取所有文本",
             )
-            if uploaded_file:
-                st.success(f"已上传: {uploaded_file.name}")
+            all_texts = []
+            if uploaded_files:
+                file_names = ", ".join(f.name for f in uploaded_files)
+                st.success(f"已上传 {len(uploaded_files)} 个文件: {file_names}")
                 with st.spinner("正在解析文件..."):
-                    tender_text = extract_tender_text(uploaded_file)
-                if tender_text and len(tender_text) > 50:
+                    texts = []
+                    for f in uploaded_files:
+                        t = extract_tender_text(f)
+                        if t and len(t) > 20:
+                            texts.append(t)
+                    tender_text = "\n\n--- 文件分隔: {f.name} ---\n\n".join(texts) if texts else ""
+                    all_texts = texts
+                if tender_text:
+                    total_chars = sum(len(t) for t in texts)
                     st.session_state.tender_text = tender_text
-                    st.info(f"已提取文本长度: {len(tender_text)} 字符")
-                    with st.expander("🔍 查看提取的文本（前500字）"):
-                        st.text(tender_text[:500] + ("..." if len(tender_text) > 500 else ""))
+                    st.info(f"共提取 {len(texts)} 个文件，合计 {total_chars} 字符")
+                    with st.expander("🔍 查看提取的文本（前800字）"):
+                        st.text(tender_text[:800] + ("..." if len(tender_text) > 800 else ""))
                 else:
                     st.warning("文件解析失败，请直接在下方填写参数")
                     st.session_state.tender_text = ""
