@@ -36,6 +36,13 @@ from backend.services.project_service import (
     get_scenario_comparison,
 )
 
+import redis as _redis_lib
+from rq import Queue as RQQueue
+
+REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+_redis_conn = _redis_lib.from_url(REDIS_URL, decode_responses=True)
+_pipeline_queue = RQQueue("pipeline", connection=_redis_conn, default_timeout="30m")
+
 router = APIRouter(prefix="/api/pipeline", tags=["presale-pipeline"])
 
 # =============================================================================
@@ -555,17 +562,34 @@ async def run_pipeline_async(request: PipelineRunRequest) -> PipelineRunResponse
 # API Endpoints
 # =============================================================================
 
-@router.post("/run", response_model=PipelineRunResponse)
-async def run_pipeline(request: PipelineRunRequest, background_tasks: BackgroundTasks):
+@router.post("/run", response_model=dict)
+async def run_pipeline(request: PipelineRunRequest):
     """
-    Run the full presale pipeline end-to-end.
-
-    Input: tender_document (招标文件文本)
-    Output: Project profile + Recommendations + Cost comparisons + PDF report
-
-    This is the main "CEO Agent" endpoint.
+    Enqueue the full presale pipeline as an async RQ job.
+    Immediately returns a pipeline_id for polling /api/pipeline/status/{id}.
     """
-    return await run_pipeline_async(request)
+    from backend.workers.pipeline_tasks import pipeline_task
+
+    # Generate pipeline_id upfront so client can poll immediately
+    pipeline_id = str(uuid.uuid4())[:8]
+
+    job = _pipeline_queue.enqueue(
+        "backend.workers.pipeline_tasks.pipeline_task",
+        tender_document=request.tender_document,
+        project_profile_overrides=request.project_profile_overrides,
+        api_base_url=request.api_base_url,
+        compare_scenario_ids=request.compare_scenario_ids,
+        generate_pdf=request.generate_pdf,
+        pipeline_id=pipeline_id,
+        job_timeout="30m",
+    )
+
+    return {
+        "pipeline_id": pipeline_id,
+        "job_id": job.id,
+        "status": "ENQUEUED",
+        "message": f"Pipeline {pipeline_id} queued. Poll /api/pipeline/status/{pipeline_id} for progress.",
+    }
 
 
 @router.post("/extract", response_model=ExtractionResponse)
@@ -603,10 +627,34 @@ async def extract_profile(request: ExtractionRequest):
 
 @router.get("/status/{pipeline_id}")
 async def get_pipeline_status(pipeline_id: str):
-    """Get pipeline run status by ID."""
-    if pipeline_id not in _pipeline_store:
-        raise HTTPException(status_code=404, detail="Pipeline not found")
-    return _pipeline_store[pipeline_id]
+    """Get pipeline run status by ID. Reads from Redis for live updates."""
+    import json as _json
+
+    # Try Redis first
+    key = f"pipeline:{pipeline_id}"
+    redis_data = _redis_conn.hgetall(key)
+
+    if redis_data:
+        stages = _json.loads(redis_data.get("stages", "[]"))
+        result = {
+            "pipeline_id": pipeline_id,
+            "status": redis_data.get("status", "UNKNOWN"),
+            "stages": stages,
+            "created_at": redis_data.get("created_at"),
+            "updated_at": redis_data.get("updated_at"),
+        }
+        for field in ["project_profile", "recommendations", "cost_comparisons",
+                       "best_scenario_id", "qa_verdict", "pdf_path",
+                       "pdf_download_url", "total_duration_seconds", "error"]:
+            if field in redis_data:
+                result[field] = _json.loads(redis_data[field]) if redis_data[field].startswith(("[{", "{")) else redis_data[field]
+        return result
+
+    # Fallback to in-memory store (for sync pipeline runs)
+    if pipeline_id in _pipeline_store:
+        return _pipeline_store[pipeline_id]
+
+    raise HTTPException(status_code=404, detail="Pipeline not found")
 
 
 @router.get("/{pipeline_id}/download")

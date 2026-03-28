@@ -27,3 +27,27 @@ services:
       - API_BASE_URL=http://backend:8000
     depends_on:
       - backend
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    command: rq worker pipeline --url redis://redis:6379/0 -v
+    volumes:
+      - ./data:/app/data
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - DATABASE_URL=sqlite:///./data/logistics_presale.db
+    depends_on:
+      redis:
+        condition: service_healthy
