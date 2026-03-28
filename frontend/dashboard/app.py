@@ -78,10 +78,10 @@ def render_score_gauge(score, key=None):
 def render_cost_chart(cost_data):
     labels = ["仓储成本", "人工成本", "设备维护", "年度总成本"]
     values = [
-        cost_data["warehouse_cost"] / 10000,
-        cost_data["labor_cost_annual"] / 10000,
-        cost_data["annual_maintenance"] / 10000,
-        cost_data["total_annual_cost"] / 10000,
+        cost_data.get("warehouse_cost", 0) / 10000,
+        cost_data.get("labor_cost_annual", 0) / 10000,
+        cost_data.get("annual_maintenance", 0) / 10000,
+        cost_data.get("total_annual_cost", 0) / 10000,
     ]
     colors = ["#42a5f5", "#66bb6a", "#ffa726", "#ef5350"]
     fig = go.Figure(data=[go.Bar(
@@ -94,9 +94,9 @@ def render_cost_chart(cost_data):
 
 
 def render_roi_chart(cost_data):
-    capex = cost_data["automation_capex"] / 10000
-    annual_saving = cost_data["automation_savings_annual"] / 10000
-    annual_cost = cost_data["annual_maintenance"] / 10000
+    capex = cost_data.get("automation_capex", 0) / 10000
+    annual_saving = cost_data.get("automation_savings_annual", 0) / 10000
+    annual_cost = cost_data.get("annual_maintenance", 0) / 10000
     years = list(range(0, 8))
     cum_benefit = [max(0, (annual_saving - annual_cost) * y - capex) for y in years]
     fig = go.Figure()
@@ -114,8 +114,8 @@ def render_roi_chart(cost_data):
 def render_compare_bar_chart(comparisons):
     # comparisons is already sorted by weighted score
     names = [c["scenario_name"][:8] for c in comparisons]
-    capex = [c["automation_capex"] / 10000 for c in comparisons]
-    savings = [c["annual_saving"] / 10000 for c in comparisons]
+    capex = [c.get("capex_estimate", 0) / 10000 for c in comparisons]
+    savings = [(c.get("annual_labor_saving", 0) + c.get("annual_efficiency_saving", 0)) / 10000 for c in comparisons]
     fig = go.Figure(data=[
         go.Bar(name="自动化投资 (万)", x=names, y=capex, marker_color="#ef5350"),
         go.Bar(name="年节省人工 (万)", x=names, y=savings, marker_color="#4caf50"),
@@ -327,7 +327,7 @@ def _render_results_panel():
             max_sv = max((x["annual_saving"] for x in comparisons if x.get("annual_saving") is not None), default=1) or 1
             c_roi = c.get("roi_5y") or 0
             c_pb = c.get("payback_years") or max_pb
-            c_sv = c.get("annual_saving") or 0
+            c_sv = c.get("annual_labor_saving", 0) + c.get("annual_efficiency_saving", 0)
             return (c_roi/max_roi)*100*w_roi_n + (1-c_pb/max_pb)*100*w_pb_n + (c_sv/max_sv)*100*w_sv_n
 
         ranked = sorted(comparisons, key=weighted_score, reverse=True)
@@ -338,10 +338,10 @@ def _render_results_panel():
             ws = weighted_score(c)
             rows.append({
                 "方案": ("🥇 " if c["scenario_name"] == top_w else "  ") + c["scenario_name"],
-                "投资(万)": f"{c['automation_capex']/10000:.0f}",
+                "投资(万)": f"{c.get('capex_estimate', 0)/10000:.0f}",
                 "5年ROI": f"{c['roi_5y']:.1f}x",
                 "回本(年)": f"{c['payback_years']:.1f}",
-                "年节省": f"{c['annual_saving']/10000:.1f}万",
+                "年节省": f"{(c.get('annual_labor_saving', 0) + c.get('annual_efficiency_saving', 0))/10000:.1f}万",
                 "省人": f"{c['headcount_saved']}人",
             })
         st.dataframe(pd.DataFrame(rows), hide_index=True, use_container_width=True)
@@ -351,7 +351,7 @@ def _render_results_panel():
         k1.metric("🥇 推荐", best.get("scenario_name", "—"))
         k1.metric("5年ROI", f"{best.get('roi_5y', 0):.1f}x")
         k2.metric("回本周期", f"{best.get('payback_years', 0):.1f}年")
-        k2.metric("年节省", f"{best.get('annual_saving', 0)/10000:.1f}万")
+        k2.metric("年节省", f"{(best.get('annual_labor_saving', 0) + best.get('annual_efficiency_saving', 0))/10000:.1f}万")
 
         t1, t2, t3 = st.tabs(["📊 投资节省", "📈 ROI", "🕸️ 雷达图"])
         with t1:
@@ -513,7 +513,7 @@ if app_mode == "📋 方案生成":
 **首选方案:** {top_rec.get('scenario_name', 'N/A')} — {top_rec.get('reason', '')}
 
 **投资回报摘要:**
-- 自动化投资: ¥{cost_d['automation_capex']/10000:.0f}万元
+- 自动化投资: ¥{cost_d.get('capex_estimate', 0)/10000:.0f}万元
 - 年节省人工: ¥{cost_d['automation_savings_annual']/10000:.1f}万元
 - 净年度收益: ¥{cost_d['net_annual_benefit']/10000:.1f}万元
 - 5年ROI: {cost_d['roi']:.1f}倍 | 回本周期: {cost_d['payback_years']:.1f}年
