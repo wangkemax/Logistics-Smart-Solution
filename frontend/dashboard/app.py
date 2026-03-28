@@ -1248,6 +1248,7 @@ elif app_mode == "🚀 Pipeline Run":
                     st.session_state.pipeline_comparisons = status_data.get("comparisons", [])
                     st.session_state.pipeline_pdf_url = status_data.get("pdf_download_url")
                     st.session_state.pipeline_qa_verdict = status_data.get("qa_verdict", "UNKNOWN")
+                    st.session_state.pipeline_qa_issues = status_data.get("qa_issues", [])
                     st.session_state.pipeline_retry_count = status_data.get("retry_count", 0)
                     st.session_state.pipeline_risk_flags = status_data.get("risk_flags", [])
                     st.session_state.pipeline_retry_history = status_data.get("retry_history", [])

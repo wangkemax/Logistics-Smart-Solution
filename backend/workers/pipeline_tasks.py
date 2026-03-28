@@ -23,6 +23,7 @@ from backend.services.project_service import (
 )
 from backend.services.recommendation_service import recommend_solutions
 from backend.services.cost_service import compare_solution_financials
+from backend.services.qa_engine import run_qa, format_issues_for_ui
 from backend.services.pipeline_service import (
     create_pipeline_run,
     create_stage,
@@ -227,22 +228,19 @@ def pipeline_task(tender_document: str, project_profile_overrides: dict = None, 
     stage_start = datetime.now()
     _update_stage(pipeline_id, "4_qa_review", "RUNNING")
     try:
-        qa_issues = []
-        if missing_p0:
-            qa_issues.append(f"P0缺失数据: {missing_p0}")
-        if not recommendations:
-            qa_issues.append("未找到推荐方案")
-        qa_verdict = "FAIL" if qa_issues else "PASS"
+        qa_verdict, qa_issues = run_qa(profile, recommendations, tender_document)
+        qa_issues_ui = format_issues_for_ui(qa_issues)
 
         qa_file = pipeline_dir / "stage_4_qa_report.md"
         qa_file.write_text(
-            f"# Stage 4: QA Report\n\nVerdict: {qa_verdict}\n\nIssues: {qa_issues}",
+            f"# Stage 4: QA Report\n\nVerdict: {qa_verdict}\n\nIssues:\n"
+            + "\n".join(f"- [{i['severity']}] {i['field']}: {i['message']}" for i in qa_issues),
             encoding="utf-8"
         )
         _update_stage(pipeline_id, "4_qa_review", "DONE",
                       output_file=str(qa_file),
                       duration_seconds=(datetime.now() - stage_start).total_seconds(),
-                      extra={"qa_verdict": qa_verdict, "qa_issues": qa_issues})
+                      extra={"qa_verdict": qa_verdict, "qa_issues": qa_issues, "qa_issues_ui": qa_issues_ui})
     except Exception as e:
         _update_stage(pipeline_id, "4_qa_review", "FAILED",
                       error=str(e),

@@ -560,6 +560,11 @@ async def retry_pipeline(pipeline_id: str, background_tasks: BackgroundTasks):
 class RetryStageRequest(BaseModel):
     """Request body for per-stage retry."""
     from_stage: Optional[str] = Field(default=None, description="Stage name to retry from (e.g. '3_cost_comparison'). If omitted, retries from the first failed stage.")
+    profile_overrides: Optional[dict] = Field(
+        default=None,
+        description="Profile field overrides to merge before re-running (e.g. {'warehouse_area': 30000, 'industry': '电商'}). "
+                    "Used by QA correction form to resubmit with corrected values."
+    )
 
 
 @router.post("/{pipeline_id}/retry", response_model=dict)
@@ -631,13 +636,33 @@ async def retry_pipeline_stage(pipeline_id: str, request: RetryStageRequest):
     finally:
         db.close()
 
-    # 6. Re-trigger background job from that stage
+    # 6. Merge profile_overrides into existing params if provided
+    base_overrides = params.get("project_profile_overrides") or {}
+    if request.profile_overrides:
+        base_overrides = {**base_overrides, **request.profile_overrides}
+
+    # Also update stored params_json so subsequent retries see the corrected values
+    if request.profile_overrides:
+        params["project_profile_overrides"] = base_overrides
+        try:
+            db = SessionLocal()
+            try:
+                run = db.query(PipelineRun).filter_by(pipeline_id=pipeline_id).first()
+                if run:
+                    run.params_json = json.dumps(params)
+                    db.commit()
+            finally:
+                db.close()
+        except Exception:
+            pass  # Best-effort: don't fail the retry if DB update fails
+
+    # 7. Re-trigger background job from that stage
     def _retry_stage_job(pid: str, from_s: str):
         from backend.workers.pipeline_tasks import pipeline_task
         try:
             pipeline_task(
                 tender_document=tender_document,
-                project_profile_overrides=params.get("project_profile_overrides"),
+                project_profile_overrides=base_overrides,
                 api_base_url=api_base_url,
                 compare_scenario_ids=compare_scenario_ids,
                 generate_pdf=params.get("generate_pdf", True),
