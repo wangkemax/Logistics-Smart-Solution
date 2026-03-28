@@ -4,11 +4,11 @@ import os
 
 
 REGION_DEFAULTS = {
-    "华东": {"rent": 600, "labor": 80000, "maintenance": 0.05, "overhead": 0.15, "density": 4},
-    "华南": {"rent": 550, "labor": 75000, "maintenance": 0.05, "overhead": 0.15, "density": 4},
-    "华北": {"rent": 500, "labor": 70000, "maintenance": 0.05, "overhead": 0.15, "density": 4},
-    "华中": {"rent": 450, "labor": 65000, "maintenance": 0.05, "overhead": 0.15, "density": 4},
-    "西部": {"rent": 400, "labor": 60000, "maintenance": 0.05, "overhead": 0.15, "density": 4},
+    "华东": {"rent": 600, "labor": 80000, "labor_cost_per_person_year": 80000, "maintenance": 0.05, "overhead": 0.15, "density": 4},
+    "华南": {"rent": 550, "labor": 75000, "labor_cost_per_person_year": 75000, "maintenance": 0.05, "overhead": 0.15, "density": 4},
+    "华北": {"rent": 500, "labor": 70000, "labor_cost_per_person_year": 70000, "maintenance": 0.05, "overhead": 0.15, "density": 4},
+    "华中": {"rent": 450, "labor": 65000, "labor_cost_per_person_year": 65000, "maintenance": 0.05, "overhead": 0.15, "density": 4},
+    "西部": {"rent": 400, "labor": 60000, "labor_cost_per_person_year": 60000, "maintenance": 0.05, "overhead": 0.15, "density": 4},
 }
 
 LABOR_COST_MULTIPLIER = {
@@ -60,7 +60,10 @@ def load_cost_parameters(region: str = "华东") -> Dict:
             r = row.iloc[0]
             return {
                 "rent": r["warehouse_rent_per_sqm"],
-                "labor": r["labor_cost_per_person_year"],
+                "labor": r["labor_cost_per_person_year"],      # 兼容旧逻辑
+                "labor_cost_per_person_year": r["labor_cost_per_person_year"],  # 内部标准字段
+                "warehouse_rent_per_sqm_year": r["warehouse_rent_per_sqm"],
+                "equipment_maintenance_rate": r["equipment_maintenance_rate"],
                 "maintenance": r["equipment_maintenance_rate"],
                 "overhead": r["overhead_rate"],
                 "density": r["pallet_density"],

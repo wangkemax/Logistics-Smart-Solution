@@ -24,6 +24,38 @@ from backend.engines.cost_engine import (
 from backend.engines.automation_engine import normalize_profile
 
 
+# ---- Cost parameter normalization ----
+
+def normalize_cost_parameters(cost_params: dict) -> dict:
+    """
+    Normalize cost parameters to internal standard field names.
+
+    Ensures all downstream calculations read from a consistent schema:
+      - labor_cost_per_person_year  (internal standard)
+      - labor                      (alias, preserved for backward compat)
+
+    Returns a copy — never mutates the input.
+    """
+    cost_params = cost_params or {}
+    warnings = []
+
+    # Resolve labor_cost_per_person_year: prefer explicit field, fall back to "labor" alias
+    labor = (
+        cost_params.get("labor_cost_per_person_year")
+        or cost_params.get("labor")
+    )
+    if labor is None:
+        labor = 100000
+        warnings.append("labor_cost_per_person_year missing; fallback to default 100000")
+
+    return {
+        **cost_params,
+        "labor_cost_per_person_year": labor,
+        "labor": labor,                              # keep alias for any legacy reads
+        "_warnings": warnings,
+    }
+
+
 # ---- Safe numeric helpers ----
 
 def _safe_div(numerator: float, denominator: float, default: float = 0.0) -> float:
@@ -103,7 +135,8 @@ def calculate_solution_financials(
     """
     profile = normalize_profile(profile)
     scenario = _safe_scenario(scenario)
-    params = load_cost_parameters(region)
+    raw_params = load_cost_parameters(region)
+    cost_params = normalize_cost_parameters(raw_params)
 
     # Extract scenario values
     scenario_id = scenario.get("scenario_id")
@@ -120,7 +153,7 @@ def calculate_solution_financials(
 
     # Labor savings
     labor_cost_multiplier = {"低": 0.8, "中": 1.0, "高": 1.2}.get(profile.get("labor_cost_level", "中"), 1.0)
-    labor_cost_per_person = params.get("labor_cost_per_person_year", 100000) * labor_cost_multiplier
+    labor_cost_per_person = cost_params["labor_cost_per_person_year"] * labor_cost_multiplier
     base_headcount = _estimate_headcount(profile)
     headcount_saved = base_headcount * labor_saving_ratio
     annual_labor_saving = headcount_saved * labor_cost_per_person
@@ -128,7 +161,7 @@ def calculate_solution_financials(
     # Efficiency gain value (estimate as labor-hours equivalent)
     daily_orders = profile.get("daily_orders", 0)
     efficiency_saving_hours = daily_orders * efficiency_gain_ratio * 0.01  # rough estimate
-    annual_efficiency_saving = efficiency_saving_hours * params.get("labor_cost_per_person_year", 100000)
+    annual_efficiency_saving = efficiency_saving_hours * cost_params["labor_cost_per_person_year"]
 
     # OPEX (annual maintenance, ~8% of CAPEX for automation systems)
     opex_annual = capex_estimate * 0.08
