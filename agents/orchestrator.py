@@ -37,11 +37,8 @@ from backend.services.project_service import (
 )
 
 import redis as _redis_lib
-from rq import Queue as RQQueue
-
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 _redis_conn = _redis_lib.from_url(REDIS_URL, decode_responses=True)
-_pipeline_queue = RQQueue("pipeline", connection=_redis_conn, default_timeout="30m")
 
 router = APIRouter(prefix="/api/pipeline", tags=["presale-pipeline"])
 
@@ -563,32 +560,37 @@ async def run_pipeline_async(request: PipelineRunRequest) -> PipelineRunResponse
 # =============================================================================
 
 @router.post("/run", response_model=dict)
-async def run_pipeline(request: PipelineRunRequest):
+async def run_pipeline(request: PipelineRunRequest, background_tasks: BackgroundTasks):
     """
-    Enqueue the full presale pipeline as an async RQ job.
+    Run the full presale pipeline as a background thread.
     Immediately returns a pipeline_id for polling /api/pipeline/status/{id}.
+    No RQ fork needed — uses threading instead.
     """
-    from backend.workers.pipeline_tasks import pipeline_task
+    import threading as _threading
 
-    # Generate pipeline_id upfront so client can poll immediately
     pipeline_id = str(uuid.uuid4())[:8]
 
-    job = _pipeline_queue.enqueue(
-        "backend.workers.pipeline_tasks.pipeline_task",
-        tender_document=request.tender_document,
-        project_profile_overrides=request.project_profile_overrides,
-        api_base_url=request.api_base_url,
-        compare_scenario_ids=request.compare_scenario_ids,
-        generate_pdf=request.generate_pdf,
-        pipeline_id=pipeline_id,
-        job_timeout="30m",
-    )
+    def _background_job(pid: str):
+        from backend.workers.pipeline_tasks import pipeline_task
+        try:
+            pipeline_task(
+                tender_document=request.tender_document or "",
+                project_profile_overrides=request.project_profile_overrides,
+                api_base_url=request.api_base_url or "http://localhost:8000",
+                compare_scenario_ids=request.compare_scenario_ids,
+                generate_pdf=request.generate_pdf,
+                pipeline_id=pid,
+            )
+        except Exception as e:
+            import sys, os
+            print(f"[pipeline {pid}] error: {e}", file=sys.stderr, flush=True)
+
+    _threading.Thread(target=_background_job, args=(pipeline_id,), daemon=True).start()
 
     return {
         "pipeline_id": pipeline_id,
-        "job_id": job.id,
         "status": "ENQUEUED",
-        "message": f"Pipeline {pipeline_id} queued. Poll /api/pipeline/status/{pipeline_id} for progress.",
+        "message": f"Pipeline {pipeline_id} started in background. Poll /api/pipeline/status/{pipeline_id} for progress.",
     }
 
 

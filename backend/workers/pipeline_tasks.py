@@ -241,7 +241,7 @@ def pipeline_task(tender_document: str, project_profile_overrides: dict = None,
         stage_start = datetime.now()
         _update_stage(pipeline_id, "5_pdf_report", "RUNNING")
         try:
-            from backend.services.report.generator import generate_pdf_bytes
+            from report.generator import generate_pdf_bytes
 
             best_cost = next(
                 (c for c in cost_comparisons if c.get("is_best")),
