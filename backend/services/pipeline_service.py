@@ -23,7 +23,12 @@ def init_pipeline_db():
 def create_pipeline_run(pipeline_id: str, tender_document: str = "", params_json: dict = None,
                         tender_document_hash: str = None, api_base_url: str = None,
                         compare_scenario_ids: list = None) -> PipelineRun:
-    """Create a new pipeline run record."""
+    """
+    Create or update (upsert) a pipeline run record.
+    
+    For retry: uses existing pipeline_id, replaces all mutable fields,
+    preserves immutable fields (created_at, parent_job_id).
+    """
     import hashlib
     init_pipeline_db()
     db = SessionLocal()
@@ -31,6 +36,33 @@ def create_pipeline_run(pipeline_id: str, tender_document: str = "", params_json
         doc_hash = tender_document_hash
         if doc_hash is None and tender_document:
             doc_hash = hashlib.sha256(tender_document.encode()).hexdigest()[:16]
+
+        existing = db.query(PipelineRun).filter_by(pipeline_id=pipeline_id).first()
+        if existing:
+            # Upsert: update mutable fields, keep created_at and parent_job_id
+            existing.status = "RUNNING"
+            existing.tender_document = tender_document or ""
+            existing.tender_document_hash = doc_hash
+            existing.params_json = json.dumps(params_json or {}, ensure_ascii=False)
+            existing.api_base_url = api_base_url
+            existing.compare_scenario_ids = (
+                json.dumps(compare_scenario_ids or [], ensure_ascii=False)
+                if compare_scenario_ids is not None else None
+            )
+            existing.completed_at = None
+            existing.cancelled_at = None
+            existing.error = None
+            existing.pdf_path = None
+            existing.pdf_url = None
+            existing.profile_json = "{}"
+            existing.recommendations_json = "[]"
+            existing.comparisons_json = "[]"
+            existing.qa_verdict = ""
+            existing.total_duration_seconds = None
+            db.commit()
+            db.refresh(existing)
+            return existing
+
         run = PipelineRun(
             pipeline_id=pipeline_id,
             status="RUNNING",

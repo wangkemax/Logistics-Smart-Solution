@@ -613,10 +613,9 @@ async def retry_pipeline_stage(pipeline_id: str, request: RetryStageRequest):
     if from_stage not in stages_order:
         raise HTTPException(status_code=400, detail=f"Invalid stage name: {from_stage}. Valid: {stages_order}")
 
-    # 3. Cancel running pipeline if applicable
-    cancel_pipeline_run(pipeline_id)
-
-    # 4. Reset stages from from_stage onwards
+    # 3. Reset stages from from_stage onwards (upsert in create_pipeline_run handles status reset)
+    # Note: cancel_pipeline_run is an explicit user action, not needed here since
+    # create_pipeline_run does an upsert that starts fresh regardless of prior state.
     reset_stages = reset_pipeline_stages(pipeline_id, from_stage)
 
     # 5. Load tender_document and params for re-execution
