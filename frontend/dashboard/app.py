@@ -1042,6 +1042,7 @@ elif app_mode == "🚀 Pipeline Run":
                     "labor_cost_level": params.get("labor_cost_level", "中"),
                     "budget_level": params.get("budget_level", "中"),
                     "automation_expectation": "中",
+                    "region": params.get("region", "华东"),
                 }
                 try:
                     run_resp = requests.post(
