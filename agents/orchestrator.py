@@ -661,19 +661,35 @@ async def get_pipeline_status(pipeline_id: str):
 
 @router.get("/{pipeline_id}/download")
 async def download_pdf(pipeline_id: str):
-    """Download the generated PDF report."""
-    if pipeline_id not in _pipeline_store:
-        raise HTTPException(status_code=404, detail="Pipeline not found")
-    state = _pipeline_store[pipeline_id]
-    pdf_path = state.get("pdf_path")
-    if not pdf_path or not Path(pdf_path).exists():
-        raise HTTPException(status_code=404, detail="PDF not found")
-    from fastapi.responses import FileResponse
-    return FileResponse(
-        pdf_path,
-        media_type="application/pdf",
-        filename=f"pipeline_{pipeline_id}_report.pdf",
-    )
+    """Download the generated PDF report. Reads from Redis first, falls back to memory store."""
+    import json as _json
+
+    # Try Redis first (primary store for async pipeline)
+    redis_key = f"pipeline:{pipeline_id}"
+    redis_data = _redis_conn.hgetall(redis_key)
+    if redis_data:
+        pdf_path = redis_data.get("pdf_path")
+        if pdf_path and Path(pdf_path).exists():
+            from fastapi.responses import FileResponse
+            return FileResponse(
+                pdf_path,
+                media_type="application/pdf",
+                filename=f"pipeline_{pipeline_id}_report.pdf",
+            )
+
+    # Fallback to memory store (for sync runs)
+    if pipeline_id in _pipeline_store:
+        state = _pipeline_store[pipeline_id]
+        pdf_path = state.get("pdf_path")
+        if pdf_path and Path(pdf_path).exists():
+            from fastapi.responses import FileResponse
+            return FileResponse(
+                pdf_path,
+                media_type="application/pdf",
+                filename=f"pipeline_{pipeline_id}_report.pdf",
+            )
+
+    raise HTTPException(status_code=404, detail="PDF not found")
 
 
 @router.get("/compare-scenarios")

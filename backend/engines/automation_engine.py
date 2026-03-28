@@ -112,9 +112,10 @@ def score_order_match(scenario: Dict, daily_orders: int) -> float:
 
 def score_budget_match(scenario: Dict, budget_level: str) -> float:
     """Score based on budget match (0-20 points)."""
+    print(f"[DEBUG] score_budget_match: budget_level={budget_level!r} type={type(budget_level)}")
     budget_threshold = BUDGET_THRESHOLDS.get(budget_level, 5000000)
     capex_min = scenario.get("capex_min", 0)
-
+    print(f"[DEBUG] budget_threshold={budget_threshold} capex_min={capex_min}")
     if capex_min <= budget_threshold:
         return 20.0
     elif capex_min <= budget_threshold * 1.5:
