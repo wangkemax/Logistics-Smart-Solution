@@ -115,12 +115,12 @@
         </div>
         <div class="metric-card">
           <div class="metric-label">库存量</div>
-          <div class="metric-value">{{ (data.profile.inventory / 10000) | round(1) }}万</div>
+          <div class="metric-value">{{ ((data.profile.inventory or 0) / 10000) | round(1) }}万</div>
           <div class="metric-unit">件</div>
         </div>
         <div class="metric-card">
           <div class="metric-label">面积利用率</div>
-          <div class="metric-value">{{ ((data.profile.inventory / data.profile.warehouse_area) | round(1) if data.profile.warehouse_area > 0 else 0) }}</div>
+          <div class="metric-value">{{ (((data.profile.inventory or 0) / (data.profile.warehouse_area or 1)) | round(1) if (data.profile.warehouse_area or 0) > 0 else 0) }}</div>
           <div class="metric-unit">件/㎡</div>
         </div>
       </div>
@@ -265,7 +265,7 @@
           </tr>
           <tr>
             <td class="cost-label">人工成本（自动化后）</td>
-            <td class="cost-value">¥{{ ((data.cost.labor_cost_annual * (1 - (data.cost.headcount_saved or 0) / (data.cost.headcount_required if (data.cost.headcount_required or 0) > 0 else 1))) / 10000 | round(1)) }}</td>
+            <td class="cost-value">¥{{ (((data.cost.labor_cost_annual or 0) * (1 - (data.cost.headcount_saved or 0) / (data.cost.headcount_required if (data.cost.headcount_required or 0) > 0 else 1))) / 10000 | round(1)) }}</td>
             <td>—</td>
           </tr>
           <tr>

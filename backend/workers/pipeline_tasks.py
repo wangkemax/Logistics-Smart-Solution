@@ -243,6 +243,11 @@ def pipeline_task(tender_document: str, project_profile_overrides: dict = None,
         try:
             from report.generator import generate_pdf_bytes
 
+            print(f"[DEBUG] cost_comparisons[0] keys: {list(cost_comparisons[0].keys()) if cost_comparisons else 'EMPTY'}")
+            print(f"[DEBUG] cost_comparisons[0] headcount_saved: {cost_comparisons[0].get('headcount_saved') if cost_comparisons else 'N/A'}")
+            print(f"[DEBUG] cost_comparisons[0] headcount_required: {cost_comparisons[0].get('headcount_required') if cost_comparisons else 'N/A'}")
+            print(f"[DEBUG] recommendations[:1]: {recommendations[:1] if recommendations else 'EMPTY'}")
+
             best_cost = next(
                 (c for c in cost_comparisons if c.get("is_best")),
                 cost_comparisons[0] if cost_comparisons else {}
@@ -321,6 +326,26 @@ def pipeline_task(tender_document: str, project_profile_overrides: dict = None,
         pdf_download_url=pdf_url,
         total_duration_seconds=total_duration,
     )
+
+    # ---- Sync to in-memory store (for /download endpoint) ----
+    try:
+        import sys as _sys
+        _sys.path.insert(0, str(PROJECT_ROOT))
+        from agents.orchestrator import _pipeline_store as _mem_store
+        _mem_store[pipeline_id] = {
+            "pipeline_id": pipeline_id,
+            "status": "COMPLETE",
+            "project_profile": profile,
+            "recommendations": recommendations[:5],
+            "cost_comparisons": cost_comparisons,
+            "best_scenario_id": best_id,
+            "qa_verdict": qa_verdict,
+            "pdf_path": str(pdf_path) if pdf_path else None,
+            "pdf_download_url": pdf_url,
+            "total_duration_seconds": total_duration,
+        }
+    except Exception:
+        pass  # Non-critical
 
     return {
         "pipeline_id": pipeline_id,
