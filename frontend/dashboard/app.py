@@ -199,6 +199,65 @@ def render_step_status(name: str, status: str, details: str = ""):
 
 
 # =============================================================================
+# Welcome Screens
+# =============================================================================
+
+def _render_welcome_single():
+    st.markdown("""
+    <div style="text-align: center; padding: 3rem;
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                border-radius: 15px; color: white; margin: 2rem 0;">
+        <h2>欢迎使用物流自动化预售AI系统</h2>
+        <p style="font-size: 1.1rem; margin: 1rem 0;">
+            在左侧填写项目信息，点击"生成解决方案"即可获得：
+        </p>
+        <div style="display: flex; justify-content: space-around; margin: 2rem 0;">
+            <div>🎯<br><b>智能推荐</b><br>匹配最优自动化方案</div>
+            <div>💰<br><b>成本分析</b><br>精准测算投资回报</div>
+            <div>📊<br><b>综合报告</b><br>一键生成PDF方案</div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+    st.subheader("📚 支持的自动化场景")
+    st.dataframe(pd.DataFrame({
+        "方案": ["AMR移动机器人", "GTP货到人系统", "输送分拣线", "立体仓库AS/RS", "跨带分拣机"],
+        "行业": ["电商/3PL/零售", "电商/3PL", "电商/快递/零售", "制造/3PL/医药", "快递/电商"],
+        "人工节省": ["30%", "50%", "40%", "60%", "55%"],
+        "投资规模": ["50-200万", "200-800万", "100-500万", "500-2000万", "300-1000万"],
+    }), use_container_width=True, hide_index=True)
+
+
+def _render_welcome_compare():
+    st.markdown("""
+    <div style="text-align: center; padding: 3rem;
+                background: linear-gradient(135deg, #43a047 0%, #2e7d32 100%);
+                border-radius: 15px; color: white; margin: 2rem 0;">
+        <h2>⚖️ 多方案ROI对比</h2>
+        <p style="font-size: 1.1rem; margin: 1rem 0;">
+            在左侧选择2-5个自动化方案，系统将横向对比其<br>
+            投资成本、ROI、回本周期、年节省等核心指标
+        </p>
+        <div style="display: flex; justify-content: space-around; margin: 2rem 0;">
+            <div>📊<br><b>投资对比</b><br>CAPEX一目了然</div>
+            <div>📈<br><b>ROI对比</b><br>5年回报分析</div>
+            <div>🎯<br><b>推荐最佳</b><br>智能标记最优方案</div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+    st.subheader("📚 支持对比的15种自动化场景")
+    all_sc = pd.DataFrame({
+        "ID": [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15],
+        "方案名称": ["AMR拣选辅助","GTP货到人系统","输送分拣线","自动贴标系统","立体仓库AS/RS",
+                    "自动化输送线","视觉识别质检","拆码垛机器人","WMS仓储管理系统","AGV搬运系统",
+                    "自动包装线","冷链自动化仓储","跨带分拣机","货架式密集存储","自动化退货处理"],
+        "类别": ["移动机器人","货到人","输送分拣","自动化辅助","立体仓库","输送系统",
+                 "视觉检测","搬运机器人","软件系统","移动机器人","包装自动化","冷链系统",
+                 "高速分拣","密集存储","逆向物流"],
+    })
+    st.dataframe(all_sc, use_container_width=True, hide_index=True)
+
+
+# =============================================================================
 # Sidebar
 # =============================================================================
 with st.sidebar:
@@ -781,64 +840,3 @@ elif app_mode == "🚀 Pipeline Run":
             st.warning("PDF报告未能生成，可尝试手动从『方案生成』模式导出")
 
 # =============================================================================
-# Welcome Screens
-# =============================================================================
-def _render_welcome_single():
-    st.markdown("""
-    <div style="text-align: center; padding: 3rem;
-                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                border-radius: 15px; color: white; margin: 2rem 0;">
-        <h2>欢迎使用物流自动化预售AI系统</h2>
-        <p style="font-size: 1.1rem; margin: 1rem 0;">
-            在左侧填写项目信息，点击"生成解决方案"即可获得：
-        </p>
-        <div style="display: flex; justify-content: space-around; margin: 2rem 0;">
-            <div>🎯<br><b>智能推荐</b><br>匹配最优自动化方案</div>
-            <div>💰<br><b>成本分析</b><br>精准测算投资回报</div>
-            <div>📊<br><b>综合报告</b><br>一键生成PDF方案</div>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
-    st.subheader("📚 支持的自动化场景")
-    st.dataframe(pd.DataFrame({
-        "方案": ["AMR移动机器人", "GTP货到人系统", "输送分拣线", "立体仓库AS/RS", "跨带分拣机"],
-        "行业": ["电商/3PL/零售", "电商/3PL", "电商/快递/零售", "制造/3PL/医药", "快递/电商"],
-        "人工节省": ["30%", "50%", "40%", "60%", "55%"],
-        "投资规模": ["50-200万", "200-800万", "100-500万", "500-2000万", "300-1000万"],
-    }), use_container_width=True, hide_index=True)
-
-
-def _render_welcome_compare():
-    st.markdown("""
-    <div style="text-align: center; padding: 3rem;
-                background: linear-gradient(135deg, #43a047 0%, #2e7d32 100%);
-                border-radius: 15px; color: white; margin: 2rem 0;">
-        <h2>⚖️ 多方案ROI对比</h2>
-        <p style="font-size: 1.1rem; margin: 1rem 0;">
-            在左侧选择2-5个自动化方案，系统将横向对比其<br>
-            投资成本、ROI、回本周期、年节省等核心指标
-        </p>
-        <div style="display: flex; justify-content: space-around; margin: 2rem 0;">
-            <div>📊<br><b>投资对比</b><br>CAPEX一目了然</div>
-            <div>📈<br><b>ROI对比</b><br>5年回报分析</div>
-            <div>🎯<br><b>推荐最佳</b><br>智能标记最优方案</div>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
-    st.subheader("📚 支持对比的15种自动化场景")
-    all_sc = pd.DataFrame({
-        "ID": [s[0] for s in [(1,"AMR拣选辅助"),(2,"GTP货到人系统"),(3,"输送分拣线"),
-                      (4,"自动贴标系统"),(5,"立体仓库AS/RS"),(6,"自动化输送线"),
-                      (7,"视觉识别质检"),(8,"拆码垛机器人"),(9,"WMS仓储管理系统"),
-                      (10,"AGV搬运系统"),(11,"自动包装线"),(12,"冷链自动化仓储"),
-                      (13,"跨带分拣机"),(14,"货架式密集存储"),(15,"自动化退货处理")]],
-        "方案名称": [s[1] for s in [(1,"AMR拣选辅助"),(2,"GTP货到人系统"),(3,"输送分拣线"),
-                      (4,"自动贴标系统"),(5,"立体仓库AS/RS"),(6,"自动化输送线"),
-                      (7,"视觉识别质检"),(8,"拆码垛机器人"),(9,"WMS仓储管理系统"),
-                      (10,"AGV搬运系统"),(11,"自动包装线"),(12,"冷链自动化仓储"),
-                      (13,"跨带分拣机"),(14,"货架式密集存储"),(15,"自动化退货处理")]],
-        "类别": ["移动机器人","货到人","输送分拣","自动化辅助","立体仓库","输送系统",
-                 "视觉检测","搬运机器人","软件系统","移动机器人","包装自动化","冷链系统",
-                 "高速分拣","密集存储","逆向物流"],
-    })
-    st.dataframe(all_sc, use_container_width=True, hide_index=True)
