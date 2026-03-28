@@ -636,18 +636,17 @@ elif app_mode == "🚀 Pipeline Run":
     # =============================================================================
     # Pipeline: State Machine via session_state
     # =============================================================================
-
     # Initialize session state for pipeline
     for key in ["pipeline_state", "pipeline_profile", "pipeline_recs",
                  "pipeline_comparisons", "pipeline_pdf_bytes", "pipeline_pdf_filename",
-                 "pipeline_log_lines", "pipeline_extraction_done"]:
+                 "pipeline_log_lines"]:
         if key not in st.session_state:
-            st.session_state[key] = None if key != "pipeline_log_lines" else []
+            st.session_state[key] = [] if key == "pipeline_log_lines" else None
 
     def reset_pipeline():
         for key in ["pipeline_state", "pipeline_profile", "pipeline_recs",
                      "pipeline_comparisons", "pipeline_pdf_bytes", "pipeline_pdf_filename",
-                     "pipeline_log_lines", "pipeline_extraction_done"]:
+                     "pipeline_log_lines"]:
             st.session_state[key] = [] if key == "pipeline_log_lines" else None
 
     pipeline_state = st.session_state.get("pipeline_state")
@@ -657,30 +656,25 @@ elif app_mode == "🚀 Pipeline Run":
         reset_pipeline()
         st.rerun()
 
-    # ---- Run Button: start pipeline ----
-    run_clicked = st.button("🚀 开始运行 Pipeline",
-                             type="primary", use_container_width=True,
-                             help="点击开始完整Pipeline：提取需求→推荐→成本→对比→PDF")
-
-    if run_clicked:
-        pipeline_tender = (st.session_state.get("tender_text", "") or "").strip()
-        if not pipeline_tender:
-            st.warning("⚠️ 请上传招标文件或粘贴文本摘要")
-            st.stop()
+    # ---- Run Button ----
+    if st.button("🚀 开始运行 Pipeline",
+                 type="primary", use_container_width=True,
+                 help="点击开始Pipeline：提取→推荐→ROI→对比→PDF"):
         st.session_state.pipeline_state = "running"
         st.session_state.pipeline_log_lines = []
-        # Store sidebar params in session
+        tender_text = (st.session_state.get("tender_text", "") or "").strip()
         st.session_state._pipeline_params = {
             "industry": industry_p, "warehouse_area": float(warehouse_area_p),
             "sku_count": int(sku_count_p), "daily_orders": int(daily_orders_p),
             "inventory": int(inventory_p), "labor_cost_level": labor_cost_level_p,
             "budget_level": budget_level_p, "region": region_p,
             "compare_sids_str": compare_sids_str,
-            "tender_text": pipeline_tender,
+            "tender_text": tender_text,
         }
+        st.session_state.skip_extraction = False
         st.rerun()
 
-    # ---- Pipeline Execution (runs after button click or rerun) ----
+    # ---- Pipeline Execution ----
     if st.session_state.get("pipeline_state") == "running":
         params = st.session_state.get("_pipeline_params", {})
 
@@ -727,7 +721,8 @@ elif app_mode == "🚀 Pipeline Run":
 
         # ---- Low-confidence correction form ----
         needs_correction = (missing_p0 or confidence < 0.65)
-        if needs_correction:
+        # Skip if user just submitted the form (flag set below)
+        if needs_correction and not st.session_state.get("skip_extraction", False):
             st.warning(
                 f"⚠️ 提取置信度 {confidence:.0%}"
                 + (" | 部分关键字段缺失（P0）" if missing_p0 else "")
@@ -792,7 +787,6 @@ elif app_mode == "🚀 Pipeline Run":
                     "✅ 确认参数并继续 Pipeline", type="primary", use_container_width=True,
                 )
                 if submitted:
-                    # Update overrides with corrected values
                     profile_overrides = {
                         "industry": ind_correct, "warehouse_area": float(area_correct),
                         "sku_count": int(sku_correct), "daily_orders": int(ord_correct),
@@ -801,13 +795,16 @@ elif app_mode == "🚀 Pipeline Run":
                         "automation_expectation": "中",
                     }
                     log(f"① 参数已修正 | 行业: {ind_correct} | 面积: {area_correct}㎡")
-                    # Continue pipeline by rerunning
-                    st.session_state.pipeline_state = "running"
+                    # Update params and signal: skip form on next run, continue to step 2
                     st.session_state._pipeline_params = {**params, **profile_overrides}
+                    st.session_state.skip_extraction = True
                     st.rerun()
 
-            # Form was rendered but not submitted — stop here (don't continue pipeline)
+            # Form was rendered but not submitted — stop here
             st.stop()
+
+        # Clear skip flag after handling form
+        st.session_state.skip_extraction = False
 
         # Apply overrides and continue pipeline
         profile.update(profile_overrides)
