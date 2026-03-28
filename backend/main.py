@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from backend.api.routes import router as api_router
 from backend.api import report_api
+from backend.api import task_api
 from agents import orchestrator
 from backend.models.database import init_db
 import os
@@ -22,6 +23,7 @@ app.add_middleware(
 
 app.include_router(api_router)
 app.include_router(report_api.router)
+app.include_router(task_api.router)
 app.include_router(orchestrator.router)
 
 

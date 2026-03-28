@@ -20,16 +20,25 @@ def init_pipeline_db():
     Base.metadata.create_all(bind=engine)
 
 
-def create_pipeline_run(pipeline_id: str, tender_document: str = "", params_json: dict = None) -> PipelineRun:
+def create_pipeline_run(pipeline_id: str, tender_document: str = "", params_json: dict = None,
+                        tender_document_hash: str = None, api_base_url: str = None,
+                        compare_scenario_ids: list = None) -> PipelineRun:
     """Create a new pipeline run record."""
+    import hashlib
     init_pipeline_db()
     db = SessionLocal()
     try:
+        doc_hash = tender_document_hash
+        if doc_hash is None and tender_document:
+            doc_hash = hashlib.sha256(tender_document.encode()).hexdigest()[:16]
         run = PipelineRun(
             pipeline_id=pipeline_id,
             status="RUNNING",
             tender_document=tender_document or "",
+            tender_document_hash=doc_hash,
             params_json=json.dumps(params_json or {}, ensure_ascii=False),
+            api_base_url=api_base_url,
+            compare_scenario_ids=json.dumps(compare_scenario_ids or [], ensure_ascii=False) if compare_scenario_ids is not None else None,
         )
         db.add(run)
         db.commit()
@@ -98,7 +107,8 @@ def complete_pipeline(pipeline_id: str, status: str,
                       pdf_path: str = None,
                       pdf_url: str = None,
                       error: str = None,
-                      total_duration_seconds: float = None):
+                      total_duration_seconds: float = None,
+                      result_summary: dict = None):
     """Mark pipeline as complete or failed."""
     db = SessionLocal()
     try:
@@ -118,6 +128,28 @@ def complete_pipeline(pipeline_id: str, status: str,
             run.total_duration_seconds = total_duration_seconds
             if status in ("COMPLETE", "FAILED"):
                 run.completed_at = datetime.utcnow()
+            # Build result_summary for task list UI if not provided
+            if result_summary is None and profile_json and recommendations_json:
+                try:
+                    recs = recommendations_json if isinstance(recommendations_json, list) else json.loads(recommendations_json or "[]")
+                    prof = profile_json if isinstance(profile_json, dict) else json.loads(profile_json or "{}")
+                    comps = comparisons_json if isinstance(comparisons_json, list) else json.loads(comparisons_json or "[]")
+                    best = next((c for c in comps if c.get("is_best")), comps[0] if comps else {})
+                    conf = prof.get("extraction_confidence") or 0.0
+                    result_summary = {
+                        "industry": prof.get("industry", "—"),
+                        "region": prof.get("region", "—"),
+                        "confidence": conf,
+                        "verdict": qa_verdict or "",
+                        "best_scenario": best.get("scenario_name", "—") if best else "—",
+                        "roi_5y": best.get("roi_5y") if best else None,
+                        "payback_years": best.get("payback_years") if best else None,
+                        "capex_estimate": best.get("capex_estimate") if best else None,
+                    }
+                except Exception:
+                    result_summary = None
+            if result_summary is not None:
+                run.result_summary = json.dumps(result_summary, ensure_ascii=False)
         db.commit()
     finally:
         db.close()
@@ -162,11 +194,14 @@ def get_pipeline_run(pipeline_id: str) -> Optional[dict]:
         db.close()
 
 
-def list_pipeline_runs(limit: int = 20) -> list:
-    """List recent pipeline runs."""
+def list_pipeline_runs(limit: int = 20, offset: int = 0, status: str = None) -> list:
+    """List recent pipeline runs with richer task metadata."""
     db = SessionLocal()
     try:
-        runs = db.query(PipelineRun).order_by(PipelineRun.created_at.desc()).limit(limit).all()
+        query = db.query(PipelineRun)
+        if status:
+            query = query.filter(PipelineRun.status == status)
+        runs = query.order_by(PipelineRun.created_at.desc()).offset(offset).limit(limit).all()
         return [
             {
                 "pipeline_id": r.pipeline_id,
@@ -176,8 +211,75 @@ def list_pipeline_runs(limit: int = 20) -> list:
                 "completed_at": r.completed_at.isoformat() if r.completed_at else None,
                 "total_duration_seconds": r.total_duration_seconds,
                 "error": r.error,
+                # Extended fields for task list UI
+                "tender_document_hash": r.tender_document_hash,
+                "api_base_url": r.api_base_url,
+                "compare_scenario_ids": json.loads(r.compare_scenario_ids or "[]") if r.compare_scenario_ids else [],
+                "result_summary": json.loads(r.result_summary) if r.result_summary else None,
+                "retry_count": r.retry_count,
+                "max_retries": r.max_retries,
+                "pdf_url": r.pdf_url,
             }
             for r in runs
         ]
+    finally:
+        db.close()
+
+
+def reset_pipeline_stages(pipeline_id: str, from_stage: str) -> list[str]:
+    """
+    Reset all stages from `from_stage` onwards to PENDING.
+    Clears output_file, error, duration_seconds for those stages.
+    Returns list of stage names that were reset.
+    """
+    init_pipeline_db()
+    db = SessionLocal()
+    try:
+        stages_order = ["1_extraction", "2_recommendation", "3_cost_comparison", "4_qa_review", "5_pdf_report"]
+        try:
+            from_idx = stages_order.index(from_stage)
+        except ValueError:
+            from_idx = 0
+        stages_to_reset = stages_order[from_idx:]
+
+        reset_stages = []
+        for stage_name in stages_to_reset:
+            stage = db.query(PipelineStage).filter_by(
+                pipeline_id=pipeline_id, stage_name=stage_name
+            ).first()
+            if stage:
+                stage.status = "PENDING"
+                stage.error = None
+                stage.duration_seconds = None
+                stage.output_file = None
+                stage.extra_json = "{}"
+                stage.updated_at = datetime.utcnow()
+                reset_stages.append(stage_name)
+
+        # Also reset the overall pipeline run status to RUNNING
+        run = db.query(PipelineRun).filter_by(pipeline_id=pipeline_id).first()
+        if run:
+            run.status = "RUNNING"
+            run.completed_at = None
+            run.error = None
+
+        db.commit()
+        return reset_stages
+    finally:
+        db.close()
+
+
+def cancel_pipeline_run(pipeline_id: str) -> bool:
+    """Cancel a pipeline run if it is still running."""
+    init_pipeline_db()
+    db = SessionLocal()
+    try:
+        run = db.query(PipelineRun).filter_by(pipeline_id=pipeline_id).first()
+        if run and run.status == "RUNNING":
+            run.status = "CANCELLED"
+            run.cancelled_at = datetime.utcnow()
+            db.commit()
+            return True
+        return False
     finally:
         db.close()

@@ -88,6 +88,8 @@ def pipeline_task(tender_document: str, project_profile_overrides: dict = None, 
     pipeline_dir = _get_pipeline_dir(pipeline_id)
 
     # Init SQLite state — create pipeline run + all stage records
+    import hashlib
+    doc_hash = hashlib.sha256(tender_document.encode()).hexdigest()[:16] if tender_document else None
     create_pipeline_run(
         pipeline_id=pipeline_id,
         tender_document=tender_document or "",
@@ -96,6 +98,9 @@ def pipeline_task(tender_document: str, project_profile_overrides: dict = None, 
             "compare_scenario_ids": compare_scenario_ids,
             "generate_pdf": generate_pdf,
         },
+        tender_document_hash=doc_hash,
+        api_base_url=api_base_url,
+        compare_scenario_ids=compare_scenario_ids,
     )
     for stage_name in ["1_extraction", "2_recommendation", "3_cost_comparison", "4_qa_review", "5_pdf_report"]:
         create_stage(pipeline_id, stage_name)
@@ -329,6 +334,17 @@ def pipeline_task(tender_document: str, project_profile_overrides: dict = None, 
 
     # ---- Finalize ----
     total_duration = (datetime.now() - start_time).total_seconds()
+    best_cost = next((c for c in cost_comparisons if c.get("is_best")), cost_comparisons[0] if cost_comparisons else {})
+    result_summary = {
+        "industry": profile.get("industry", "—"),
+        "region": region,
+        "confidence": profile.get("extraction_confidence") or 0.0,
+        "verdict": qa_verdict,
+        "best_scenario": best_cost.get("scenario_name", "—") if best_cost else "—",
+        "roi_5y": best_cost.get("roi_5y") if best_cost else None,
+        "payback_years": best_cost.get("payback_years") if best_cost else None,
+        "capex_estimate": best_cost.get("capex_estimate") if best_cost else None,
+    }
     complete_pipeline(
         pipeline_id=pipeline_id,
         status="COMPLETE",
@@ -339,6 +355,7 @@ def pipeline_task(tender_document: str, project_profile_overrides: dict = None, 
         pdf_path=str(pdf_path) if pdf_path else None,
         pdf_url=pdf_url,
         total_duration_seconds=total_duration,
+        result_summary=result_summary,
     )
 
     return {

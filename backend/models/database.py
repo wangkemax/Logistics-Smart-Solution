@@ -82,6 +82,7 @@ class PipelineRun(Base):
     job_id = Column(String(40), index=True, nullable=True)  # external job identifier (unique enforced at service layer)
     status = Column(String(20), default="RUNNING")           # RUNNING / COMPLETE / FAILED / CANCELLED / RETRY
     tender_document = Column(Text, default="")
+    tender_document_hash = Column(String(64), nullable=True, index=True)  # SHA256 for deduplication
     params_json = Column(Text, default="{}")                  # JSON string
     profile_json = Column(Text, default="{}")
     recommendations_json = Column(Text, default="[]")
@@ -95,6 +96,9 @@ class PipelineRun(Base):
     max_retries = Column(Integer, default=2)                 # max retries allowed
     parent_job_id = Column(String(40), nullable=True)        # for retry chains
     worker_pid = Column(Integer, nullable=True)              # tracking which worker
+    api_base_url = Column(String(200), nullable=True)        # base URL used for this run
+    compare_scenario_ids = Column(Text, nullable=True)       # JSON list of scenario IDs
+    result_summary = Column(Text, nullable=True)            # JSON summary for task list UI
     created_at = Column(DateTime, default=datetime.utcnow)
     completed_at = Column(DateTime, nullable=True)
     cancelled_at = Column(DateTime, nullable=True)
