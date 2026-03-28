@@ -202,6 +202,7 @@ def recommend_solutions(
         if include_reasons:
             item["reasons"] = _generate_reasons(scenario, normalized, score_breakdown)
 
+            item["risk"] = scenario.get("risk", "") or "需要详细评估实施风险"
         recommendations.append(item)
 
     # 5. Apply top_n and sort by score desc
