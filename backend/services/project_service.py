@@ -1,7 +1,6 @@
 from sqlalchemy.orm import Session
 from backend.models.database import Project, Solution
 from backend.schemas.schemas import ProjectProfileCreate
-from backend.engines.automation_engine import recommend_automation
 from backend.engines.cost_engine import (
     calculate_costs, generate_cost_summary, generate_cost_recommendations,
     compare_scenarios as engine_compare_scenarios, SCENARIO_NAMES
@@ -33,17 +32,23 @@ def get_project(db: Session, project_id: int) -> Project:
 
 
 def get_recommendations(profile_dict: dict) -> dict:
-    """Get automation recommendations for a project profile."""
-    recommendations = recommend_automation(profile_dict)
+    """
+    Get automation recommendations for a project profile.
+    Delegates to recommendation_service, returns legacy format for compat.
+    """
+    from backend.services.recommendation_service import recommend_solutions as _recommend
 
-    top = recommendations[0] if recommendations else None
-    top_name = top["scenario_name"] if top else "暂无推荐"
+    result = _recommend(profile_dict, top_n=5, include_reasons=False)
+    recs = result.get("recommendations", [])
 
-    # Generate analysis summary
-    industry = profile_dict.get("industry", "") or "未知"
-    sku = profile_dict.get("sku_count") or 0
-    orders = profile_dict.get("daily_orders") or 0
+    top = recs[0] if recs else None
+    top_name = top.get("scenario_name") if top else "暂无推荐"
 
+    # Build summary from normalized profile
+    norm = result.get("total_profiles_normalized", {})
+    industry = norm.get("industry", "未知")
+    sku = norm.get("sku_count", 0) or 0
+    orders = norm.get("daily_orders", 0) or 0
     sku_desc = "高SKU" if sku and sku > 10000 else "低SKU"
     order_desc = "高订单量" if orders and orders > 2000 else "低订单量"
 
@@ -53,7 +58,20 @@ def get_recommendations(profile_dict: dict) -> dict:
     )
 
     return {
-        "recommendations": recommendations,
+        "recommendations": [
+            {
+                "scenario_id": r.get("scenario_id"),
+                "scenario_name": r.get("scenario_name"),
+                "category": r.get("category", ""),
+                "score": r.get("score", 0),
+                "match_level": r.get("match_level", "中"),
+                "risk": r.get("risk_level", "中"),
+                "capex_range": r.get("capex_range", ""),
+                "labor_saving": r.get("labor_saving", 0),
+                "efficiency_gain": r.get("efficiency_gain", 0),
+            }
+            for r in recs
+        ],
         "top_recommendation": top_name,
         "analysis_summary": summary,
     }

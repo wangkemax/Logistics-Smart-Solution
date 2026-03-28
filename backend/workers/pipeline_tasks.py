@@ -18,10 +18,11 @@ PROJECT_ROOT = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from backend.services.project_service import (
-    get_recommendations,
     get_cost_analysis,
     get_scenario_comparison,
 )
+from backend.services.recommendation_service import recommend_solutions
+from backend.services.cost_service import compare_solution_financials
 from backend.services.pipeline_service import (
     create_pipeline_run,
     create_stage,
@@ -153,7 +154,8 @@ def pipeline_task(tender_document: str, project_profile_overrides: dict = None, 
     stage_start = datetime.now()
     _update_stage(pipeline_id, "2_recommendation", "RUNNING")
     try:
-        rec_result = get_recommendations(profile)
+        # Use new recommendation service (includes reasons, match_level, normalized input)
+        rec_result = recommend_solutions(profile, top_n=5, include_reasons=True)
         recommendations = rec_result.get("recommendations", [])
 
         if compare_scenario_ids:
@@ -192,8 +194,9 @@ def pipeline_task(tender_document: str, project_profile_overrides: dict = None, 
     _update_stage(pipeline_id, "3_cost_comparison", "RUNNING")
     try:
         if len(compare_ids) >= 2:
-            cmp_result = get_scenario_comparison(profile, region, compare_ids)
-            cost_comparisons = cmp_result.get("comparisons", [])
+            # Use new cost service for batch comparison
+            scenario_list = [r for r in recommendations if r.get("scenario_id") in compare_ids]
+            cost_comparisons = compare_solution_financials(profile, scenario_list, region)
         elif best_id:
             cost_result = get_cost_analysis(profile, region, best_id)
             cost_comparisons = [cost_result.get("cost_breakdown", {})]
