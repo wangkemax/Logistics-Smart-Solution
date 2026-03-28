@@ -134,7 +134,7 @@ def render_compare_bar_chart(comparisons):
 def render_compare_roi_chart(comparisons):
     # comparisons is already sorted by weighted score when called from results panel
     names = [c["scenario_name"][:10] for c in comparisons]
-    roi_5y = [c["roi_5y"] for c in comparisons]
+    roi_5y = [c.get("roi_5y") or 0 for c in comparisons]
     colors = ["#27ae60" if c.get("is_best") else "#95a5a6" for c in comparisons]
     fig = go.Figure(data=[go.Bar(
         y=names, x=roi_5y, orientation="h",
@@ -147,18 +147,18 @@ def render_compare_roi_chart(comparisons):
 
 
 def render_compare_radar(comparisons):
-    max_roi = max((c["roi_5y"] for c in comparisons), default=1)
+    max_roi = max((c.get("roi_5y") or 0 for c in comparisons), default=1)
     max_payback = max(((c.get("payback_years") or 0) for c in comparisons), default=1)
-    max_saving = max((c["annual_saving"] for c in comparisons), default=1)
-    max_hc = max((c["headcount_saved"] for c in comparisons), default=1)
+    max_saving = max((c.get("annual_labor_saving", 0) + c.get("annual_efficiency_saving", 0) for c in comparisons), default=1)
+    max_hc = max((c.get("headcount_saved") or 0 for c in comparisons), default=1)
     colors = ["#2196f3", "#4caf50", "#ff9800", "#9c27b0", "#f44336"]
     traces = []
     for i, c in enumerate(comparisons[:5]):
         values = [
-            (c["roi_5y"] / max_roi) * 100,
+            ((c.get("roi_5y") or 0) / max_roi) * 100,
             (1 - (c.get("payback_years") or 0) / max_payback) * 100,
-            (c["annual_saving"] / max_saving) * 100,
-            (c["headcount_saved"] / max_hc) * 100,
+            ((c.get("annual_labor_saving", 0) + c.get("annual_efficiency_saving", 0)) / max_saving) * 100,
+            ((c.get("headcount_saved") or 0) / max_hc) * 100,
             100,
         ]
         traces.append(go.Scatterpolar(
