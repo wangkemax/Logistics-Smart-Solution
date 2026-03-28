@@ -74,6 +74,8 @@ def score_industry_match(scenario: Dict, industry: str) -> float:
 
 def score_sku_match(scenario: Dict, sku_count: int) -> float:
     """Score based on SKU count match (0-20 points)."""
+    if sku_count is None:
+        return 0.0
     sku_min = scenario.get("sku_min", 0)
     sku_max = scenario.get("sku_max", 9999999)
 
@@ -93,6 +95,8 @@ def score_sku_match(scenario: Dict, sku_count: int) -> float:
 
 def score_order_match(scenario: Dict, daily_orders: int) -> float:
     """Score based on order volume match (0-20 points)."""
+    if daily_orders is None:
+        return 0.0
     order_min = scenario.get("order_min", 0)
     order_max = scenario.get("order_max", 9999999)
 
@@ -128,6 +132,9 @@ def score_budget_match(scenario: Dict, budget_level: str) -> float:
 def score_warehouse_conditions(scenario: Dict, warehouse_area: float,
                                 automation_expectation: str) -> float:
     """Score based on warehouse conditions and automation expectation (0-20 points)."""
+    if warehouse_area is None:
+        return 10.0
+
     base_score = 10.0
 
     category = scenario.get("category", "")

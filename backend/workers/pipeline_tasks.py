@@ -51,6 +51,23 @@ def _update_stage(pipeline_id: str, stage: str, status: str, output_file: str = 
     )
 
 
+class PipelineCancelled(Exception):
+    """Raised when pipeline is cancelled mid-execution."""
+    pass
+
+
+def _check_cancelled(pipeline_id: str):
+    """Raise PipelineCancelled if pipeline was cancelled. Call between stages."""
+    from backend.models.database import SessionLocal, PipelineRun
+    db = SessionLocal()
+    try:
+        run = db.query(PipelineRun).filter_by(pipeline_id=pipeline_id).first()
+        if run and run.status == "CANCELLED":
+            raise PipelineCancelled(f"Pipeline {pipeline_id} was cancelled")
+    finally:
+        db.close()
+
+
 def _set_status(pipeline_id: str, status: str, **kwargs):
     """Set overall pipeline status in SQLite."""
     pass  # Status is updated by complete_pipeline
@@ -115,6 +132,11 @@ def pipeline_task(tender_document: str, project_profile_overrides: dict = None, 
         _update_stage(pipeline_id, "1_extraction", "DONE",
                       output_file=str(extraction_file),
                       duration_seconds=(datetime.now() - stage_start).total_seconds())
+    except PipelineCancelled:
+        _update_stage(pipeline_id, "1_extraction", "CANCELLED",
+                      duration_seconds=(datetime.now() - stage_start).total_seconds())
+        complete_pipeline(pipeline_id, "CANCELLED")
+        return {"pipeline_id": pipeline_id, "status": "CANCELLED"}
     except Exception as e:
         _update_stage(pipeline_id, "1_extraction", "FAILED",
                       error=str(e),
@@ -159,6 +181,11 @@ def pipeline_task(tender_document: str, project_profile_overrides: dict = None, 
                       duration_seconds=(datetime.now() - stage_start).total_seconds())
         complete_pipeline(pipeline_id, "FAILED", error=str(e))
         return {"pipeline_id": pipeline_id, "status": "FAILED", "error": str(e)}
+    except PipelineCancelled:
+        _update_stage(pipeline_id, "2_recommendation", "CANCELLED",
+                      duration_seconds=(datetime.now() - stage_start).total_seconds())
+        complete_pipeline(pipeline_id, "CANCELLED")
+        return {"pipeline_id": pipeline_id, "status": "CANCELLED"}
 
     # ---- Stage 3: Cost Comparison ----
     stage_start = datetime.now()
@@ -214,6 +241,11 @@ def pipeline_task(tender_document: str, project_profile_overrides: dict = None, 
                       duration_seconds=(datetime.now() - stage_start).total_seconds())
         complete_pipeline(pipeline_id, "FAILED", error=str(e))
         return {"pipeline_id": pipeline_id, "status": "FAILED", "error": str(e)}
+    except PipelineCancelled:
+        _update_stage(pipeline_id, "4_qa_review", "CANCELLED",
+                      duration_seconds=(datetime.now() - stage_start).total_seconds())
+        complete_pipeline(pipeline_id, "CANCELLED")
+        return {"pipeline_id": pipeline_id, "status": "CANCELLED"}
 
     # ---- Stage 5: PDF Report ----
     if generate_pdf:

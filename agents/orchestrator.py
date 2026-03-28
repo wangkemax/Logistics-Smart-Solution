@@ -425,6 +425,125 @@ async def run_pipeline(request: PipelineRunRequest, background_tasks: Background
     }
 
 
+# =============================================================================
+# Job Management: Retry / Cancel
+# =============================================================================
+
+@router.post("/retry/{pipeline_id}", response_model=dict)
+async def retry_pipeline(pipeline_id: str, background_tasks: BackgroundTasks):
+    """
+    Retry a failed pipeline with the same tender document and parameters.
+    Creates a new pipeline run linked to the original via parent_job_id.
+    """
+    from backend.services.pipeline_service import get_pipeline_run as _get_run
+    from backend.models.database import SessionLocal, PipelineRun
+
+    db = SessionLocal()
+    try:
+        old_run = db.query(PipelineRun).filter_by(pipeline_id=pipeline_id).first()
+        if not old_run:
+            return {"error": f"Pipeline {pipeline_id} not found"}, 404
+
+        if old_run.status not in ("FAILED", "CANCELLED"):
+            return {"error": f"Pipeline status is {old_run.status}, can only retry FAILED/CANCELLED"}, 400
+
+        if old_run.retry_count >= old_run.max_retries:
+            return {"error": f"Max retries ({old_run.max_retries}) reached"}, 400
+
+        # Create new pipeline with same tender document
+        new_pipeline_id = str(uuid.uuid4())[:8]
+        job_id = f"retry-{new_pipeline_id}-of-{pipeline_id}"
+
+        new_run = PipelineRun(
+            pipeline_id=new_pipeline_id,
+            job_id=job_id,
+            status="RUNNING",
+            tender_document=old_run.tender_document or "",
+            params_json=old_run.params_json or "{}",
+            retry_count=0,
+            max_retries=old_run.max_retries,
+            parent_job_id=pipeline_id,
+        )
+        db.add(new_run)
+        db.commit()
+
+        # Enqueue background job
+        import threading as _threading
+        def _retry_job(pid: str, parent: str):
+            from backend.workers.pipeline_tasks import pipeline_task
+            params = json.loads(old_run.params_json or "{}")
+            try:
+                pipeline_task(
+                    tender_document=old_run.tender_document or "",
+                    project_profile_overrides=params.get("profile_overrides"),
+                    use_llm=params.get("use_llm", True),
+                    pipeline_id=pid,
+                )
+            except Exception as e:
+                import sys; print(f"[retry {pid}] error: {e}", file=sys.stderr)
+
+        _threading.Thread(target=_retry_job, args=(new_pipeline_id, pipeline_id), daemon=True).start()
+
+        return {
+            "pipeline_id": new_pipeline_id,
+            "job_id": job_id,
+            "status": "ENQUEUED",
+            "parent_pipeline_id": pipeline_id,
+            "message": f"Retry {old_run.retry_count + 1}/{old_run.max_retries} enqueued",
+        }
+    finally:
+        db.close()
+
+
+@router.post("/cancel/{pipeline_id}", response_model=dict)
+async def cancel_pipeline(pipeline_id: str):
+    """
+    Cancel a running or queued pipeline.
+    Sets cancelled_at timestamp — worker checks this between stages.
+    """
+    from backend.models.database import SessionLocal, PipelineRun
+    from datetime import datetime
+
+    db = SessionLocal()
+    try:
+        run = db.query(PipelineRun).filter_by(pipeline_id=pipeline_id).first()
+        if not run:
+            return {"error": f"Pipeline {pipeline_id} not found"}, 404
+
+        if run.status in ("COMPLETE", "CANCELLED"):
+            return {"error": f"Pipeline is already {run.status}"}, 400
+
+        run.status = "CANCELLED"
+        run.cancelled_at = datetime.utcnow()
+        db.commit()
+
+        return {
+            "pipeline_id": pipeline_id,
+            "status": "CANCELLED",
+            "cancelled_at": run.cancelled_at.isoformat(),
+        }
+    finally:
+        db.close()
+
+
+@router.get("/jobs", response_model=list)
+async def list_jobs(limit: int = 20):
+    """List recent pipeline jobs with job metadata."""
+    from backend.services.pipeline_service import list_pipeline_runs as _list
+    runs = _list(limit=limit)
+    return [
+        {
+            "pipeline_id": r["pipeline_id"],
+            "status": r["status"],
+            "created_at": r["created_at"],
+            "completed_at": r.get("completed_at"),
+            "total_duration_seconds": r.get("total_duration_seconds"),
+            "error": r.get("error"),
+        }
+        for r in runs
+    ]
+
+
 @router.post("/extract", response_model=ExtractionResponse)
 async def extract_profile(request: ExtractionRequest):
     """

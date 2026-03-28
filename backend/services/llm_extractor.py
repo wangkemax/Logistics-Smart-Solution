@@ -228,10 +228,11 @@ def _fill_missing_fields(text: str, profile: dict):
     # Try to find daily orders
     if profile.get('daily_orders') is None:
         for pattern in [
-            r'日均[订单票件量][：:\s]*(\d[\d,]*)',
-            r'日处理[订单量][：:\s]*(\d[\d,]*)',
-            r'日[出进][货库][量：:\s]*(\d[\d,]*)',
-            r'(\d[\d,]+)\s*(?:单|票|件)/[天日]',
+            r'日[均]?[订单票件量][为是：:\s]*(\d[\d,]*)',
+            r'日[均]?[出进][货库][量为：:\s]*(\d[\d,]*)',
+            r'日[均]?收[件货][量为：:\s]*(\d[\d,]*)',
+            r'日[均]?处理[量为：:\s]*(\d[\d,]*)',
+            r'(\d[\d,]+)\s*(?:单|票|件)/(?:天|日)',
         ]:
             m = re.search(pattern, text)
             if m:

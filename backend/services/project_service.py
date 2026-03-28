@@ -40,12 +40,12 @@ def get_recommendations(profile_dict: dict) -> dict:
     top_name = top["scenario_name"] if top else "暂无推荐"
 
     # Generate analysis summary
-    industry = profile_dict.get("industry", "")
-    sku = profile_dict.get("sku_count", 0)
-    orders = profile_dict.get("daily_orders", 0)
+    industry = profile_dict.get("industry", "") or "未知"
+    sku = profile_dict.get("sku_count") or 0
+    orders = profile_dict.get("daily_orders") or 0
 
-    sku_desc = "高SKU" if sku > 10000 else "低SKU"
-    order_desc = "高订单量" if orders > 2000 else "低订单量"
+    sku_desc = "高SKU" if sku and sku > 10000 else "低SKU"
+    order_desc = "高订单量" if orders and orders > 2000 else "低订单量"
 
     summary = (
         f"基于{industry}行业特征，{sku_desc}({sku:,} SKU)和{order_desc}({orders:,}单/天)的运营特点，"

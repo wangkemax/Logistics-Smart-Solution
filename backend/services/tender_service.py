@@ -98,8 +98,13 @@ def extract_with_regex(text: str) -> dict:
     if m:
         profile["sku_count"] = int(float(m.group(1).replace(",", "")))
 
-    # Daily orders
-    for pat in [r"日[均]?[订单件][量为]?[是约]?\s*(\d[\d,\.]*)", r"(\d[\d,\.]*)\s*(?:单|件)/[天日]"]:
+    # Daily orders — handle "日订单", "日均订单", "日收件", "日出货" etc.
+    for pat in [
+        r"日[均]?(?:订单|收件|出货|收贷|处理|均)[为是]?[：:\s]*(\d[\d,]*)",
+        r"日[出进]?(?:货|件|单)[量为]?[：:\s]*(\d[\d,]*)",
+        r"日[均]?[订单件][量为]?[为是约]?[：:\s]*(\d[\d,]*)",
+        r"(\d[\d,]+)\s*(?:单|票|件)/(?:天|日)",
+    ]:
         m = re.search(pat, text)
         if m:
             profile["daily_orders"] = int(float(m.group(1).replace(",", "")))
