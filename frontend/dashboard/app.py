@@ -375,6 +375,53 @@ def _render_results_panel():
 
     # ---- Extraction Review Panel ----
     extraction_confidence = profile.get("extraction_confidence", 0)
+
+            # ── Extraction Review Panel ───────────────────────────────
+            extraction_confidence = best.get("extraction_confidence")
+            field_confidence = best.get("field_confidence") or best.get("field_confidence_map") or {}
+            source_trace = best.get("source_trace") or best.get("source") or {}
+            extraction_warnings = best.get("extraction_warnings") or best.get("warnings") or []
+
+            if field_confidence or source_trace:
+                with st.expander("📋 提取结果确认", expanded=False):
+                    if extraction_confidence is not None:
+                        conf_pct = float(extraction_confidence) * 100
+                        st.progress(min(conf_pct / 100, 1.0),
+                                     text="总体置信度：" + str(int(conf_pct)) + "%")
+
+                    field_labels = {
+                        "warehouse_area": "仓库面积",
+                        "sku_count": "SKU数",
+                        "daily_orders": "日订单量",
+                        "inventory": "库存量",
+                        "industry": "行业",
+                        "region": "地区",
+                        "labor_cost_level": "人工成本",
+                        "budget_level": "预算等级",
+                        "automation_expectation": "自动化期望",
+                    }
+                    source_icon = {"rule": "🔤", "llm": "🤖", "merged": "🔄", "default": "❓"}
+
+                    rows = []
+                    for fname, label in field_labels.items():
+                        raw_val = best.get(fname)
+                        conf = field_confidence.get(fname)
+                        src = source_trace.get(fname, "default")
+                        conf_str = str(int(conf * 100)) + "%" if conf else "—"
+                        icon = source_icon.get(src, "❓")
+                        val_str = str(raw_val) if raw_val is not None else "—"
+                        rows.append({"字段": label, "提取值": val_str, "置信度": conf_str, "来源": icon + " " + src})
+
+                    if rows:
+                        st.dataframe(rows, hide_index=True, use_container_width=True)
+                    else:
+                        st.info("无可用置信度数据")
+
+                    if extraction_warnings and isinstance(extraction_warnings, list):
+                        st.markdown("**⚠️ 注意事项：**")
+                        for w in extraction_warnings:
+                            st.markdown("- " + str(w))
+
     field_confidence = profile.get("field_confidence", {})
     source_trace = profile.get("source_trace", {})
     warnings = profile.get("warnings", [])
