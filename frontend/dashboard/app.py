@@ -851,7 +851,7 @@ def _render_results_panel():
         st.markdown("**🎯 TOP 5 自动化方案**")
         for i, rec in enumerate(recs[:5]):
             medal = "🥇" if i == 0 else "🥈" if i == 1 else "🥉" if i == 2 else "📌"
-            with st.expander(f"{medal} #{i+1} {rec['scenario_name']} — {rec['score']:.0f}分", expanded=(i == 0)):
+            with st.expander(f"{medal} #{i+1} {rec.get('scenario_name', '—')} — {rec.get('score', 0):.0f}分", expanded=(i == 0)):
                 ca, cb = st.columns([2, 1])
                 with ca:
                     st.markdown(f"**类别:** {rec.get('category','—')} | **风险:** {rec.get('risk','—')}")
@@ -946,22 +946,22 @@ if app_mode == "📋 方案生成":
                     top = recommendations[0]
                     c1, c2, c3, c4 = st.columns(4)
                     c1.metric("首选方案", fmt_text(top.get("scenario_name"), "—"))
-                    c2.metric("匹配评分", f"{top['score']:.0f}/100")
-                    c3.metric("人工节省", f"{int(top['labor_saving']*100)}%")
-                    c4.metric("效率提升", f"{int(top['efficiency_gain']*100)}%")
+                    c2.metric("匹配评分", f"{top.get('score', 0):.0f}/100")
+                    c3.metric("人工节省", f"{int((top.get('labor_saving') or 0)*100)}%")
+                    c4.metric("效率提升", f"{int((top.get('efficiency_gain') or 0)*100)}%")
                     st.divider()
                     for i, rec in enumerate(recommendations):
                         with st.expander(
                             f"{'🥇' if i==0 else '🥈' if i==1 else '🥉' if i==2 else '📌'} "
-                            f"#{i+1} {rec['scenario_name']} — 评分: {rec['score']:.0f}分",
+                            f"#{i+1} {rec.get('scenario_name', '—')} — 评分: {rec.get('score', 0):.0f}分",
                             expanded=(i == 0),
                         ):
                             col_a, col_b = st.columns([2, 1])
                             with col_a:
-                                st.markdown(f"**类别:** {rec['category']}")
-                                st.markdown(f"**推荐理由:** {rec['reason']}")
-                                st.markdown(f"**风险评估:** {rec['risk']}")
-                                st.markdown(f"**投资范围:** {rec['capex_range']}")
+                                st.markdown(f"**类别:** {rec.get('category', '—')}")
+                                st.markdown(f"**推荐理由:** {rec.get('reason', '—')}")
+                                st.markdown(f"**风险评估:** {rec.get('risk', '—')}")
+                                st.markdown(f"**投资范围:** {rec.get('capex_range', '—')}")
                             with col_b:
                                 st.plotly_chart(render_score_gauge(rec["score"]),
                                                 width='stretch', key=f"score_gauge_{i}")
@@ -971,12 +971,12 @@ if app_mode == "📋 方案生成":
                 cost_data = cost_result["cost_breakdown"]
                 st.info(cost_result.get("summary", ""))
                 c1, c2, c3, c4, c5, c6 = st.columns(6)
-                c1.metric("总投资", f"¥{cost_data['automation_capex']/10000:.0f}万")
-                c2.metric("年节省人工", f"¥{cost_data['automation_savings_annual']/10000:.1f}万")
-                c3.metric("5年ROI", f"{cost_data['roi']:.1f}x")
-                c4.metric("回本周期", f"{cost_data['payback_years']:.1f}年")
+                c1.metric("总投资", fmt_currency(safe_div(cost_data.get("automation_capex"), 10000), "¥", 0, "—") + "万")
+                c2.metric("年节省人工", fmt_currency(safe_div(cost_data.get("automation_savings_annual"), 10000), "¥", 1, "—") + "万")
+                c3.metric("5年ROI", fmt_number(cost_data.get('roi'), 1, '—') + 'x')
+                c4.metric("回本周期", fmt_years(cost_data.get('payback_years'), 1, '—'))
                 c5.metric("Y1 EBITA", fmt_currency(cost_data.get("y1_ebita")))
-                c6.metric("节省人数", f"{cost_data['headcount_saved']}人")
+                c6.metric("节省人数", fmt_count(cost_data.get("headcount_saved"), "人"))
                 st.divider()
                 cc1, cc2 = st.columns(2)
                 with cc1:
@@ -999,11 +999,11 @@ if app_mode == "📋 方案生成":
 
 **投资回报摘要:**
 - 自动化投资: {fmt_currency(cost_d.get('automation_capex') or cost_d.get('capex_estimate'))}
-- 年节省人工: ¥{cost_d['automation_savings_annual']/10000:.1f}万元
+- 年节省人工: ¥{fmt_number(safe_div(cost_d.get('automation_savings_annual'), 10000), 1, '—')}万元
 - Y1 EBITA: {fmt_currency(cost_d.get('y1_ebita'))}
-- 净年度收益: ¥{cost_d['net_annual_benefit']/10000:.1f}万元
-- 5年ROI: {cost_d['roi']:.1f}倍 | 回本周期: {cost_d['payback_years']:.1f}年
-- 预计减少人员: {cost_d['headcount_saved']}人
+- 净年度收益: ¥{fmt_number(safe_div(cost_d.get('net_annual_benefit'), 10000), 1, '—')}万元
+- 5年ROI: {fmt_number(cost_d.get('roi'), 1, '—')}倍 | 回本周期: {fmt_years(cost_d.get('payback_years'), 1, '—')}年
+- 预计减少人员: {fmt_count(cost_d.get('headcount_saved'), '人')}
 """)
                 report_data = {
                     "project_name": project_name, "profile": profile,
@@ -1154,14 +1154,14 @@ elif app_mode == "⚖️ 多方案对比":
                 det = []
                 for c in comparisons:
                     det.append({
-                        "方案": c["scenario_name"],
-                        "类别": c["category"],
-                        "自动化投资": f"¥{c['automation_capex']/10000:.0f}万",
+                        "方案": c.get("scenario_name", "—"),
+                        "类别": c.get("category", "—"),
+                        "自动化投资": "¥" + fmt_number(safe_div(c.get("automation_capex"), 10000), 0, "—") + "万",
                         "Y1 EBITA": fmt_currency(c.get("y1_ebita")),
-                        "5年累计净收益": f"¥{c['five_year_net_benefit']/10000:.1f}万",
-                        "5年ROI": f"{c['roi_5y']:.1f}x",
-                        "回本周期": f"{c['payback_years']:.1f}年",
-                        "节省人数": f"{c['headcount_saved']}/{c['headcount_required']}",
+                        "5年累计净收益": "¥" + fmt_number(safe_div(c.get("five_year_net_benefit"), 10000), 1, "—") + "万",
+                        "5年ROI": fmt_number(c.get("roi_5y"), 1, "—") + "x",
+                        "回本周期": fmt_years(c.get("payback_years"), 1, "—"),
+                        "节省人数": f"{fmt_count(c.get('headcount_saved'), '')}/{fmt_count(c.get('headcount_required'), '')}",
                     })
                 st.dataframe(pd.DataFrame(det), width='stretch', hide_index=True)
     else:
@@ -1367,7 +1367,7 @@ elif app_mode == "🚀 Pipeline Run":
                 for s in stages:
                     label = step_labels.get(s.get("stage", ""), s.get("stage", ""))
                     if s.get("status") == "DONE":
-                        log_lines.append(f"✅ {label} 完成 ({s.get('duration_seconds', 0):.0f}s)")
+                        log_lines.append(f"✅ {label} 完成 ({s.get('duration_seconds') or 0:.0f}s)")
                     elif s.get("status") == "FAILED":
                         log_lines.append(f"❌ {label}: {s.get('error', '')[:80]}")
                     elif s.get("status") == "RUNNING":
