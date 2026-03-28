@@ -297,7 +297,7 @@ if app_mode == "📋 方案生成" and single_submitted:
                             st.markdown(f"**风险评估:** {rec['risk']}")
                             st.markdown(f"**投资范围:** {rec['capex_range']}")
                         with col_b:
-                            st.plotly_chart(render_score_gauge(rec["score"]), use_container_width=True)
+                            st.plotly_chart(render_score_gauge(rec["score"]), use_container_width=True, key=f"score_gauge_{i}")
             else:
                 st.warning("未找到匹配的自动化方案，请调整项目参数")
 
