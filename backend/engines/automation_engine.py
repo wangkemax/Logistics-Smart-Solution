@@ -199,7 +199,21 @@ def recommend_automation(project_profile: Dict) -> List[Dict[str, Any]]:
     recommendations = []
 
     for scenario in scenarios:
-        # All scoring functions use normalize_scenario internally
+        # ---- Read weights from scenario (DB-first, defaults as fallback) ----
+        weights = {
+            "industry": scenario.get("weight_industry") or 0.20,
+            "area": scenario.get("weight_area") or 0.15,
+            "sku": scenario.get("weight_sku") or 0.20,
+            "orders": scenario.get("weight_orders") or 0.20,
+            "budget": scenario.get("weight_budget") or 0.15,
+            "region": scenario.get("weight_region") or 0.10,
+        }
+        # Normalize weights so they sum to 1.0
+        total_w = sum(weights.values())
+        if total_w > 0:
+            weights = {k: v / total_w for k, v in weights.items()}
+
+        # ---- Raw scores (0-20 each) ----
         industry_score = score_industry_match(scenario, profile["industry"])
         sku_score = score_sku_match(scenario, profile["sku_count"])
         order_score = score_order_match(scenario, profile["daily_orders"])
@@ -210,11 +224,30 @@ def recommend_automation(project_profile: Dict) -> List[Dict[str, Any]]:
             project_profile.get("automation_expectation", "中")
         )
 
-        total_score = industry_score + sku_score + order_score + budget_score + warehouse_score
+        # Filter: use unweighted raw score (sum of all dimensions, max 100)
+        # This preserves the original 20-point minimum threshold behavior
+        raw_total = industry_score + sku_score + order_score + budget_score + warehouse_score
+        if raw_total < 20:
+            continue
+
+        # ---- Weighted sum → display score (max 100) ----
+        total_score = (
+            industry_score  * weights["industry"] +
+            sku_score      * weights["sku"]      +
+            order_score    * weights["orders"]   +
+            budget_score   * weights["budget"]   +
+            warehouse_score * weights["area"]
+        )
         total_score = min(100, max(0, total_score))
 
-        if total_score < 20:
-            continue
+        # ---- score_breakdown: each dimension's contribution to total_score ----
+        score_breakdown = {
+            "industry": round(industry_score * weights["industry"], 2),
+            "area":     round(warehouse_score * weights["area"], 2),
+            "sku":      round(sku_score * weights["sku"], 2),
+            "orders":   round(order_score * weights["orders"], 2),
+            "budget":   round(budget_score * weights["budget"], 2),
+        }
 
         capex_min = scenario.get("capex_min", 0)
         capex_max = scenario.get("capex_max", 0)
@@ -225,11 +258,13 @@ def recommend_automation(project_profile: Dict) -> List[Dict[str, Any]]:
             "scenario_name": scenario.get("scenario_name"),
             "category": scenario.get("category"),
             "score": round(total_score, 1),
+            "score_breakdown": score_breakdown,
             "reason": generate_reason(scenario, project_profile),
             "risk": generate_risk_text(scenario, project_profile),
             "capex_range": capex_range,
             "labor_saving": scenario.get("labor_saving", 0),
             "efficiency_gain": scenario.get("efficiency_gain", 0),
+            "scoring_strategy": "weighted_v1",
         })
 
     recommendations.sort(key=lambda x: x["score"], reverse=True)

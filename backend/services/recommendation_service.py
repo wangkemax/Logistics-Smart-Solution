@@ -39,10 +39,9 @@ def _get_match_level(score: float) -> str:
     return "低"
 
 
-def _generate_reasons(scenario: dict, profile: dict) -> list[str]:
+def _generate_reasons(scenario: dict, profile: dict, score_breakdown: dict = None) -> list[str]:
     """
-    Generate human-readable reasons why this scenario matches the project.
-    Returns a list of reason strings.
+    Generate human-readable reasons — highlights top contributing dimensions from score_breakdown.
     """
     reasons = []
     area = profile.get("warehouse_area", 0)
@@ -50,7 +49,11 @@ def _generate_reasons(scenario: dict, profile: dict) -> list[str]:
     orders = profile.get("daily_orders", 0)
     industry = profile.get("industry", "")
     budget = profile.get("budget_level", "中")
-    expectation = profile.get("automation_expectation", "中")
+
+    top_dims = []
+    if score_breakdown:
+        sorted_dims = sorted(score_breakdown.items(), key=lambda x: x[1], reverse=True)
+        top_dims = [d[0] for d in sorted_dims[:3] if d[1] > 0]
 
     # Industry match
     applicable = scenario.get("applicable_industry", "")
@@ -102,6 +105,14 @@ def _generate_reasons(scenario: dict, profile: dict) -> list[str]:
         reasons.append("风险等级低，实施稳定性高")
     elif risk == "高":
         reasons.append("风险较高，建议分阶段实施，做好预案")
+
+    # Highlight top contributing dimensions
+    if top_dims:
+        dim_labels = {"industry": "行业匹配", "area": "面积适配", "sku": "SKU复杂度",
+                      "orders": "订单量匹配", "budget": "预算覆盖"}
+        top_labels = [dim_labels.get(d, d) for d in top_dims if d in dim_labels]
+        if top_labels:
+            reasons.insert(0, f"【核心匹配因素】：{'、'.join(top_labels)}")
 
     # Fallback
     if not reasons:
@@ -169,21 +180,25 @@ def recommend_solutions(
         match_level = _get_match_level(score)
         match_counts[match_level] += 1
 
+        score_breakdown = scenario.get("score_breakdown", {})
+
         item = {
             "scenario_id": scenario.get("scenario_id"),
             "scenario_name": scenario.get("scenario_name"),
             "category": scenario.get("category", ""),
             "score": round(score, 1),
+            "score_breakdown": score_breakdown,
             "match_level": match_level,
             "input_profile_snapshot": normalized.copy(),
             "capex_range": _format_capex_range(scenario),
             "labor_saving": scenario.get("labor_saving", 0),
             "efficiency_gain": scenario.get("efficiency_gain", 0),
             "risk_level": scenario.get("risk_level", "中"),
+            "scoring_strategy": scenario.get("scoring_strategy", "weighted_v1"),
         }
 
         if include_reasons:
-            item["reasons"] = _generate_reasons(scenario, normalized)
+            item["reasons"] = _generate_reasons(scenario, normalized, score_breakdown)
 
         recommendations.append(item)
 

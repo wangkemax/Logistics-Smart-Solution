@@ -186,6 +186,12 @@ CREATE TABLE IF NOT EXISTS automation_scenarios (
     notes           TEXT    DEFAULT '',
     priority        INTEGER DEFAULT 5,
     is_active       INTEGER DEFAULT 1,
+    weight_industry REAL    DEFAULT 0.20,
+    weight_area     REAL    DEFAULT 0.15,
+    weight_sku      REAL    DEFAULT 0.20,
+    weight_orders   REAL    DEFAULT 0.20,
+    weight_budget   REAL    DEFAULT 0.15,
+    weight_region   REAL    DEFAULT 0.10,
     created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 )
@@ -253,6 +259,13 @@ def get_active_scenarios() -> list[dict]:
                     "region": row["region"] or "华东",
                     "notes": row["notes"] or "",
                     "priority": row["priority"] or 5,
+                    # Weight columns — defaults match CREATE TABLE defaults
+                    "weight_industry": row["weight_industry"] if row["weight_industry"] is not None else 0.20,
+                    "weight_area": row["weight_area"] if row["weight_area"] is not None else 0.15,
+                    "weight_sku": row["weight_sku"] if row["weight_sku"] is not None else 0.20,
+                    "weight_orders": row["weight_orders"] if row["weight_orders"] is not None else 0.20,
+                    "weight_budget": row["weight_budget"] if row["weight_budget"] is not None else 0.15,
+                    "weight_region": row["weight_region"] if row["weight_region"] is not None else 0.10,
                 })
             return scenarios
         finally:
@@ -325,6 +338,18 @@ def seed_default_scenarios() -> int:
         # Check if already seeded
         count = conn.execute("SELECT COUNT(*) FROM automation_scenarios").fetchone()[0]
         if count > 0:
+            # Backfill NULL weight columns with defaults for existing rows
+            conn.execute("""
+                UPDATE automation_scenarios
+                SET weight_industry=COALESCE(weight_industry, 0.20),
+                    weight_area=COALESCE(weight_area, 0.15),
+                    weight_sku=COALESCE(weight_sku, 0.20),
+                    weight_orders=COALESCE(weight_orders, 0.20),
+                    weight_budget=COALESCE(weight_budget, 0.15),
+                    weight_region=COALESCE(weight_region, 0.10)
+                WHERE weight_industry IS NULL OR weight_area IS NULL
+            """)
+            conn.commit()
             return 0
 
         for s in DEFAULT_SCENARIOS:
@@ -334,14 +359,16 @@ def seed_default_scenarios() -> int:
                     min_area, max_area, sku_min, sku_max,
                     order_min, order_max, capex_min, capex_max,
                     opex_year, labor_saving, efficiency_gain,
-                    risk_level, region, notes, priority
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    risk_level, region, notes, priority,
+                    weight_industry, weight_area, weight_sku,
+                    weight_orders, weight_budget, weight_region
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 f"SCN{s['scenario_id']:02d}",
                 s["scenario_name"],
                 s["category"],
                 s["applicable_industry"],
-                0, 999999,  # min_area/max_area not in defaults yet
+                0, 999999,
                 s["sku_min"], s["sku_max"],
                 s["order_min"], s["order_max"],
                 s["capex_min"], s["capex_max"],
@@ -352,6 +379,7 @@ def seed_default_scenarios() -> int:
                 s["region"],
                 s["notes"],
                 s["priority"],
+                0.20, 0.15, 0.20, 0.20, 0.15, 0.10,  # default weights
             ))
         conn.commit()
         return len(DEFAULT_SCENARIOS)
