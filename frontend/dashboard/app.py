@@ -742,6 +742,52 @@ elif app_mode == "🚀 Pipeline Run":
             "tender_text": final_tender_text,
         }
 
+        # ---- History Panel ----
+        with st.expander("📋 历史任务", expanded=False):
+            try:
+                hist_resp = requests.get(f"{API_BASE_URL}/api/pipeline/history", timeout=5)
+                if hist_resp.status_code == 200:
+                    hist_data = hist_resp.json().get("runs", [])
+                    if hist_data:
+                        for run in hist_data[:10]:
+                            pid = run.get("pipeline_id", "")
+                            status = run.get("status", "")
+                            verdict = run.get("qa_verdict", "") or ""
+                            dur = run.get("total_duration_seconds")
+                            created = run.get("created_at", "")
+                            if created:
+                                created = created[11:16]  # HH:MM
+                            dur_str = f"{dur:.1f}s" if dur else "—"
+                            icon = "✅" if status == "COMPLETE" else "❌" if status == "FAILED" else "⏳"
+                            cols_h = st.columns([3, 1, 1])
+                            with cols_h[0]:
+                                st.caption(f"{icon} `{pid}`")
+                            with cols_h[1]:
+                                st.caption(f"{verdict or status}")
+                            with cols_h[2]:
+                                if st.button("加载", key=f"load_{pid}", use_container_width=True):
+                                    # Load this pipeline into session
+                                    st.session_state._pipeline_id = pid
+                                    st.session_state.pipeline_state = "done"
+                                    # Fetch full data
+                                    try:
+                                        full = requests.get(f"{API_BASE_URL}/api/pipeline/status/{pid}", timeout=10)
+                                        if full.status_code == 200:
+                                            fd = full.json()
+                                            st.session_state.pipeline_profile = fd.get("profile", {})
+                                            st.session_state.pipeline_recs = fd.get("recommendations", [])
+                                            st.session_state.pipeline_comparisons = fd.get("comparisons", [])
+                                            st.session_state.pipeline_pdf_url = fd.get("pdf_download_url")
+                                            st.rerun()
+                                    except Exception:
+                                        pass
+                    else:
+                        st.caption("暂无历史任务")
+                else:
+                    st.caption("无法加载历史")
+            except Exception:
+                st.caption("后端未启动")
+
     with col_center:
         st.markdown("### ⚙️ 执行状态")
 
