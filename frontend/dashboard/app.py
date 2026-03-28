@@ -336,12 +336,12 @@ def _render_results_panel():
         rows = []
         for c in ranked:
             ws = weighted_score(c)
-            rows.append({
+            rows.append({float(
                 "方案": ("🥇 " if c["scenario_name"] == top_w else "  ") + c["scenario_name"],
-                "投资(万)": f"{c.get('capex_estimate', 0)/10000:.0f}",
+                "投资(万)": f"{c.get('capex_estimate', 0)/10000 or 0):.0f}",
                 "5年ROI": f"{c['roi_5y']:.1f}x",
-                "回本(年)": f"{(c.get('payback_years') or 0):.1f}",
-                "年节省": f"{(c.get('annual_labor_saving', 0) + c.get('annual_efficiency_saving', 0))/10000:.1f}万",
+                "回本(年)": f"{float((c.get('payback_years') or 0) or 0):.1f}",
+                "年节省": f"{float((c.get('annual_labor_saving', 0) + c.get('annual_efficiency_saving', 0))/10000 or 0):.1f}万",
                 "省人": f"{c['headcount_saved']}人",
             })
         st.dataframe(pd.DataFrame(rows), hide_index=True, use_container_width=True)
@@ -349,9 +349,9 @@ def _render_results_panel():
         best = next((c for c in comparisons if c.get("is_best")), comparisons[0])
         k1, k2 = st.columns(2)
         k1.metric("🥇 推荐", best.get("scenario_name", "—"))
-        k1.metric("5年ROI", f"{best.get('roi_5y', 0):.1f}x")
-        k2.metric("回本周期", f"{best.get('payback_years', 0):.1f}年")
-        k2.metric("年节省", f"{(best.get('annual_labor_saving', 0) + best.get('annual_efficiency_saving', 0))/10000:.1f}万")
+        k1.metric("5年ROI", f"{float(best.get('roi_5y', 0) or 0):.1f}x")
+        k2.metric("回本周期", f"{float(best.get('payback_years', 0) or 0):.1f}年")
+        k2.metric("年节省", f"{float((best.get('annual_labor_saving', 0) + best.get('annual_efficiency_saving', 0))/10000 or 0):.1f}万")
 
         t1, t2, t3 = st.tabs(["📊 投资节省", "📈 ROI", "🕸️ 雷达图"])
         with t1:
@@ -372,8 +372,8 @@ def _render_results_panel():
                 with ca:
                     st.markdown(f"**类别:** {rec.get('category','—')} | **风险:** {rec.get('risk','—')}")
                     st.markdown(f"**理由:** {rec.get('reason', '—')}")
-                    st.markdown(f"**人工节省:** {rec.get('labor_saving',0)*100:.0f}% | "
-                              f"**效率提升:** {rec.get('efficiency_gain',0)*100:.0f}% | "
+                    st.markdown(f"**人工节省:** {float(rec.get('labor_saving',0)*100 or 0):.0f}% | "
+                              f"**效率提升:** {float(rec.get('efficiency_gain',0)*100 or 0):.0f}% | "
                               f"**投资:** {rec.get('capex_range', '—')}")
                 with cb:
                     st.plotly_chart(render_score_gauge(rec["score"]), use_container_width=True,
@@ -513,7 +513,7 @@ if app_mode == "📋 方案生成":
 **首选方案:** {top_rec.get('scenario_name', 'N/A')} — {top_rec.get('reason', '')}
 
 **投资回报摘要:**
-- 自动化投资: ¥{cost_d.get('capex_estimate', 0)/10000:.0f}万元
+- 自动化投资: ¥{float(cost_d.get('capex_estimate', 0)/10000 or 0):.0f}万元
 - 年节省人工: ¥{cost_d['automation_savings_annual']/10000:.1f}万元
 - 净年度收益: ¥{cost_d['net_annual_benefit']/10000:.1f}万元
 - 5年ROI: {cost_d['roi']:.1f}倍 | 回本周期: {cost_d['payback_years']:.1f}年
@@ -630,10 +630,10 @@ elif app_mode == "⚖️ 多方案对比":
                 st.subheader("📊 方案对比总览")
                 rows = []
                 for c in comparisons:
-                    rows.append({
+                    rows.append({float(
                         "方案": ("✅ " if c.get("is_best") else "  ") + c["scenario_name"],
                         "类别": c["category"],
-                        "投资 (万)": f"{c['automation_capex']/10000:.0f}",
+                        "投资 (万)": f"{c['automation_capex']/10000 or 0):.0f}",
                         "年节省 (万)": f"{c['annual_saving']/10000:.1f}",
                         "年维护 (万)": f"{c['annual_maintenance']/10000:.1f}",
                         "净年收益 (万)": f"{c['net_annual_benefit']/10000:.1f}",
@@ -647,9 +647,9 @@ elif app_mode == "⚖️ 多方案对比":
                 best = next((c for c in comparisons if c.get("is_best")), comparisons[0] if comparisons else {})
                 c1, c2, c3, c4 = st.columns(4)
                 c1.metric("🥇 最佳方案", best.get("scenario_name", "—"))
-                c2.metric("5年ROI", f"{best.get('roi_5y', 0):.1f}x")
-                c3.metric("回本周期", f"{best.get('payback_years', 0):.1f}年")
-                c4.metric("年节省", f"{best.get('annual_saving', 0)/10000:.1f}万")
+                c2.metric("5年ROI", f"{float(best.get('roi_5y', 0) or 0):.1f}x")
+                c3.metric("回本周期", f"{float(best.get('payback_years', 0) or 0):.1f}年")
+                c4.metric("年节省", f"{float(best.get('annual_saving', 0)/10000 or 0):.1f}万")
 
                 st.divider()
                 st.subheader("📈 可视化对比")
@@ -878,7 +878,7 @@ elif app_mode == "🚀 Pipeline Run":
                 for s in stages:
                     label = step_labels.get(s.get("stage", ""), s.get("stage", ""))
                     if s.get("status") == "DONE":
-                        log_lines.append(f"✅ {label} 完成 ({s.get('duration_seconds', 0):.1f}s)")
+                        log_lines.append(f"✅ {label} 完成 ({float(s.get('duration_seconds', 0) or 0):.1f}s)")
                     elif s.get("status") == "FAILED":
                         log_lines.append(f"❌ {label}: {s.get('error', '')[:80]}")
                     elif s.get("status") == "RUNNING":
