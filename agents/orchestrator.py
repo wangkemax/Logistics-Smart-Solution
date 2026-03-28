@@ -35,7 +35,7 @@ from backend.services.project_service import (
     get_cost_analysis,
     get_scenario_comparison,
 )
-from backend.services.tender_service import extract_tender_requirements
+from backend.services.tender_service import extract_tender_requirements, extract_requirements
 
 class _InMemoryRedisFallback:
     """Very small subset of Redis hash APIs used by this module."""
@@ -208,7 +208,8 @@ async def run_pipeline_async(request: PipelineRunRequest) -> PipelineRunResponse
             profile = request.project_profile_overrides
             missing_p0 = []
         else:
-            profile = extract_tender_requirements(request.tender_document, use_llm=request.use_llm)
+            extraction_mode = os.environ.get("EXTRACTION_MODE", "hybrid")
+            profile = extract_requirements(request.tender_document, mode=extraction_mode)
             missing_p0 = profile.get("missing_p0", [])
 
         extraction_file = pipeline_dir / "stage_1_extraction.md"
