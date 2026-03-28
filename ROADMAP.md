@@ -35,8 +35,8 @@
 - [x] 结构化 JSON 提取 Prompt（项目名称/行业/面积/SKU/订单量/预算等）
 - [x] LLM + 增强正则混合方案（use_llm 参数控制）
 - [x] 置信度评分 → extraction_confidence 字段返回
-- [ ] 异常字段提示 + 手动补充界面
-- [ ] OpenClaw sessions_spawn 深度集成
+- [x] 异常字段提示 + 手动补充界面（Pipeline Run 已有表单修正）
+- [ ] OpenClaw sessions_spawn 深度集成（长期规划）
 
 ## v0.6 — 知识库与案例学习
 - [ ] 历史投标项目案例库
