@@ -424,8 +424,8 @@ def _render_results_panel():
                 with ca:
                     st.markdown(f"**类别:** {rec.get('category','—')} | **风险:** {rec.get('risk','—')}")
                     st.markdown(f"**理由:** {rec.get('reason', '—')}")
-                    st.markdown(f"**人工节省:** {float(rec.get('labor_saving',0)*100 or 0):.0f}% | "
-                              f"**效率提升:** {float(rec.get('efficiency_gain',0)*100 or 0):.0f}% | "
+                    st.markdown(f"**人工节省:** {fmt_percent(rec.get('labor_saving'))} | "
+                              f"**效率提升:** {fmt_percent(rec.get('efficiency_gain'))} | "
                               f"**投资:** {rec.get('capex_range', '—')}")
                 with cb:
                     st.plotly_chart(render_score_gauge(rec["score"]), use_container_width=True,
@@ -565,7 +565,7 @@ if app_mode == "📋 方案生成":
 **首选方案:** {top_rec.get('scenario_name', 'N/A')} — {top_rec.get('reason', '')}
 
 **投资回报摘要:**
-- 自动化投资: ¥{float(cost_d.get('capex_estimate', 0)/10000 or 0):.0f}万元
+                st.markdown(f"- 自动化投资: {fmt_currency(cost_d.get('capex_estimate'))}")
 - 年节省人工: ¥{cost_d['automation_savings_annual']/10000:.1f}万元
 - 净年度收益: ¥{cost_d['net_annual_benefit']/10000:.1f}万元
 - 5年ROI: {cost_d['roi']:.1f}倍 | 回本周期: {cost_d['payback_years']:.1f}年
@@ -930,7 +930,7 @@ elif app_mode == "🚀 Pipeline Run":
                 for s in stages:
                     label = step_labels.get(s.get("stage", ""), s.get("stage", ""))
                     if s.get("status") == "DONE":
-                        log_lines.append(f"✅ {label} 完成 ({float(s.get('duration_seconds', 0) or 0):.1f}s)")
+                        log_lines.append(f"✅ {label} 完成 ({s.get('duration_seconds', 0):.0f}s)")
                     elif s.get("status") == "FAILED":
                         log_lines.append(f"❌ {label}: {s.get('error', '')[:80]}")
                     elif s.get("status") == "RUNNING":
