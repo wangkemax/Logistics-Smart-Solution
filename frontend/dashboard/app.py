@@ -670,7 +670,7 @@ elif app_mode == "🚀 Pipeline Run":
             "budget_level": budget_level_p, "region": region_p,
             "compare_sids_str": compare_sids_str,
             "tender_text": tender_text,
-            "company_name": params.get("company_name", "飞力达物流"),
+                    "company_name": "飞力达物流",
             "language": report_language,
         }
         st.session_state.skip_extraction = False
@@ -872,8 +872,8 @@ elif app_mode == "🚀 Pipeline Run":
                     "budget_level": profile.get("budget_level", "中"),
                     "automation_expectation": profile.get("automation_expectation", "中"),
                     "region": params.get("region", "华东"),
-                    "company_name": params.get("company_name", "飞力达物流"),
-                    "language": params.get("language", "cn"),
+                    "company_name": "飞力达物流",
+                    "language": "cn",
                 },
                 timeout=60,
             )
