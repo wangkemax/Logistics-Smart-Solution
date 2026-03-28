@@ -170,75 +170,80 @@ with st.sidebar:
     st.divider()
 
     # ---- Mode 1: Single Scenario ----
+    single_submitted = False
+    compare_submitted = False
+
     if app_mode == "📋 方案生成":
         st.subheader("📋 项目信息输入")
 
-        project_name = st.text_input("项目名称", value="新建项目-001", placeholder="请输入项目名称")
-        industry = st.selectbox("行业类型",
-            options=["电商", "3PL", "零售", "制造", "快递", "医药", "食品", "生鲜"], index=0)
-        region = st.selectbox("所在区域",
-            options=["华东", "华南", "华北", "华中", "西部"], index=0)
+        with st.form("project_form"):
+            project_name = st.text_input("项目名称", value="新建项目-001", placeholder="请输入项目名称")
+            industry = st.selectbox("行业类型",
+                options=["电商", "3PL", "零售", "制造", "快递", "医药", "食品", "生鲜"], index=0)
+            region = st.selectbox("所在区域",
+                options=["华东", "华南", "华北", "华中", "西部"], index=0)
 
-        st.markdown("**仓库参数**")
-        warehouse_area = st.number_input("仓库面积 (㎡)", min_value=500, max_value=500000,
-                                         value=20000, step=1000)
-        sku_count = st.number_input("SKU数量", min_value=100, max_value=1000000,
-                                     value=30000, step=1000)
-        daily_orders = st.number_input("日均订单量", min_value=50, max_value=500000,
-                                       value=5000, step=100)
-        inventory = st.number_input("库存量 (件)", min_value=1000, max_value=10000000,
-                                     value=500000, step=10000)
+            st.markdown("**仓库参数**")
+            warehouse_area = st.number_input("仓库面积 (㎡)", min_value=500, max_value=500000,
+                                             value=20000, step=1000)
+            sku_count = st.number_input("SKU数量", min_value=100, max_value=1000000,
+                                         value=30000, step=1000)
+            daily_orders = st.number_input("日均订单量", min_value=50, max_value=500000,
+                                           value=5000, step=100)
+            inventory = st.number_input("库存量 (件)", min_value=1000, max_value=10000000,
+                                         value=500000, step=10000)
 
-        st.markdown("**成本与预算**")
-        labor_cost_level = st.select_slider("人工成本水平", options=["低", "中", "高"], value="中")
-        budget_level = st.select_slider("自动化预算", options=["低", "中", "高"], value="中")
-        automation_expectation = st.select_slider("自动化期望", options=["低", "中", "高"], value="中")
+            st.markdown("**成本与预算**")
+            labor_cost_level = st.select_slider("人工成本水平", options=["低", "中", "高"], value="中")
+            budget_level = st.select_slider("自动化预算", options=["低", "中", "高"], value="中")
+            automation_expectation = st.select_slider("自动化期望", options=["低", "中", "高"], value="中")
 
-        single_submitted = st.form_submit_button("🚀 生成解决方案",
-                                                  use_container_width=True, type="primary")
+            single_submitted = st.form_submit_button("🚀 生成解决方案",
+                                                      use_container_width=True, type="primary")
 
     # ---- Mode 2: Multi-Scenario Comparison ----
     else:
         st.subheader("⚖️ 多方案对比")
 
-        project_name_cmp = st.text_input("项目名称", value="方案对比-001")
-        industry_cmp = st.selectbox("行业类型",
-            options=["电商", "3PL", "零售", "制造", "快递", "医药", "食品", "生鲜"], index=0)
-        region_cmp = st.selectbox("所在区域",
-            options=["华东", "华南", "华北", "华中", "西部"], index=0)
+        with st.form("compare_form"):
+            project_name_cmp = st.text_input("项目名称", value="方案对比-001")
+            industry_cmp = st.selectbox("行业类型",
+                options=["电商", "3PL", "零售", "制造", "快递", "医药", "食品", "生鲜"], index=0)
+            region_cmp = st.selectbox("所在区域",
+                options=["华东", "华南", "华北", "华中", "西部"], index=0)
 
-        st.markdown("**仓库参数**")
-        warehouse_area_cmp = st.number_input("仓库面积 (㎡)", min_value=500, max_value=500000,
-                                             value=20000, step=1000)
-        sku_count_cmp = st.number_input("SKU数量", min_value=100, max_value=1000000,
-                                         value=30000, step=1000)
-        daily_orders_cmp = st.number_input("日均订单量", min_value=50, max_value=500000,
-                                            value=5000, step=100)
-        inventory_cmp = st.number_input("库存量 (件)", min_value=1000, max_value=10000000,
-                                        value=500000, step=10000)
+            st.markdown("**仓库参数**")
+            warehouse_area_cmp = st.number_input("仓库面积 (㎡)", min_value=500, max_value=500000,
+                                                 value=20000, step=1000)
+            sku_count_cmp = st.number_input("SKU数量", min_value=100, max_value=1000000,
+                                             value=30000, step=1000)
+            daily_orders_cmp = st.number_input("日均订单量", min_value=50, max_value=500000,
+                                                value=5000, step=100)
+            inventory_cmp = st.number_input("库存量 (件)", min_value=1000, max_value=10000000,
+                                             value=500000, step=10000)
 
-        st.markdown("**成本与预算**")
-        labor_cost_level_cmp = st.select_slider("人工成本水平", options=["低", "中", "高"], value="中")
-        budget_level_cmp = st.select_slider("自动化预算", options=["低", "中", "高"], value="中")
+            st.markdown("**成本与预算**")
+            labor_cost_level_cmp = st.select_slider("人工成本水平", options=["低", "中", "高"], value="中")
+            budget_level_cmp = st.select_slider("自动化预算", options=["低", "中", "高"], value="中")
 
-        st.markdown("**选择对比方案（2-5个）**")
-        ALL_SCENARIOS = [
-            (1, "AMR拣选辅助"),     (2, "GTP货到人系统"),   (3, "输送分拣线"),
-            (4, "自动贴标系统"),    (5, "立体仓库AS/RS"),   (6, "自动化输送线"),
-            (7, "视觉识别质检"),    (8, "拆码垛机器人"),     (9, "WMS仓储管理系统"),
-            (10, "AGV搬运系统"),   (11, "自动包装线"),     (12, "冷链自动化仓储"),
-            (13, "跨带分拣机"),    (14, "货架式密集存储"),  (15, "自动化退货处理"),
-        ]
-        selected_scenario_labels = st.multiselect(
-            "勾选要对比的方案",
-            options=[label for _, label in ALL_SCENARIOS],
-            default=["AMR拣选辅助", "GTP货到人系统", "输送分拣线"],
-            help="选择2-5个方案进行横向对比",
-        )
-        selected_scenario_ids = [sid for sid, label in ALL_SCENARIOS if label in selected_scenario_labels]
+            st.markdown("**选择对比方案（2-5个）**")
+            ALL_SCENARIOS = [
+                (1, "AMR拣选辅助"),     (2, "GTP货到人系统"),   (3, "输送分拣线"),
+                (4, "自动贴标系统"),    (5, "立体仓库AS/RS"),   (6, "自动化输送线"),
+                (7, "视觉识别质检"),    (8, "拆码垛机器人"),     (9, "WMS仓储管理系统"),
+                (10, "AGV搬运系统"),   (11, "自动包装线"),     (12, "冷链自动化仓储"),
+                (13, "跨带分拣机"),    (14, "货架式密集存储"),  (15, "自动化退货处理"),
+            ]
+            selected_scenario_labels = st.multiselect(
+                "勾选要对比的方案",
+                options=[label for _, label in ALL_SCENARIOS],
+                default=["AMR拣选辅助", "GTP货到人系统", "输送分拣线"],
+                help="选择2-5个方案进行横向对比",
+            )
+            selected_scenario_ids = [sid for sid, label in ALL_SCENARIOS if label in selected_scenario_labels]
 
-        compare_submitted = st.form_submit_button("⚖️ 开始对比",
-                                                   use_container_width=True, type="primary")
+            compare_submitted = st.form_submit_button("⚖️ 开始对比",
+                                                     use_container_width=True, type="primary")
 
 # =============================================================================
 # MAIN CONTENT: Mode 1 — Single Scenario
