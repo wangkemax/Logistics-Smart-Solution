@@ -267,9 +267,9 @@ def pipeline_task(tender_document: str, project_profile_overrides: dict = None, 
                 cost_comparisons[0] if cost_comparisons else {}
             )
             cost_summary = (f"推荐方案5年ROI {best_cost.get('roi_5y', 'N/A')}x，"
-                            f"回本周期 {best_cost.get('payback_years', 'N/A')}年")
+                            f"回本周期 {(best_cost.get('payback_years') or 'N/A')}年")
             cost_recommendations = [
-                f"{c['scenario_name']}: ROI {c.get('roi_5y', 0):.1f}x"
+                f"{c['scenario_name']}: ROI {(c.get('roi_5y') or 0):.1f}x"
                 for c in cost_comparisons[:3]
             ]
 
@@ -281,7 +281,7 @@ def pipeline_task(tender_document: str, project_profile_overrides: dict = None, 
                     "score": c.get("roi_5y", 0) * 10,
                     "reason": f"5年ROI {c.get('roi_5y', 0):.1f}x，回本 {c.get('payback_years', 0):.1f}年",
                     "risk": "中",
-                    "capex_range": f"¥{c['automation_capex']/10000:.0f}万",
+                    "capex_range": f"¥{int(c.get('capex_estimate', 0)/10000)}万",
                     "labor_saving": c.get("headcount_saved", 0) / max(c.get("headcount_required", 1), 1),
                     "efficiency_gain": 0.4,
                 }
@@ -291,10 +291,10 @@ def pipeline_task(tender_document: str, project_profile_overrides: dict = None, 
             cost_data = {
                 "warehouse_cost": 0,
                 "labor_cost_annual": 0,
-                "automation_capex": best_cost.get("automation_capex", 0),
+                "automation_capex": best_cost.get("capex_estimate", 0),
                 "annual_maintenance": best_cost.get("annual_maintenance", 0),
                 "total_annual_cost": best_cost.get("total_annual_cost", 0),
-                "automation_savings_annual": best_cost.get("annual_saving", 0),
+                "automation_savings_annual": best_cost.get("net_annual_benefit", 0),
                 "net_annual_benefit": best_cost.get("net_annual_benefit", 0),
                 "roi": best_cost.get("roi_5y", 0),
                 "payback_years": best_cost.get("payback_years", 99),
