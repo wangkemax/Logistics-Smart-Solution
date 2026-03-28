@@ -352,6 +352,134 @@ def _render_key_metrics(best: dict, profile: dict):
         st.metric("SKU数", fmt_count(profile.get("sku_count")))
 
 
+
+def _render_stage_retry_section(pipeline_id: str, stages: list, key_prefix: str = "") -> None:
+    """
+    Render stage-by-stage breakdown with per-stage retry buttons.
+    Called after pipeline completion (especially when QA FAIL or stage FAILED).
+    
+    Each stage row shows:
+      - Stage number + name
+      - Status icon (✅ done / ❌ failed / ⏳ running / ➖ skipped / ⬜ pending)
+      - Duration
+      - Retry button for FAILED stages
+    
+    Also renders a "从第X阶段重试" dropdown selector to retry from any stage.
+    """
+    if not stages:
+        return
+
+    stage_labels = {
+        "1_extraction": "① 解析招标",
+        "2_recommendation": "② 推荐引擎",
+        "3_cost_comparison": "③ ROI计算",
+        "4_qa_review": "④ QA审核",
+        "5_pdf_report": "⑤ PDF报告",
+    }
+
+    failed_stages = [s for s in stages if s.get("status") == "FAILED"]
+    has_failures = bool(failed_stages)
+
+    with st.container():
+        st.markdown("**🔁 阶段执行详情**")
+        
+        # ---- Per-stage rows ----
+        for s in stages:
+            stage_name = s.get("stage", "")
+            label = stage_labels.get(stage_name, stage_name)
+            s_status = s.get("status", "PENDING")
+            dur = s.get("duration_seconds")
+            err = s.get("error")
+
+            icon_map = {"DONE": "✅", "FAILED": "❌", "RUNNING": "⏳", "SKIPPED": "➖", "PENDING": "⬜"}
+            icon = icon_map.get(s_status, "⬜")
+            
+            row_cols = st.columns([1, 3, 2, 1])
+            with row_cols[0]:
+                st.markdown(f"**{icon}**")
+            with row_cols[1]:
+                st.markdown(f"**{label}**")
+                if err:
+                    st.caption(f"⚠️ {err[:80]}")
+            with row_cols[2]:
+                if dur is not None:
+                    st.caption(f"⏱️ {dur:.1f}s")
+                else:
+                    st.caption("—")
+            with row_cols[3]:
+                if s_status == "FAILED":
+                    retry_key = f"retry_{key_prefix}{stage_name}"
+                    if st.button(f"🔄 重试", key=retry_key, help=f"重试 {label}"):
+                        with st.spinner(f"正在重试 {label}..."):
+                            try:
+                                resp = requests.post(
+                                    f"{API_BASE_URL}/api/pipeline/{pipeline_id}/retry",
+                                    json={"from_stage": stage_name},
+                                    timeout=10,
+                                )
+                                if resp.status_code == 200:
+                                    result = resp.json()
+                                    st.session_state.pipeline_state = "polling"
+                                    st.session_state._pipeline_id = pipeline_id
+                                    st.session_state._skip_correction = False
+                                    st.success(f"✅ 已提交重试请求，从阶段「{label}」重新执行")
+                                    st.rerun()
+                                else:
+                                    st.error(f"重试失败: {resp.status_code} {resp.text}")
+                            except Exception as ex:
+                                st.error(f"重试请求失败: {ex}")
+
+        st.divider()
+
+        # ---- From-stage selector ----
+        st.markdown("**从指定阶段重试**")
+        retry_from_c1, retry_from_c2 = st.columns([2, 1])
+        
+        stage_options = [(sn, stage_labels.get(sn, sn)) for sn in [
+            "1_extraction", "2_recommendation", "3_cost_comparison", "4_qa_review", "5_pdf_report"
+        ]]
+        
+        # Pre-select: first failed stage if any, else first non-DONE stage
+        default_idx = 0
+        for i, (sn, _) in enumerate(stage_options):
+            if any(s.get("stage") == sn and s.get("status") == "FAILED" for s in stages):
+                default_idx = i
+                break
+        
+        with retry_from_c1:
+            selected_stage = st.selectbox(
+                "选择阶段",
+                options=[sn for sn, _ in stage_options],
+                format_func=lambda sn: stage_labels.get(sn, sn),
+                index=default_idx,
+                key=f"from_stage_select_{key_prefix}{pipeline_id}",
+                label_visibility="collapsed",
+            )
+        with retry_from_c2:
+            retry_from_key = f"retry_from_{key_prefix}{pipeline_id}"
+            if st.button("🚀 执行重试", key=retry_from_key, type="primary", use_container_width=True):
+                with st.spinner(f"正在从「{stage_labels.get(selected_stage, selected_stage)}」重试..."):
+                    try:
+                        resp = requests.post(
+                            f"{API_BASE_URL}/api/pipeline/{pipeline_id}/retry",
+                            json={"from_stage": selected_stage},
+                            timeout=10,
+                        )
+                        if resp.status_code == 200:
+                            result = resp.json()
+                            st.session_state.pipeline_state = "polling"
+                            st.session_state._pipeline_id = pipeline_id
+                            st.session_state._skip_correction = False
+                            reset_list = result.get("reset_stages", [])
+                            st.success(f"✅ 已重置阶段: {', '.join(reset_list)}")
+                            st.rerun()
+                        else:
+                            st.error(f"重试失败 [{resp.status_code}]: {resp.text[:100]}")
+                    except Exception as ex:
+                        st.error(f"重试请求失败: {ex}")
+
+
+
 def _render_results_panel():
     results = st.session_state.get("pipeline_result") or {}
     profile = st.session_state.get("pipeline_profile", {}) or {}
@@ -375,52 +503,6 @@ def _render_results_panel():
 
     # ---- Extraction Review Panel ----
     extraction_confidence = profile.get("extraction_confidence", 0)
-
-            # ── Extraction Review Panel ───────────────────────────────
-            extraction_confidence = best.get("extraction_confidence")
-            field_confidence = best.get("field_confidence") or best.get("field_confidence_map") or {}
-            source_trace = best.get("source_trace") or best.get("source") or {}
-            extraction_warnings = best.get("extraction_warnings") or best.get("warnings") or []
-
-            if field_confidence or source_trace:
-                with st.expander("📋 提取结果确认", expanded=False):
-                    if extraction_confidence is not None:
-                        conf_pct = float(extraction_confidence) * 100
-                        st.progress(min(conf_pct / 100, 1.0),
-                                     text="总体置信度：" + str(int(conf_pct)) + "%")
-
-                    field_labels = {
-                        "warehouse_area": "仓库面积",
-                        "sku_count": "SKU数",
-                        "daily_orders": "日订单量",
-                        "inventory": "库存量",
-                        "industry": "行业",
-                        "region": "地区",
-                        "labor_cost_level": "人工成本",
-                        "budget_level": "预算等级",
-                        "automation_expectation": "自动化期望",
-                    }
-                    source_icon = {"rule": "🔤", "llm": "🤖", "merged": "🔄", "default": "❓"}
-
-                    rows = []
-                    for fname, label in field_labels.items():
-                        raw_val = best.get(fname)
-                        conf = field_confidence.get(fname)
-                        src = source_trace.get(fname, "default")
-                        conf_str = str(int(conf * 100)) + "%" if conf else "—"
-                        icon = source_icon.get(src, "❓")
-                        val_str = str(raw_val) if raw_val is not None else "—"
-                        rows.append({"字段": label, "提取值": val_str, "置信度": conf_str, "来源": icon + " " + src})
-
-                    if rows:
-                        st.dataframe(rows, hide_index=True, use_container_width=True)
-                    else:
-                        st.info("无可用置信度数据")
-
-                    if extraction_warnings and isinstance(extraction_warnings, list):
-                        st.markdown("**⚠️ 注意事项：**")
-                        for w in extraction_warnings:
-                            st.markdown("- " + str(w))
 
     field_confidence = profile.get("field_confidence", {})
     source_trace = profile.get("source_trace", {})
@@ -491,9 +573,17 @@ def _render_results_panel():
         st.session_state.get("pipeline_retry_history", []) or
         []
     )
+    # Determine failed_stage: try retry_history first, then stages data
     failed_stage = ""
     if retry_history:
         failed_stage = retry_history[-1].get("stage", "")
+    if not failed_stage:
+        # Look at stages data to find any FAILED stage
+        stages_data = st.session_state.get("pipeline_stages", []) or results.get("stages", [])
+        for s in stages_data:
+            if s.get("status") == "FAILED":
+                failed_stage = s.get("stage", "")
+                break
 
     if qa_verdict == "PASS":
         st.success("✅ QA 审核通过")
@@ -1161,10 +1251,16 @@ elif app_mode == "🚀 Pipeline Run":
                     st.session_state.pipeline_retry_count = status_data.get("retry_count", 0)
                     st.session_state.pipeline_risk_flags = status_data.get("risk_flags", [])
                     st.session_state.pipeline_retry_history = status_data.get("retry_history", [])
+                    st.session_state.pipeline_stages = status_data.get("stages", [])
+                    # Show stage breakdown with retry buttons in center column
+                    _render_stage_retry_section(pipeline_id, st.session_state.pipeline_stages, key_prefix="center_")
                     st.session_state.pipeline_state = "done"
                     st.rerun()
                 elif pipeline_status == "FAILED":
                     st.error(f"❌ 失败: {status_data.get('error', '未知错误')}")
+                    st.session_state.pipeline_stages = status_data.get("stages", [])
+                    # Show stage breakdown with retry buttons in center column
+                    _render_stage_retry_section(pipeline_id, st.session_state.pipeline_stages, key_prefix="center_")
                     st.session_state.pipeline_state = "done"
                     st.rerun()
                 else:
@@ -1179,8 +1275,15 @@ elif app_mode == "🚀 Pipeline Run":
                 st.error(f"轮询异常: {e}")
                 st.stop()
 
-        # ---- Idle: Show run button + step preview ----
+        # ---- Idle / Done: Show run button + step preview + stage breakdown ----
         if st.session_state.get("pipeline_state") in (None, "done"):
+            # If we have stored stage data (from a completed pipeline), show the breakdown
+            stored_stages = st.session_state.get("pipeline_stages", [])
+            stored_pid = st.session_state.get("_pipeline_id")
+            if stored_stages and stored_pid:
+                _render_stage_retry_section(stored_pid, stored_stages, key_prefix="idle_")
+                st.divider()
+
             # Show step preview cards
             step_info = {
                 "① 解析招标": "提取面积/SKU/行业/痛点",
@@ -1250,6 +1353,12 @@ elif app_mode == "🚀 Pipeline Run":
                 else:
                     st.info("⏳ 等待 Pipeline 数据写入...")
             else:
+                # Show stage breakdown in right column for FAILED pipelines
+                stored_stages = st.session_state.get("pipeline_stages", [])
+                stored_pid = st.session_state.get("_pipeline_id")
+                if stored_stages:
+                    _render_stage_retry_section(stored_pid, stored_stages, key_prefix="right_")
+                    st.divider()
                 _render_results_panel()
         elif st.session_state.get("pipeline_state") == "polling":
             st.info("⬆️ Pipeline 执行中，结果完成后将显示在此...")
@@ -1262,14 +1371,18 @@ elif app_mode == "🚀 Pipeline Run":
     # Initialize session state for pipeline
     for key in ["pipeline_state", "pipeline_profile", "pipeline_recs",
                  "pipeline_comparisons", "pipeline_pdf_bytes", "pipeline_pdf_filename",
-                 "pipeline_log_lines", "pipeline_pdf_url", "_pipeline_id", "_skip_correction"]:
+                 "pipeline_log_lines", "pipeline_pdf_url", "_pipeline_id", "_skip_correction",
+                 "pipeline_stages", "pipeline_qa_verdict", "pipeline_retry_count",
+                 "pipeline_risk_flags", "pipeline_retry_history"]:
         if key not in st.session_state:
             st.session_state[key] = [] if key == "pipeline_log_lines" else None
 
     def reset_pipeline():
         for key in ["pipeline_state", "pipeline_profile", "pipeline_recs",
                      "pipeline_comparisons", "pipeline_pdf_bytes", "pipeline_pdf_filename",
-                     "pipeline_log_lines", "pipeline_pdf_url", "_pipeline_id", "_skip_correction"]:
+                     "pipeline_log_lines", "pipeline_pdf_url", "_pipeline_id", "_skip_correction",
+                     "pipeline_stages", "pipeline_qa_verdict", "pipeline_retry_count",
+                     "pipeline_risk_flags", "pipeline_retry_history"]:
             st.session_state[key] = [] if key == "pipeline_log_lines" else None
 
     pipeline_state = st.session_state.get("pipeline_state")

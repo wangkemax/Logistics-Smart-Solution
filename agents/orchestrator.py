@@ -553,6 +553,111 @@ async def retry_pipeline(pipeline_id: str, background_tasks: BackgroundTasks):
         db.close()
 
 
+# =============================================================================
+# Per-stage retry endpoint
+# =============================================================================
+
+class RetryStageRequest(BaseModel):
+    """Request body for per-stage retry."""
+    from_stage: Optional[str] = Field(default=None, description="Stage name to retry from (e.g. '3_cost_comparison'). If omitted, retries from the first failed stage.")
+
+
+@router.post("/{pipeline_id}/retry", response_model=dict)
+async def retry_pipeline_stage(pipeline_id: str, request: RetryStageRequest):
+    """
+    Retry pipeline from a specific stage onwards (in-place, same pipeline_id).
+    
+    - Cancels the pipeline if it is still RUNNING.
+    - Resets all stages from `from_stage` onwards to PENDING.
+    - Clears output_file and error for those stages.
+    - Re-triggers pipeline_task in a background thread from that stage.
+    
+    Use this for:
+    - Fixing a specific failed stage without re-running the entire pipeline.
+    - Re-running from an earlier stage after correcting inputs.
+    
+    Body: {"from_stage": "3_cost_comparison"}  -- or omit from_stage to auto-detect first failed stage.
+    """
+    from backend.services.pipeline_service import (
+        get_pipeline_run as _get_sql,
+        reset_pipeline_stages,
+        cancel_pipeline_run,
+    )
+    from backend.models.database import SessionLocal, PipelineRun
+    import threading as _threading
+
+    # 1. Validate pipeline exists
+    sql_result = _get_sql(pipeline_id)
+    if not sql_result:
+        raise HTTPException(status_code=404, detail=f"Pipeline {pipeline_id} not found")
+
+    # 2. Determine which stage to retry from
+    if request.from_stage:
+        from_stage = request.from_stage
+    else:
+        # Auto-detect first failed or earliest non-DONE stage
+        stages = sql_result.get("stages", [])
+        failed_stages = [s for s in stages if s.get("status") == "FAILED"]
+        if failed_stages:
+            from_stage = failed_stages[0].get("stage")
+        else:
+            # No failed stages — retry from stage 1 anyway (user probably wants to re-run)
+            from_stage = "1_extraction"
+
+    stages_order = ["1_extraction", "2_recommendation", "3_cost_comparison", "4_qa_review", "5_pdf_report"]
+    if from_stage not in stages_order:
+        raise HTTPException(status_code=400, detail=f"Invalid stage name: {from_stage}. Valid: {stages_order}")
+
+    # 3. Cancel running pipeline if applicable
+    cancel_pipeline_run(pipeline_id)
+
+    # 4. Reset stages from from_stage onwards
+    reset_stages = reset_pipeline_stages(pipeline_id, from_stage)
+
+    # 5. Load tender_document and params for re-execution
+    db = SessionLocal()
+    try:
+        run = db.query(PipelineRun).filter_by(pipeline_id=pipeline_id).first()
+        if not run:
+            raise HTTPException(status_code=404, detail=f"PipelineRun record not found for {pipeline_id}")
+        tender_document = run.tender_document or ""
+        params = json.loads(run.params_json or "{}")
+        api_base_url = run.api_base_url or "http://localhost:8000"
+        compare_scenario_ids = None
+        try:
+            compare_scenario_ids = json.loads(run.compare_scenario_ids or "[]") if run.compare_scenario_ids else None
+        except Exception:
+            compare_scenario_ids = None
+    finally:
+        db.close()
+
+    # 6. Re-trigger background job from that stage
+    def _retry_stage_job(pid: str, from_s: str):
+        from backend.workers.pipeline_tasks import pipeline_task
+        try:
+            pipeline_task(
+                tender_document=tender_document,
+                project_profile_overrides=params.get("project_profile_overrides"),
+                api_base_url=api_base_url,
+                compare_scenario_ids=compare_scenario_ids,
+                generate_pdf=params.get("generate_pdf", True),
+                use_llm=params.get("use_llm", True),
+                pipeline_id=pid,
+            )
+        except Exception as e:
+            import sys; print(f"[stage-retry {pid}] error: {e}", file=sys.stderr, flush=True)
+
+    _threading.Thread(target=_retry_stage_job, args=(pipeline_id, from_stage), daemon=True).start()
+
+    return {
+        "pipeline_id": pipeline_id,
+        "status": "RUNNING",
+        "from_stage": from_stage,
+        "reset_stages": reset_stages,
+        "message": f"Pipeline {pipeline_id} retrying from stage '{from_stage}'. Poll /api/pipeline/status/{pipeline_id} for progress.",
+    }
+
+
 @router.post("/cancel/{pipeline_id}", response_model=dict)
 async def cancel_pipeline(pipeline_id: str):
     """
