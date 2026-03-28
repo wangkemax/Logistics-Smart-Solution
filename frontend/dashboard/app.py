@@ -321,18 +321,18 @@ def _render_key_metrics(best: dict, profile: dict):
     with c2:
         st.metric("回本周期", fmt_years(best.get("payback_years")))
     with c3:
-        st.metric("投资额", fmt_currency(best.get("capex_estimate")))
+        st.metric("Y1 EBITA", fmt_currency(best.get("y1_ebita")))
     with c4:
-        st.metric("年运维成本", fmt_currency(best.get("opex_annual")))
+        st.metric("投资额", fmt_currency(best.get("capex_estimate")))
     c5, c6, c7, c8 = st.columns(4)
     with c5:
         st.metric("节省人数", fmt_count(best.get("headcount_saved"), "人"))
     with c6:
-        st.metric("仓库面积", fmt_area(profile.get("warehouse_area")))
+        st.metric("年运维成本", fmt_currency(best.get("opex_annual")))
     with c7:
-        st.metric("SKU数", fmt_count(profile.get("sku_count")))
+        st.metric("仓库面积", fmt_area(profile.get("warehouse_area")))
     with c8:
-        st.metric("日订单量", fmt_count(profile.get("daily_orders")))
+        st.metric("SKU数", fmt_count(profile.get("sku_count")))
 
 
 def _render_results_panel():
@@ -392,6 +392,7 @@ def _render_results_panel():
                 "方案": ("🥇 " if c.get("scenario_name") == top_w else "  ") + fmt_text(c.get("scenario_name", "")),
                 "5年ROI": fmt_percent(c.get("roi_5y")),
                 "回本(年)": fmt_years(c.get("payback_years")),
+                "Y1 EBITA": fmt_currency(c.get("y1_ebita")),
                 "节省(万)": fmt_currency((c.get("annual_labor_saving") or 0) + (c.get("annual_efficiency_saving") or 0)),
                 "3年ROI": fmt_percent(c.get("roi_3y")),
                 "省人": fmt_count(c.get("headcount_saved"), "人"),
@@ -399,11 +400,12 @@ def _render_results_panel():
         st.dataframe(pd.DataFrame(rows), hide_index=True, use_container_width=True)
 
         best = next((c for c in comparisons if c.get("is_best")), comparisons[0])
-        k1, k2 = st.columns(2)
+        k1, k2, k3 = st.columns(3)
         k1.metric("🥇 推荐", fmt_text(best.get("scenario_name"), "—"))
         k1.metric("5年ROI", fmt_percent(best.get("roi_5y")))
         k2.metric("回本周期", fmt_years(best.get("payback_years")))
-        k2.metric("年节省", fmt_currency((best.get("annual_labor_saving") or 0) + (best.get("annual_efficiency_saving") or 0)))
+        k2.metric("Y1 EBITA", fmt_currency(best.get("y1_ebita")))
+        k3.metric("年节省", fmt_currency((best.get("annual_labor_saving") or 0) + (best.get("annual_efficiency_saving") or 0)))
 
         t1, t2, t3 = st.tabs(["📊 投资节省", "📈 ROI", "🕸️ 雷达图"])
         with t1:
@@ -538,12 +540,13 @@ if app_mode == "📋 方案生成":
                 st.subheader("成本与ROI分析")
                 cost_data = cost_result["cost_breakdown"]
                 st.info(cost_result.get("summary", ""))
-                c1, c2, c3, c4, c5 = st.columns(5)
+                c1, c2, c3, c4, c5, c6 = st.columns(6)
                 c1.metric("总投资", f"¥{cost_data['automation_capex']/10000:.0f}万")
                 c2.metric("年节省人工", f"¥{cost_data['automation_savings_annual']/10000:.1f}万")
                 c3.metric("5年ROI", f"{cost_data['roi']:.1f}x")
                 c4.metric("回本周期", f"{cost_data['payback_years']:.1f}年")
-                c5.metric("节省人数", f"{cost_data['headcount_saved']}人")
+                c5.metric("Y1 EBITA", fmt_currency(cost_data.get("y1_ebita")))
+                c6.metric("节省人数", f"{cost_data['headcount_saved']}人")
                 st.divider()
                 cc1, cc2 = st.columns(2)
                 with cc1:
@@ -565,8 +568,9 @@ if app_mode == "📋 方案生成":
 **首选方案:** {top_rec.get('scenario_name', 'N/A')} — {top_rec.get('reason', '')}
 
 **投资回报摘要:**
-                st.markdown(f"- 自动化投资: {fmt_currency(cost_d.get('capex_estimate'))}")
+- 自动化投资: {fmt_currency(cost_d.get('automation_capex') or cost_d.get('capex_estimate'))}
 - 年节省人工: ¥{cost_d['automation_savings_annual']/10000:.1f}万元
+- Y1 EBITA: {fmt_currency(cost_d.get('y1_ebita'))}
 - 净年度收益: ¥{cost_d['net_annual_benefit']/10000:.1f}万元
 - 5年ROI: {cost_d['roi']:.1f}倍 | 回本周期: {cost_d['payback_years']:.1f}年
 - 预计减少人员: {cost_d['headcount_saved']}人
@@ -689,6 +693,7 @@ elif app_mode == "⚖️ 多方案对比":
                         "年节省 (万)": fmt_currency(c.get("annual_saving") or 0),
                         "年维护 (万)": fmt_currency(c.get("annual_maintenance") or 0),
                         "净年收益 (万)": fmt_currency(c.get("net_annual_benefit") or 0),
+                        "Y1 EBITA": fmt_currency(c.get("y1_ebita")),
                         "5年ROI": fmt_percent(c.get("roi_5y")),
                         "回本周期": fmt_years(c.get("payback_years")),
                         "省人数": fmt_count(c.get("headcount_saved"), "人"),
@@ -697,11 +702,12 @@ elif app_mode == "⚖️ 多方案对比":
 
                 # KPI row
                 best = next((c for c in comparisons if c.get("is_best")), comparisons[0] if comparisons else {})
-                c1, c2, c3, c4 = st.columns(4)
+                c1, c2, c3, c4, c5 = st.columns(5)
                 c1.metric("🥇 最佳方案", fmt_text(best.get("scenario_name"), "—"))
                 c2.metric("5年ROI", fmt_percent(best.get("roi_5y")))
                 c3.metric("回本周期", fmt_years(best.get("payback_years")))
-                c4.metric("年节省", fmt_currency((best.get("annual_labor_saving") or 0) + (best.get("annual_efficiency_saving") or 0)))
+                c4.metric("Y1 EBITA", fmt_currency(best.get("y1_ebita")))
+                c5.metric("年节省", fmt_currency((best.get("annual_labor_saving") or 0) + (best.get("annual_efficiency_saving") or 0)))
 
                 st.divider()
                 st.subheader("📈 可视化对比")
@@ -721,6 +727,7 @@ elif app_mode == "⚖️ 多方案对比":
                         "方案": c["scenario_name"],
                         "类别": c["category"],
                         "自动化投资": f"¥{c['automation_capex']/10000:.0f}万",
+                        "Y1 EBITA": fmt_currency(c.get("y1_ebita")),
                         "5年累计净收益": f"¥{c['five_year_net_benefit']/10000:.1f}万",
                         "5年ROI": f"{c['roi_5y']:.1f}x",
                         "回本周期": f"{c['payback_years']:.1f}年",

@@ -164,7 +164,7 @@ def generate_compare_report(request: ReportCompareRequest):
     }
 
     from backend.services.project_service import get_scenario_comparison
-    cmp_result = get_scenario_comparison(profile, region, sid_list)
+    cmp_result = get_scenario_comparison(profile, request.region, sid_list)
     comparisons = cmp_result.get("comparisons", [])
 
     # Build a minimal fake "recommendations" list from comparison data

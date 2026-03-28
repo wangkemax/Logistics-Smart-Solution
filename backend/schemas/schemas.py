@@ -123,6 +123,9 @@ class ScenarioComparisonRow(BaseModel):
     headcount_required: int
     total_annual_cost: float
     is_best: bool = False
+    y1_revenue: float | None = None
+    y1_operating_cost: float | None = None
+    y1_ebita: float | None = None
 
 
 class CompareResponse(BaseModel):

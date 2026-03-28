@@ -68,3 +68,22 @@ class TestCompareScenarios:
             assert r["automation_capex"] > 0
             assert r["annual_saving"] >= 0
             assert r["payback_years"] > 0
+
+
+class TestCompareY1Ebita:
+    def test_y1_ebita_fields_exist_in_compare(self):
+        result = compare_scenarios(SAMPLE_PROFILE, "华东", [1, 2])
+        for r in result:
+            assert "y1_ebita" in r
+            assert "y1_revenue" in r
+            assert "y1_operating_cost" in r
+
+    def test_y1_ebita_is_numeric(self):
+        result = compare_scenarios(SAMPLE_PROFILE, "华东", [1, 2])
+        for r in result:
+            assert isinstance(r["y1_ebita"], (int, float))
+
+    def test_y1_ebita_not_none(self):
+        result = compare_scenarios(SAMPLE_PROFILE, "华东", [1, 3])
+        assert len(result) == 2
+

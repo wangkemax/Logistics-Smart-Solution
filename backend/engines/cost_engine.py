@@ -178,6 +178,11 @@ def calculate_costs(profile: Dict, region: str = "华东",
     payback_years = capex / max(1, net_annual_benefit) if net_annual_benefit > 0 else 99
     payback_years = min(99, round(payback_years, 1))
 
+    # Year 1 financial fields (EBITA model)
+    y1_revenue = round(total_labor_saving, 0)          # automation_savings = "revenue" side
+    y1_operating_cost = round(annual_maintenance, 0)    # maintenance = primary operating cost
+    y1_ebita = round(net_annual_benefit, 0)             # EBITA = revenue - operating costs
+
     return {
         "warehouse_cost": round(warehouse_cost_annual, 0),
         "labor_cost_annual": round(baseline_labor_cost, 0),
@@ -190,6 +195,10 @@ def calculate_costs(profile: Dict, region: str = "华东",
         "payback_years": payback_years,
         "headcount_required": automated_headcount,
         "headcount_saved": headcount_saved,
+        # Y1 EBITA fields
+        "y1_revenue": y1_revenue,
+        "y1_operating_cost": y1_operating_cost,
+        "y1_ebita": y1_ebita,
     }
 
 
@@ -319,6 +328,10 @@ def compare_scenarios(
             "headcount_saved": headcount_saved,
             "headcount_required": cost_data.get("headcount_required", 0),
             "total_annual_cost": cost_data.get("total_annual_cost", 0),
+            # Y1 EBITA fields
+            "y1_revenue": cost_data.get("y1_revenue"),
+            "y1_operating_cost": cost_data.get("y1_operating_cost"),
+            "y1_ebita": cost_data.get("y1_ebita"),
         })
 
     # Sort by 5-year ROI descending

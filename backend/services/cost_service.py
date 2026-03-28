@@ -208,6 +208,10 @@ def calculate_solution_financials(
         "total_annual_cost": _round2(opex_annual + base_headcount * labor_cost_per_person * (1 - labor_saving_ratio)),
         "is_best": False,
         "warnings": warnings,
+        # Y1 EBITA fields
+        "y1_revenue": _round2(annual_labor_saving + annual_efficiency_saving),
+        "y1_operating_cost": _round2(opex_annual),
+        "y1_ebita": _round2(net_annual_benefit),
         "currency_fmt": {
             "capex": _fmt_currency(capex_estimate),
             "opex_annual": _fmt_currency(opex_annual),

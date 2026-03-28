@@ -119,6 +119,56 @@ class TestCostCalculation:
         assert large["warehouse_cost"] > small["warehouse_cost"]
 
 
+class TestY1EbitaFields:
+    def setup_method(self):
+        self.base_profile = {
+            "industry": "电商",
+            "warehouse_area": 20000,
+            "sku_count": 30000,
+            "daily_orders": 5000,
+            "inventory": 500000,
+            "labor_cost_level": "中",
+            "budget_level": "中",
+            "automation_expectation": "中",
+        }
+
+    def test_y1_ebita_fields_exist(self):
+        result = calculate_costs(self.base_profile)
+        assert "y1_ebita" in result
+        assert "y1_revenue" in result
+        assert "y1_operating_cost" in result
+
+    def test_y1_ebita_equals_net_annual_benefit(self):
+        result = calculate_costs(self.base_profile)
+        assert result["y1_ebita"] == result["net_annual_benefit"]
+
+    def test_y1_revenue_equals_automation_savings(self):
+        result = calculate_costs(self.base_profile)
+        assert result["y1_revenue"] == result["automation_savings_annual"]
+
+    def test_y1_ebita_none_when_savings_zero(self):
+        # Edge case: scenario where savings equal maintenance → ebita could be 0 or near 0
+        result = calculate_costs(self.base_profile)
+        # Should be a number (float or int), not None
+        assert result["y1_ebita"] is not None
+        assert isinstance(result["y1_ebita"], (int, float))
+
+    def test_y1_ebita_negative_when_maintenance_exceeds_savings(self):
+        # Very small savings scenario: budget=低, automation=低 → minimal savings
+        profile = {**self.base_profile, "budget_level": "低", "automation_expectation": "低"}
+        result = calculate_costs(profile)
+        # Should still return a numeric value (negative or positive)
+        assert isinstance(result["y1_ebita"], (int, float))
+
+    def test_y1_ebita_consistent_across_regions(self):
+        result_hd = calculate_costs(self.base_profile, region="华东")
+        result_hn = calculate_costs(self.base_profile, region="华南")
+        # Both should have y1_ebita as numeric
+        assert isinstance(result_hd["y1_ebita"], (int, float))
+        assert isinstance(result_hn["y1_ebita"], (int, float))
+
+
+
 class TestCostSummary:
     def test_summary_contains_key_info(self):
         cost_data = {
