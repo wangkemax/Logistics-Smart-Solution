@@ -640,8 +640,44 @@ async def retry_pipeline_stage(pipeline_id: str, request: RetryStageRequest):
     if request.profile_overrides:
         base_overrides = {**base_overrides, **request.profile_overrides}
 
+    # v0.6.5: Also merge clarified values from resolved_fields so retry picks them up
+    # Clarification Workspace saves to resolved_fields_json; re-extraction would lose them.
+    db = SessionLocal()
+    try:
+        run_for_fields = db.query(PipelineRun).filter_by(pipeline_id=pipeline_id).first()
+        resolved_fields_raw = {}
+        if run_for_fields and run_for_fields.resolved_fields_json:
+            try:
+                resolved_fields_raw = json.loads(run_for_fields.resolved_fields_json) or {}
+            except Exception:
+                pass
+
+        readiness_json_str = ""
+        if run_for_fields and run_for_fields.readiness_json:
+            try:
+                readiness_json_str = run_for_fields.readiness_json
+            except Exception:
+                pass
+
+        # Merge usable resolved fields into base_overrides
+        for fkey, rf in resolved_fields_raw.items():
+            usable = rf.get("usable", False) if isinstance(rf, dict) else False
+            if usable and rf.get("final_value") is not None:
+                base_overrides[fkey] = rf["final_value"]
+
+        # Restore readiness so gate checks pass after clarifications
+        if readiness_json_str:
+            try:
+                readiness_data = json.loads(readiness_json_str)
+                if readiness_data:
+                    base_overrides["_readiness"] = readiness_data
+            except Exception:
+                pass
+    finally:
+        db.close()
+
     # Also update stored params_json so subsequent retries see the corrected values
-    if request.profile_overrides:
+    if request.profile_overrides or resolved_fields_raw:
         params["project_profile_overrides"] = base_overrides
         try:
             db = SessionLocal()

@@ -116,6 +116,7 @@ def build_clarification_tasks(
     normalized_fields: dict,
     manual_inputs: dict,
     clarification_questions: list[dict],
+    resolved_fields: dict | None = None,
 ) -> ClarificationTaskList:
     """
     Build the full ClarificationTaskList from current project state.
@@ -127,6 +128,7 @@ def build_clarification_tasks(
         normalized_fields:   Normalized fields from analyze_and_extract
         manual_inputs:       Already-confirmed manual inputs {field_key: {...}}
         clarification_questions: Questions from tender_clarification
+        resolved_fields:     Resolved fields dict {field_key: ResolvedField} (optional)
 
     Returns:
         ClarificationTaskList
@@ -235,16 +237,25 @@ def build_clarification_tasks(
                     )
                     must_answer.append(task)
 
-    # ---- Fallback: if pipeline is blocked but no tasks were generated (e.g. old pipeline
-    #     with no structured extraction data), generate tasks for all missing P0 fields ----
-    if not must_answer and recommended_mode == "blocked":
-        from backend.services.tender_schema import get_p0_fields, FIELD_REGISTRY
+    # ---- Fallback: if no P0 tasks exist and pipeline may be blocked,
+    #     generate tasks for all P0 fields that are NOT resolved in resolved_fields ----
+    if not must_answer and (recommended_mode == "blocked" or not recommended_mode):
+        from backend.services.tender_schema import get_p0_fields
+        already_done = {t.field_key for t in conflict_items}
         for fkey in get_p0_fields():
-            if any(t.field_key == fkey for t in conflict_items):
+            if fkey in already_done:
                 continue
+            # resolved_fields: dict of ResolvedField objects or dicts with .usable / usable key
+            rf = (resolved_fields or {}).get(fkey)
+            if rf:
+                # Check if field is resolved (usable=True)
+                usable = getattr(rf, "usable", None)
+                if usable is None and isinstance(rf, dict):
+                    usable = rf.get("usable")
+                if usable:
+                    continue  # Field is resolved — skip
             fdef = FIELD_REGISTRY.get(fkey)
             display_name = fdef.display_name if fdef else fkey
-            # Attach SERVICE_MATRIX for service_scope so frontend can render the matrix
             svc_matrix = None
             if fkey == "service_scope":
                 from backend.services.tender_schema import SERVICE_MATRIX
@@ -260,7 +271,7 @@ def build_clarification_tasks(
                 guidance="该字段为P0关键字段，缺失将导致系统无法进入任何形式的成本测算。",
                 expected_input_type=_get_input_type(fkey),
                 acceptable_units=_get_acceptable_units(fkey),
-                current_status="resolved" if fkey in manual_inputs else "open",
+                current_status="resolved" if (rf and (getattr(rf, "usable", False) or (isinstance(rf, dict) and rf.get("usable")))) else "open",
                 blocking_impact="P0关键字段，缺失将阻塞成本测算",
                 service_matrix=svc_matrix,
             )
