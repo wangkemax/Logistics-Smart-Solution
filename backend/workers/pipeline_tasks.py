@@ -123,17 +123,25 @@ def pipeline_task(tender_document: str, project_profile_overrides: dict = None, 
             profile = project_profile_overrides
             missing_p0 = []
         else:
-            # Use unified tender service (LLM + regex, with fallback)
+            # Use two-phase tender understanding (analysis + normalization)
             from backend.services.tender_service import extract_requirements
-            extraction_mode = os.environ.get("EXTRACTION_MODE", "hybrid")
+            # Default to new analysis mode; set EXTRACTION_MODE=hybrid for old behavior
+            extraction_mode = os.environ.get("EXTRACTION_MODE", "analysis")
             profile = extract_requirements(tender_document, mode=extraction_mode)
             missing_p0 = profile.get("missing_p0", [])
+
+            # New mode returns full analysis report
+            analysis_report = profile.pop("_analysis_report", "")
+            structured = profile.pop("_structured", {})
+            raw_llm = profile.pop("_raw_llm_response", "")
 
         extraction_file = pipeline_dir / "stage_1_extraction.md"
         extraction_file.write_text(
             f"# Stage 1: Requirement Extraction\n\n"
-            f"Profile: {json.dumps(profile, ensure_ascii=False, indent=2)}\n\n"
-            f"Missing P0: {missing_p0}",
+            f"## Analysis Report\n\n{analysis_report}\n\n"
+            f"## Normalized Profile\n\n```json\n{json.dumps(profile, ensure_ascii=False, indent=2)}\n```\n\n"
+            f"## Structured JSON\n\n```json\n{json.dumps(structured, ensure_ascii=False, indent=2)}\n```\n\n"
+            f"## Missing P0 (Blocking)\n\n{missing_p0 or 'None'}",
             encoding="utf-8"
         )
         _update_stage(pipeline_id, "1_extraction", "DONE",

@@ -24,6 +24,7 @@ PROJECT_ROOT = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from backend.services.llm_extractor import extract_requirements_llm
+from backend.services.tender_understanding import analyze_and_extract
 
 
 # =============================================================================
@@ -508,5 +509,55 @@ def extract_requirements(
             "raw_llm_result": merge_result["raw_llm_result"],
         }
 
+    elif mode == "analysis":
+        # New two-phase mode: tender deep analysis + structured normalization
+        # Each field: {value, status, source_basis, section}
+        # status: "explicit" | "derived" | "unclear" | "missing"
+        try:
+            result = analyze_and_extract(text)
+            # Flatten: {field_name: value} for backward compat; keep full traced dict
+            flat = {}
+            for key, val in result.items():
+                if key.startswith("_"):
+                    continue
+                if isinstance(val, dict) and "value" in val:
+                    flat[key] = val["value"]       # scalar value for compat
+                else:
+                    flat[key] = val
+            # Attach analysis outputs
+            flat["_analysis_report"] = result.get("_analysis_report", "")
+            flat["_structured"] = result.get("_structured", {})
+            flat["_raw_llm_response"] = result.get("_raw_llm_response", "")
+            # Attach per-field tracing dict (value + status + source_basis + section)
+            flat["_field_traces"] = {
+                k: v  # full {value, status, source_basis, section} object
+                for k, v in result.items()
+                if not k.startswith("_")
+                and isinstance(v, dict)
+                and "value" in v
+                and "status" in v
+            }
+            return flat
+        except Exception as e:
+            print(f"[tender_service] Analysis mode failed: {e}", file=sys.stderr)
+            if fallback_to_rule:
+                warnings = [f"Tender analysis failed, fell back to rule: {e}"]
+                rule_result = extract_with_regex(text)
+                rule_result["warnings"] = warnings
+                profile = _build_profile_from_result(rule_result, source="regex")
+                _ensure_standard_keys(profile)
+                rule_conf = rule_result.get("extraction_confidence", 0.35)
+                field_confidence = {key: rule_conf for key in _STANDARD_KEYS}
+                source_trace = {key: "rule" for key in _STANDARD_KEYS}
+                return {
+                    **profile,
+                    "extraction_confidence": rule_conf,
+                    "field_confidence": field_confidence,
+                    "source_trace": source_trace,
+                    "warnings": warnings,
+                }
+            else:
+                raise
+
     else:
-        raise ValueError(f"Unknown extraction mode: {mode!r}. Must be one of: rule_only, llm_only, hybrid")
+        raise ValueError(f"Unknown extraction mode: {mode!r}. Must be one of: rule_only, llm_only, hybrid, analysis")
