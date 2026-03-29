@@ -60,8 +60,15 @@ def build_executive_summary(
     }
     op_type_label = OP_TYPE_LABELS.get(project_fit.operation_type, project_fit.operation_type)
 
+    # Extract just the scope portion (before the "当前成本测算模式" comma)
+    raw_scope = project_fit.service_scope_summary.split("，当前成本测算模式")[0]
+    if raw_scope == "未定义":
+        scope_text = "服务范围尚未完整定义"
+    else:
+        scope_text = f"服务范围覆盖{raw_scope}"
+
     return (
-        f"本项目为【{op_type_label}】类型运营场景，{project_fit.service_scope_summary}。"
+        f"本项目为【{op_type_label}】类型运营场景，{scope_text}。"
         f"综合复杂度评估为{complexity_label}（评分{project_fit.complexity_score}/20），"
         f"适合采用标准化运营流程配合适当的模块化团队设计。"
         f"当前{mode_label}。"
