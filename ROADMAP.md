@@ -349,7 +349,17 @@ QA Agent → Quality Gate
 - [x] Frontend: ⚙️ Operation Model panel (type/complexity/labor/capabilities)
 - [x] Integrated into recompute_service (Step 8b), written to DB
 - [x] RecomputeResponse: operation_profile + labor_modules + narrative fields
-- [x] 21/21 tests pass
+- [x] 31/31 tests pass
+
+#### v0.6.6 — Labor & Process Modeling ✅
+- [x] process_templates.py: 7个标准仓库作业流程模板（50+步骤）
+  - receiving_process / outbound_process / storage_management
+  - return_process / va_process / temperature_control / support_process
+- [x] build_process_modules() — 基于labor_modules激活流程
+- [x] OperationProfile.process_modules 字段
+- [x] Frontend: 📋作业流程模型面板（双列+步骤+角色+KPI）
+- [x] 10 new tests (process_modules coverage)
+- [x] docs/architecture/logistics_smart_solution_architecture.md
 
 ---
 
