@@ -920,10 +920,13 @@ def _render_results_panel():
                     st.plotly_chart(render_score_gauge(rec.get("score", 0)), width='stretch',
                                    key=f"res_gauge_{i}")
 
-    # ---- PDF Download ----
+    # ---- PDF Report (Preview + Download) ----
     st.markdown("---")
+    st.markdown("**📄 PDF 方案报告**")
     pdf_url = st.session_state.get("pipeline_pdf_url")
     pdf_bytes = st.session_state.get("pipeline_pdf_bytes")
+
+    # Fetch if not yet loaded
     if not pdf_bytes and pdf_url:
         try:
             pr = requests.get(f"{API_BASE_URL}{pdf_url}", timeout=30)
@@ -931,13 +934,35 @@ def _render_results_panel():
                 pdf_bytes = pr.content
         except Exception:
             pass
-    if pdf_bytes:
-        st.success("✅ PDF报告已生成")
-        st.download_button("📄 下载完整PDF方案书", data=pdf_bytes,
-                          file_name="solution_report.pdf", mime="application/pdf",
-                          type="primary", width='stretch')
-    else:
-        st.warning("PDF未生成")
+
+    pdf_col_preview, pdf_col_download = st.columns([3, 1])
+
+    with pdf_col_preview:
+        if pdf_bytes:
+            import base64
+            b64 = base64.b64encode(pdf_bytes).decode("utf-8")
+            pdf_iframe = f"""
+            <iframe src="data:application/pdf;base64,{b64}"
+                    width="100%" height="720" type="application/pdf"
+                    style="border:none; border-radius:8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+            </iframe>
+            """
+            st.markdown(pdf_iframe, unsafe_allow_html=True)
+        else:
+            st.info("⬆️ Pipeline 完成后 PDF 报告将显示在此")
+
+    with pdf_col_download:
+        if pdf_bytes:
+            st.success("已生成")
+            st.download_button(
+                "⬇️ 下载 PDF",
+                data=pdf_bytes,
+                file_name="solution_report.pdf",
+                mime="application/pdf",
+                width="stretch",
+            )
+        else:
+            st.warning("PDF未生成")
 
 
 # =============================================================================
