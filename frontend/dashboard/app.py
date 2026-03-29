@@ -240,11 +240,11 @@ def render_step_status(name: str, status: str, details: str = ""):
 
 # Field metadata: frontend label → (profile_key, widget_type, extra_kwargs)
 _QA_FIELD_META = {
-    "warehouse_area":          ("仓库面积",          "number",   {"min_value": 500,      "max_value": 500000,  "step": 500,   "format": "%.0f"}),
-    "sku_count":               ("SKU数量",            "number",   {"min_value": 100,      "max_value": 1000000, "step": 1000,  "format": "%.0f"}),
-    "daily_orders":            ("日订单量",           "number",   {"min_value": 50,       "max_value": 500000,  "step": 100,   "format": "%.0f"}),
-    "inventory":               ("库存量",             "number",   {"min_value": 1000,     "max_value": 10000000,"step": 10000, "format": "%.0f"}),
-    "contract_years":          ("合同年限",           "number",   {"min_value": 1,        "max_value": 20,       "step": 1,     "format": "%.0f"}),
+    "warehouse_area":          ("仓库面积",          "number",   {"min_value": 500.0,      "max_value": 500000.0,  "step": 500.0,   "format": "%.0f"}),
+    "sku_count":               ("SKU数量",            "number",   {"min_value": 100.0,      "max_value": 1000000.0, "step": 1000.0,  "format": "%.0f"}),
+    "daily_orders":            ("日订单量",           "number",   {"min_value": 50.0,       "max_value": 500000.0,  "step": 100.0,   "format": "%.0f"}),
+    "inventory":               ("库存量",             "number",   {"min_value": 1000.0,     "max_value": 10000000.0,"step": 10000.0, "format": "%.0f"}),
+    "contract_years":          ("合同年限",           "number",   {"min_value": 1.0,        "max_value": 20.0,       "step": 1.0,     "format": "%.0f"}),
     "industry":                ("行业",               "select",   {"options": ["电商", "3PL", "零售", "制造", "快递", "医药", "食品", "生鲜"]}),
     "region":                  ("地区",               "select",   {"options": ["华东", "华南", "华北", "华中", "西部"]}),
     "labor_cost_level":        ("人工成本等级",       "select",   {"options": ["低", "中", "高"]}),
