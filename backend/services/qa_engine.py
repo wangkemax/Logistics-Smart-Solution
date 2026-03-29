@@ -1,8 +1,17 @@
 """
-QA Rules Engine
-===============
-Replaces the naive QA logic in pipeline_tasks.py (Stage 4).
-Provides P0/P1/P2 severity classification with suggested fixes and field attribution.
+QA Rules Engine v2
+===================
+Replaces naive QA logic with a declarative rule engine.
+
+Rule categories:
+  1. Field Rules    — missing / invalid profile fields
+  2. ROI Rules      — financial sanity checks on cost_comparisons
+  3. Constraint Rules — conflict detection between requirements and solution
+
+Verdict logic (by priority):
+  FAIL               ← any P0 blocking rule fires
+  CONDITIONAL_PASS   ← P1 warning rules fire (but no P0)
+  PASS               ← only P2 / info rules, or clean
 """
 
 import os
@@ -10,25 +19,24 @@ import re
 from typing import Optional
 
 # =============================================================================
-# QAIssue structure
+# QAIssue
 # =============================================================================
 
 class QAIssue:
     """
-    Represents a single QA issue with severity, field, message, fix, and blocking flag.
-
     Attributes:
-        severity:  P0 (blocking), P1 (warning), P2 (info)
-        field:     Which profile field is affected (or "general" / "tender_text")
-        message:   Human-readable Chinese message
+        severity:   P0 (blocking / FAIL) | P1 (warning / CONDITIONAL_PASS) | P2 (info)
+        field:      Affected profile/solution field name (or "general")
+        rule:       Rule name string (used for deduplication & debugging)
+        message:    Human-readable Chinese message
         suggested_fix: What value to fill in, or where to find it
-        blocking:  True = FAIL if not resolved, False = CONDITIONAL_PASS
+        blocking:   True = FAIL if not resolved, False = CONDITIONAL_PASS
     """
-
     def __init__(
         self,
         severity: str,
         field: str,
+        rule: str,
         message: str,
         suggested_fix: str,
         blocking: bool,
@@ -37,6 +45,7 @@ class QAIssue:
             raise ValueError(f"Invalid severity: {severity}")
         self.severity = severity
         self.field = field
+        self.rule = rule
         self.message = message
         self.suggested_fix = suggested_fix
         self.blocking = blocking
@@ -45,481 +54,476 @@ class QAIssue:
         return {
             "severity": self.severity,
             "field": self.field,
+            "rule": self.rule,
             "message": self.message,
             "suggested_fix": self.suggested_fix,
             "blocking": self.blocking,
         }
 
     def __repr__(self):
-        return f"QAIssue({self.severity}, {self.field}, {self.message!r}, blocking={self.blocking})"
+        return f"QAIssue({self.severity}, {self.rule}, {self.message!r})"
 
 
 # =============================================================================
-# Helper: text-based detection patterns
+# Helper utilities
 # =============================================================================
 
 def _has_pattern(text: str, keywords: list[str]) -> bool:
-    """Return True if any keyword appears in text (case-insensitive)."""
     if not text:
         return False
     t = text.lower()
     return any(kw.lower() in t for kw in keywords)
 
 
-# =============================================================================
-# P0 Rules — Blocking (triggers FAIL)
-# =============================================================================
-
-def _rule_warehouse_area_missing(profile: dict) -> Optional[QAIssue]:
-    if not profile.get("warehouse_area"):
-        return QAIssue(
-            severity="P0",
-            field="warehouse_area",
-            message="仓库面积未填写，无法评估自动化规模",
-            suggested_fix="请客户提供仓库面积（平方米）",
-            blocking=True,
-        )
-    return None
-
-
-def _rule_sku_count_missing(profile: dict) -> Optional[QAIssue]:
-    if not profile.get("sku_count"):
-        return QAIssue(
-            severity="P0",
-            field="sku_count",
-            message="SKU数量未填写，无法匹配场景",
-            suggested_fix="请客户提供SKU总数或主要品类数量",
-            blocking=True,
-        )
-    return None
-
-
-def _rule_daily_orders_missing(profile: dict) -> Optional[QAIssue]:
-    if not profile.get("daily_orders"):
-        return QAIssue(
-            severity="P0",
-            field="daily_orders",
-            message="日订单量未填写，无法计算ROI",
-            suggested_fix="请客户提供日均订单量或峰值订单量",
-            blocking=True,
-        )
-    return None
-
-
-def _rule_industry_missing(profile: dict) -> Optional[QAIssue]:
-    if not profile.get("industry"):
-        return QAIssue(
-            severity="P0",
-            field="industry",
-            message="行业未填写，无法匹配场景库",
-            suggested_fix="请客户提供所属行业（如电商、3PL、零售、制造等）",
-            blocking=True,
-        )
-    return None
-
-
-def _rule_region_missing(profile: dict) -> Optional[QAIssue]:
-    if not profile.get("region"):
-        return QAIssue(
-            severity="P0",
-            field="region",
-            message="地区未填写，无法匹配成本参数",
-            suggested_fix="请客户提供项目所在地区（华东/华南/华北/华中/西部等）",
-            blocking=True,
-        )
-    return None
-
-
-def _rule_no_recommendations(recommendations: list) -> Optional[QAIssue]:
-    if not recommendations:
-        return QAIssue(
-            severity="P0",
-            field="general",
-            message="未匹配到任何推荐场景，请检查输入参数",
-            suggested_fix="请补充行业、仓库面积、日订单量等关键参数后重新提取",
-            blocking=True,
-        )
-    return None
-
-
-def _rule_insurance_budget_missing(profile: dict, tender_text: str) -> Optional[QAIssue]:
-    """
-    Detect insurance_budget from tender_text if not already in profile.
-    Triggers when insurance-related keywords appear in the tender text.
-    """
-    if profile.get("insurance_budget"):
-        return None
-
-    INSURANCE_KEYWORDS = ["保险", "保费", "投保", "承保", "理赔", "货运险", "财产险"]
-    if not _has_pattern(tender_text, INSURANCE_KEYWORDS):
-        return None
-
-    return QAIssue(
-        severity="P0",
-        field="insurance_budget",
-        message="保险预算未明确，请客户提供",
-        suggested_fix="请客户提供年度保险预算或是否需要投保说明",
-        blocking=True,
-    )
-
-
-def _rule_dg_handling_missing(profile: dict, tender_text: str) -> Optional[QAIssue]:
-    """
-    Triggers when hazardous materials (DG / dangerous goods) are mentioned
-    in tender_text but dg_handling is not specified in profile.
-    """
-    if profile.get("dg_handling"):
-        return None
-
-    DG_KEYWORDS = [
-        "危险品", "DG", " hazardous", "易燃", "易爆", "有毒", "腐蚀",
-        "放射性", "化工品", "危化品", "CLASS", "UN number",
-    ]
-    if not _has_pattern(tender_text, DG_KEYWORDS):
-        return None
-
-    return QAIssue(
-        severity="P0",
-        field="dg_handling",
-        message="涉及危险品处理，但未提供DG处理方案",
-        suggested_fix="请客户提供危险品等级、DG处理资质要求、特殊仓储条件",
-        blocking=True,
-    )
-
-
-# =============================================================================
-# P1 Rules — Warning (triggers CONDITIONAL_PASS)
-# =============================================================================
-
-def _rule_budget_level_unconfirmed(profile: dict) -> Optional[QAIssue]:
-    if profile.get("budget_level") in ("待确认", None, ""):
-        return QAIssue(
-            severity="P1",
-            field="budget_level",
-            message="预算等级未确认，ROI计算可能有偏差",
-            suggested_fix="请客户提供预算区间（如 500-1000万）或预算等级（低/中/高）",
-            blocking=False,
-        )
-    return None
-
-
-def _rule_labor_cost_level_unconfirmed(profile: dict) -> Optional[QAIssue]:
-    if profile.get("labor_cost_level") in ("待确认", None, ""):
-        return QAIssue(
-            severity="P1",
-            field="labor_cost_level",
-            message="人工成本等级未确认，ROI计算可能有偏差",
-            suggested_fix="请客户提供当地月平均工资或人工成本等级（低/中/高）",
-            blocking=False,
-        )
-    return None
-
-
-def _rule_contract_years_short(profile: dict) -> Optional[QAIssue]:
-    years = profile.get("contract_years")
+def _safe_float(val, default=None):
     try:
-        years_val = int(years)
+        return float(val)
     except (TypeError, ValueError):
-        # If it's a string like "待确认" or missing, treat as missing
-        return QAIssue(
-            severity="P1",
-            field="contract_years",
-            message="合同期未填写或过短（<3年），可能影响ROI",
-            suggested_fix="请客户提供合同期限（年），建议≥3年以保障ROI",
-            blocking=False,
-        )
-    if years_val < 3:
-        return QAIssue(
-            severity="P1",
-            field="contract_years",
-            message=f"合同期过短（{years_val}年 < 3年），可能影响ROI",
-            suggested_fix="建议合同期≥3年，如确需短合同请注明原因",
-            blocking=False,
-        )
-    return None
+        return default
 
 
-def _rule_go_live_date_unconfirmed(profile: dict) -> Optional[QAIssue]:
-    if profile.get("go_live_date") in ("待确认", None, ""):
-        return QAIssue(
-            severity="P1",
-            field="go_live_date",
-            message="预计上线时间未确认",
-            suggested_fix="请客户提供预计上线时间（年月）",
-            blocking=False,
-        )
-    return None
+# =============================================================================
+# 1. FIELD RULES — missing / invalid input fields
+# =============================================================================
+
+_FIELD_RULES: list[dict] = [
+    {
+        "rule": "warehouse_area_missing",
+        "field": "warehouse_area",
+        "severity": "P0",
+        "condition": lambda p: not p.get("warehouse_area"),
+        "message": "仓库面积未填写，无法评估自动化规模",
+        "suggested_fix": "请客户提供仓库面积（平方米）",
+        "blocking": True,
+    },
+    {
+        "rule": "sku_count_missing",
+        "field": "sku_count",
+        "severity": "P0",
+        "condition": lambda p: not p.get("sku_count"),
+        "message": "SKU数量未填写，无法匹配场景",
+        "suggested_fix": "请客户提供SKU总数或主要品类数量",
+        "blocking": True,
+    },
+    {
+        "rule": "daily_orders_missing",
+        "field": "daily_orders",
+        "severity": "P0",
+        "condition": lambda p: not p.get("daily_orders"),
+        "message": "日订单量未填写，无法计算ROI",
+        "suggested_fix": "请客户提供日均订单量或峰值订单量",
+        "blocking": True,
+    },
+    {
+        "rule": "industry_missing",
+        "field": "industry",
+        "severity": "P0",
+        "condition": lambda p: not p.get("industry"),
+        "message": "行业未填写，无法匹配场景库",
+        "suggested_fix": "请客户提供所属行业（如电商、3PL、零售、制造等）",
+        "blocking": True,
+    },
+    {
+        "rule": "region_missing",
+        "field": "region",
+        "severity": "P0",
+        "condition": lambda p: not p.get("region"),
+        "message": "地区未填写，无法匹配成本参数",
+        "suggested_fix": "请客户提供项目所在地区（华东/华南/华北/华中/西部等）",
+        "blocking": True,
+    },
+    {
+        "rule": "no_recommendations",
+        "field": "general",
+        "severity": "P0",
+        "condition": lambda p, recs: not recs,
+        "message": "未匹配到任何推荐场景，请检查输入参数",
+        "suggested_fix": "请补充行业、仓库面积、日订单量等关键参数后重新提取",
+        "blocking": True,
+    },
+    {
+        "rule": "budget_level_missing",
+        "field": "budget_level",
+        "severity": "P0",
+        "condition": lambda p: p.get("budget_level") in ("待确认", None, ""),
+        "message": "预算等级未确认，无法计算ROI",
+        "suggested_fix": "请客户提供预算区间或等级（低/中/高）",
+        "blocking": True,
+    },
+    {
+        "rule": "labor_cost_level_missing",
+        "field": "labor_cost_level",
+        "severity": "P0",
+        "condition": lambda p: p.get("labor_cost_level") in ("待确认", None, ""),
+        "message": "人工成本等级未确认，ROI计算可能有偏差",
+        "suggested_fix": "请客户提供当地月平均工资或人工成本等级（低/中/高）",
+        "blocking": True,
+    },
+    # P1 — warnings
+    {
+        "rule": "contract_years_too_short",
+        "field": "contract_years",
+        "severity": "P1",
+        "condition": lambda p: (
+            p.get("contract_years") is not None
+            and _safe_float(p["contract_years"], 0) < 3
+        ),
+        "message": "合同期过短（<3年），可能影响ROI",
+        "suggested_fix": "建议合同期≥3年以保障自动化投资回报",
+        "blocking": False,
+    },
+    {
+        "rule": "extraction_confidence_low",
+        "field": "extraction_confidence",
+        "severity": "P1",
+        "condition": lambda p: (
+            p.get("extraction_confidence") is not None
+            and _safe_float(p["extraction_confidence"], 1.0) < 0.65
+        ),
+        "message": "提取置信度过低，数据可能不准确",
+        "suggested_fix": "请客户确认关键参数（仓库面积、日订单量、行业）是否准确",
+        "blocking": False,
+    },
+    {
+        "rule": "go_live_date_missing",
+        "field": "go_live_date",
+        "severity": "P1",
+        "condition": lambda p: p.get("go_live_date") in ("待确认", None, ""),
+        "message": "预计上线时间未确认",
+        "suggested_fix": "请客户提供预计上线时间（年月）",
+        "blocking": False,
+    },
+    {
+        "rule": "automation_expectation_missing",
+        "field": "automation_expectation",
+        "severity": "P2",
+        "condition": lambda p: p.get("automation_expectation") in ("待确认", None, ""),
+        "message": "自动化期望未明确",
+        "suggested_fix": "请客户提供自动化期望（减少人工/提升效率/降低成本）",
+        "blocking": False,
+    },
+    {
+        "rule": "inventory_missing",
+        "field": "inventory",
+        "severity": "P2",
+        "condition": lambda p: not p.get("inventory"),
+        "message": "库存量未填写，部分场景匹配可能不准确",
+        "suggested_fix": "请客户提供预计库存量或库存周转天数",
+        "blocking": False,
+    },
+]
 
 
-def _rule_extraction_confidence_low(profile: dict) -> Optional[QAIssue]:
-    confidence = profile.get("extraction_confidence")
-    if confidence is None:
-        return None  # Not applicable if not set
-    try:
-        conf_val = float(confidence)
-    except (TypeError, ValueError):
-        return None
+# =============================================================================
+# 2. ROI RULES — financial sanity checks
+# =============================================================================
 
-    # Strictness varies by extraction mode
-    threshold = 0.65
-    extraction_mode = os.environ.get("EXTRACTION_MODE", "hybrid")
-    if extraction_mode == "regex":
-        threshold = 0.55  # More lenient since regex is limited
+ROI_RULES: list[dict] = [
+    {
+        "rule": "roi_too_high",
+        "severity": "P1",
+        "condition": lambda c: (
+            _safe_float(c.get("roi_5y"), 0) > 5.0   # > 500% in 5 years
+        ),
+        "message": "ROI > 500%，可能存在参数异常（如人工节省估算过高）",
+        "suggested_fix": "请确认人工节省/效率提升参数是否合理",
+        "blocking": False,
+    },
+    {
+        "rule": "payback_too_fast",
+        "severity": "P1",
+        "condition": lambda c: (
+            0 < _safe_float(c.get("payback_years"), 999) < 0.5
+        ),
+        "message": "回本周期 < 6个月，可能不合理",
+        "suggested_fix": "请确认年节省金额和投资额计算是否正确",
+        "blocking": False,
+    },
+    {
+        "rule": "payback_too_long",
+        "severity": "P1",
+        "condition": lambda c: (
+            _safe_float(c.get("payback_years"), 0) > 8.0
+        ),
+        "message": "回本周期 > 8年，长期投资风险较高",
+        "suggested_fix": "请评估是否应提高预算选择更高效的方案，或延长合同期",
+        "blocking": False,
+    },
+    {
+        "rule": "negative_annual_saving",
+        "severity": "P0",
+        "condition": lambda c: (
+            _safe_float(c.get("net_annual_benefit"), 0) <= 0
+        ),
+        "message": "自动化净年度收益为负，方案不经济",
+        "suggested_fix": "请降低自动化预算或选择更适配的场景",
+        "blocking": True,
+    },
+    {
+        "rule": "roi_negative",
+        "severity": "P0",
+        "condition": lambda c: (
+            _safe_float(c.get("roi_5y"), 0) <= 0
+        ),
+        "message": "5年ROI为负或零，方案无投资价值",
+        "suggested_fix": "请重新选择自动化场景或调整参数",
+        "blocking": True,
+    },
+    {
+        "rule": "capex_zero",
+        "field": "capex_estimate",
+        "severity": "P0",
+        "condition": lambda c: (
+            _safe_float(c.get("capex_estimate"), -1) <= 0
+        ),
+        "message": "自动化投资为零，无实际意义",
+        "suggested_fix": "请填写自动化投资预算（万元）",
+        "blocking": True,
+    },
+    {
+        "rule": "y1_ebita_highly_negative",
+        "severity": "P1",
+        "condition": lambda c: (
+            _safe_float(c.get("y1_ebita"), 0) < -0.5  # < -50% of capex
+        ),
+        "message": "第一年EBITA严重亏损，需确认初期投入是否合理",
+        "suggested_fix": "请确认第一年运维成本和初期建设费用",
+        "blocking": False,
+    },
+]
 
-    if conf_val < threshold:
-        return QAIssue(
-            severity="P1",
-            field="extraction_confidence",
-            message=f"提取置信度过低（{conf_val:.0%}），数据可能不准确",
-            suggested_fix="请客户确认关键参数（仓库面积、日订单量、行业、预算）是否准确",
-            blocking=False,
-        )
-    return None
+
+# =============================================================================
+# 3. CONSTRAINT CONFLICT MATRIX
+# =============================================================================
+
+CONFLICT_RULES: list[dict] = [
+    # (constraint_keyword, solution_type, message)
+    {
+        "rule": "fifo_drive_in_conflict",
+        "constraint_kw": "strict_fifo",
+        "solution_type": "drive_in_rack",
+        "severity": "P0",
+        "message": "严格FIFO要求与Drive-in货架不兼容（后进先出风险）",
+        "suggested_fix": "请选择重力货架、输送线或AS/RS等支持FIFO的方案",
+        "blocking": True,
+    },
+    {
+        "rule": "low_capex_asrs_conflict",
+        "constraint_kw": "low_capex",
+        "solution_type": "asrs",
+        "severity": "P0",
+        "message": "AS/RS属高资本支出方案，与低预算要求冲突",
+        "suggested_fix": "请提高预算至500万以上，或选择AMR/输送线等中等投资方案",
+        "blocking": True,
+    },
+    {
+        "rule": "low_capex_shuttle_conflict",
+        "constraint_kw": "low_capex",
+        "solution_type": "shuttle",
+        "severity": "P0",
+        "message": "Shuttle系统CAPEX较高，与低预算要求冲突",
+        "suggested_fix": "请提高预算或选择AMR/输送线等较低投资方案",
+        "blocking": True,
+    },
+    {
+        "rule": "high_throughput_manual_conflict",
+        "constraint_kw": "high_throughput",
+        "solution_type": "manual_picking",
+        "severity": "P0",
+        "message": "人工拣选无法满足高吞吐量要求",
+        "suggested_fix": "请选择输送分拣线、交叉带分拣机或AS/RS等高效方案",
+        "blocking": True,
+    },
+    {
+        "rule": "small_warehouse_shuttle_conflict",
+        "constraint_kw": "small_warehouse",
+        "solution_type": "shuttle",
+        "severity": "P1",
+        "message": "Shuttle系统对仓库净高和面积有较高要求",
+        "suggested_fix": "请确认仓库净高≥9m、面积≥3000㎡，否则建议选择AMR方案",
+        "blocking": False,
+    },
+    {
+        "rule": "cold_chain_no_asrs_conflict",
+        "constraint_kw": "cold_chain",
+        "solution_type": "manual_picking",
+        "severity": "P1",
+        "message": "冷链场景不应选择人工拣选方案",
+        "suggested_fix": "请选择冷链专用AS/RS、穿梭车或自动包装线",
+        "blocking": False,
+    },
+    {
+        "rule": "dg_handling_no_capability_conflict",
+        "constraint_kw": "dg_handling",
+        "solution_type": "standard_storage",
+        "severity": "P0",
+        "message": "涉及危险品但方案不具备DG处理资质",
+        "suggested_fix": "请确认方案包含DG仓储资质和特殊处理措施",
+        "blocking": True,
+    },
+    {
+        "rule": "net_height_insufficient_asrs",
+        "constraint_kw": "low_net_height",
+        "solution_type": "asrs",
+        "severity": "P1",
+        "message": "净高不足，AS/RS立体仓库对净高要求≥9m",
+        "suggested_fix": "请确认仓库净高≥9m，或选择低层立体货架方案",
+        "blocking": False,
+    },
+    {
+        "rule": "multi_temperature_cold_chain",
+        "constraint_kw": "multi_temp",
+        "solution_type": "single_temp_rack",
+        "severity": "P1",
+        "message": "多温区需求与单温区存储方案冲突",
+        "suggested_fix": "请选择支持多温区的冷库方案（常温/冷冻/冷藏分区）",
+        "blocking": False,
+    },
+]
 
 
-def _rule_net_height_missing(profile: dict, tender_text: str) -> Optional[QAIssue]:
+# =============================================================================
+# Rule Runners
+# =============================================================================
+
+def _run_field_rules(profile: dict, recommendations: list) -> list[QAIssue]:
+    issues = []
+    for r in _FIELD_RULES:
+        try:
+            cond = r["condition"]
+            fires = cond(profile, recommendations) if cond.__code__.co_argcount >= 2 else cond(profile)
+        except Exception:
+            fires = False
+        if fires:
+            issues.append(QAIssue(
+                severity=r["severity"],
+                field=r["field"],
+                rule=r["rule"],
+                message=r["message"],
+                suggested_fix=r["suggested_fix"],
+                blocking=r["blocking"],
+            ))
+    return issues
+
+
+def _run_roi_rules(cost_comparisons: list) -> list[QAIssue]:
+    """Run ROI financial sanity rules against each cost comparison result."""
+    issues = []
+    seen_rules = set()
+    for comp in cost_comparisons:
+        for r in ROI_RULES:
+            rule_name = r["rule"]
+            if rule_name in seen_rules:
+                continue  # deduplicate across comparisons
+            try:
+                fires = r["condition"](comp)
+            except Exception:
+                fires = False
+            if fires:
+                issues.append(QAIssue(
+                    severity=r["severity"],
+                    field=comp.get("scenario_name", "cost_comparison"),
+                    rule=rule_name,
+                    message=r["message"],
+                    suggested_fix=r["suggested_fix"],
+                    blocking=r["blocking"],
+                ))
+                seen_rules.add(rule_name)
+    return issues
+
+
+def _run_constraint_rules(profile: dict, recommendations: list) -> list[QAIssue]:
     """
-    Triggers when net height (净高) is mentioned in tender_text
-    but not captured in the profile.
+    Detect conflicts between requirements profile constraints and recommended solution types.
     """
-    NET_HEIGHT_KEYWORDS = ["净高", "层高", "货架高度", "梁下高度", "clear height"]
-    if not _has_pattern(tender_text, NET_HEIGHT_KEYWORDS):
-        return None
-    if profile.get("net_height") or profile.get("ceiling_height"):
-        return None
-    return QAIssue(
-        severity="P1",
-        field="net_height",
-        message="净高未填写，立体库方案可能受限",
-        suggested_fix="请客户提供仓库净高（米），用于评估立体货架方案适用性",
-        blocking=False,
-    )
-
-
-def _rule_security_requirements_unconfirmed(profile: dict, tender_text: str) -> Optional[QAIssue]:
-    """
-    Triggers when security-related requirements (安保要求) are found in tender text.
-    """
-    SECURITY_KEYWORDS = ["安保", "保安", "监控系统", "门禁", "周界防范", "Security", "CCTV"]
-    if not _has_pattern(tender_text, SECURITY_KEYWORDS):
-        return None
-    if profile.get("security_requirements") not in ("待确认", None, ""):
-        return None
-    return QAIssue(
-        severity="P1",
-        field="security_requirements",
-        message="安保要求未确认",
-        suggested_fix="请客户提供安保等级要求、是否需要视频监控、门禁系统等",
-        blocking=False,
-    )
-
-
-def _rule_cold_chain_no_temp_data(profile: dict, tender_text: str) -> Optional[QAIssue]:
-    """
-    Triggers when cold chain (冷链) is indicated by industry or tender text
-    but no temperature control data is provided.
-    """
+    issues = []
+    # Build constraint keywords from profile
+    constraint_keys: set[str] = set()
+    # Detect from text fields
     industry = profile.get("industry", "")
-    COLD_INDUSTRIES = ["医药", "医疗", "食品", "生鲜", "冷链", "乳制品", "冷冻", "冷藏"]
-    is_cold_industry = any(cold in industry for cold in COLD_INDUSTRIES)
-    is_cold_text = _has_pattern(tender_text, ["冷链", "冷藏", "冷冻", "温控", "冷库", "制冷"])
+    if industry in ("医药", "医疗"):
+        constraint_keys.add("pharmaceutical")
+    if industry in ("食品", "生鲜", "冷链"):
+        constraint_keys.add("cold_chain")
+    if profile.get("dg_handling"):
+        constraint_keys.add("dg_handling")
+    if profile.get("net_height") and _safe_float(profile["net_height"], 99) < 9:
+        constraint_keys.add("low_net_height")
+    if profile.get("warehouse_area") and _safe_float(profile["warehouse_area"], 99999) < 3000:
+        constraint_keys.add("small_warehouse")
+    if profile.get("daily_orders") and _safe_float(profile["daily_orders"], 0) > 5000:
+        constraint_keys.add("high_throughput")
+    budget = profile.get("budget_level", "")
+    if budget == "低":
+        constraint_keys.add("low_capex")
+    if profile.get("strict_fifo"):
+        constraint_keys.add("strict_fifo")
+    if profile.get("temperature_range") and "," in str(profile.get("temperature_range", "")):
+        constraint_keys.add("multi_temp")
 
-    if not (is_cold_industry or is_cold_text):
-        return None
-
-    # Check for temperature data
-    if profile.get("temperature_range") or profile.get("temp_min") or profile.get("temp_max"):
-        return None
-
-    return QAIssue(
-        severity="P1",
-        field="temperature_range",
-        message="冷链需求但未提供温控参数",
-        suggested_fix="请提供温度范围要求（如 2-8°C 或 -18°C 冷冻），用于选型冷链设备",
-        blocking=False,
-    )
-
-
-# =============================================================================
-# P2 Rules — Info (no verdict impact)
-# =============================================================================
-
-def _rule_automation_expectation_unconfirmed(profile: dict) -> Optional[QAIssue]:
-    if profile.get("automation_expectation") in ("待确认", None, ""):
-        return QAIssue(
-            severity="P2",
-            field="automation_expectation",
-            message="自动化期望未明确",
-            suggested_fix="请客户提供自动化期望（如 减少人工、提升效率、降低成本）",
-            blocking=False,
-        )
-    return None
-
-
-def _rule_inventory_missing(profile: dict) -> Optional[QAIssue]:
-    if not profile.get("inventory"):
-        return QAIssue(
-            severity="P2",
-            field="inventory",
-            message="库存量未填写，部分场景匹配可能不准确",
-            suggested_fix="请客户提供预计库存量或库存周转天数",
-            blocking=False,
-        )
-    return None
-
-
-def _rule_client_name_unconfirmed(profile: dict) -> Optional[QAIssue]:
-    if profile.get("client_name") in ("待确认", None, ""):
-        return QAIssue(
-            severity="P2",
-            field="client_name",
-            message="客户名称待确认",
-            suggested_fix="请客户提供客户/项目名称",
-            blocking=False,
-        )
-    return None
+    for rec in recommendations:
+        solution_type = rec.get("category", "").lower()
+        for r in CONFLICT_RULES:
+            if r["constraint_kw"] in constraint_keys and r["solution_type"] == solution_type:
+                issues.append(QAIssue(
+                    severity=r["severity"],
+                    field="constraint_conflict",
+                    rule=r["rule"],
+                    message=r["message"],
+                    suggested_fix=r["suggested_fix"],
+                    blocking=r["blocking"],
+                ))
+    return issues
 
 
 # =============================================================================
-# Strict mode for regex extraction
-# =============================================================================
-
-def _is_regex_mode() -> bool:
-    return os.environ.get("EXTRACTION_MODE", "hybrid") == "regex"
-
-
-# =============================================================================
-# Main QA runner
+# Main QA Runner
 # =============================================================================
 
 def run_qa(
     profile: dict,
     recommendations: list,
     tender_text: str = "",
+    cost_comparisons: list = None,
 ) -> tuple[str, list[dict]]:
     """
-    Run all P0/P1/P2 QA rules against the profile and recommendations.
+    Run all QA rule categories and return verdict + issues.
 
     Args:
-        profile:          Extracted project profile dict
-        recommendations:  List of recommended scenario dicts
-        tender_text:      Raw tender document text (optional, for text-based detection)
+        profile:           Project profile dict
+        recommendations:   List of recommended scenarios
+        tender_text:       Raw tender text (for text-based detection)
+        cost_comparisons:  List of cost comparison dicts (for ROI rules)
 
     Returns:
-        tuple[verdict, issues]:
-            verdict:  "PASS" | "CONDITIONAL_PASS" | "FAIL"
-            issues:   List of QAIssue dicts sorted: P0 → P1 → P2
+        (verdict, issues): verdict ∈ {"PASS", "CONDITIONAL_PASS", "FAIL"}
+                           issues sorted: P0 → P1 → P2
     """
+    cost_comparisons = cost_comparisons or []
     issues: list[QAIssue] = []
 
-    extraction_mode = os.environ.get("EXTRACTION_MODE", "hybrid")
-    is_regex = extraction_mode == "regex"
+    # 1. Field rules
+    issues += _run_field_rules(profile, recommendations)
 
-    # ---- P0 Rules ----
-    p0_rules = [
-        _rule_warehouse_area_missing,
-        _rule_sku_count_missing,
-        _rule_daily_orders_missing,
-        _rule_industry_missing,
-        _rule_region_missing,
-        _rule_no_recommendations,
-    ]
+    # 2. ROI rules
+    if cost_comparisons:
+        issues += _run_roi_rules(cost_comparisons)
 
-    for rule in p0_rules:
-        if rule == _rule_no_recommendations:
-            issue = rule(recommendations)
-        else:
-            issue = rule(profile)
-        if issue:
-            issues.append(issue)
+    # 3. Constraint conflict rules
+    issues += _run_constraint_rules(profile, recommendations)
 
-    # Text-based P0 rules (insurance + DG)
-    for rule in [_rule_insurance_budget_missing, _rule_dg_handling_missing]:
-        issue = rule(profile, tender_text)
-        if issue:
-            issues.append(issue)
+    # Text-based P0 rules (insurance + DG from tender text)
+    issues += _text_based_p0_rules(profile, tender_text)
 
-    # ---- P1 Rules ----
-    p1_rules = [
-        _rule_budget_level_unconfirmed,
-        _rule_labor_cost_level_unconfirmed,
-        _rule_go_live_date_unconfirmed,
-        _rule_extraction_confidence_low,
-        _rule_net_height_missing,
-        _rule_security_requirements_unconfirmed,
-        _rule_cold_chain_no_temp_data,
-    ]
+    # Sort: P0 → P1 → P2
+    sev_order = {"P0": 0, "P1": 1, "P2": 2}
+    issues.sort(key=lambda i: (sev_order[i.severity], i.field))
 
-    for rule in p1_rules:
-        if rule == _rule_go_live_date_unconfirmed:
-            issue = rule(profile)
-        elif rule == _rule_contract_years_short:
-            issue = rule(profile)
-        elif rule == _rule_extraction_confidence_low:
-            issue = rule(profile)
-        elif rule == _rule_net_height_missing:
-            issue = rule(profile, tender_text)
-        elif rule == _rule_security_requirements_unconfirmed:
-            issue = rule(profile, tender_text)
-        elif rule == _rule_cold_chain_no_temp_data:
-            issue = rule(profile, tender_text)
-        else:
-            issue = rule(profile)
-        if issue:
-            issues.append(issue)
-
-    # Contract years is a P1 only when present but short
-    # Only add if not already added via the generic unconfirmed path
-    contract_years = profile.get("contract_years")
-    if contract_years is not None:
-        try:
-            if int(contract_years) < 3:
-                # Already handled in _rule_contract_years_short which we call above
-                pass
-        except (TypeError, ValueError):
-            # Non-numeric treated as unconfirmed already
-            pass
-
-    # In regex mode, apply stricter thresholds for P1 rules
-    if is_regex:
-        # Lower confidence threshold override (already handled in rule, but add note)
-        # Force unconfirmed fields to P0 in regex mode for budget/labor
-        for field, label in [
-            ("budget_level", "预算等级"),
-            ("labor_cost_level", "人工成本等级"),
-        ]:
-            val = profile.get(field)
-            if val in ("待确认", None, ""):
-                issues.append(QAIssue(
-                    severity="P0",
-                    field=field,
-                    message=f"{label}未确认（regex模式），无法计算ROI",
-                    suggested_fix=f"请客户提供{label}或切换LLM提取模式",
-                    blocking=True,
-                ))
-
-    # ---- P2 Rules ----
-    p2_rules = [
-        _rule_automation_expectation_unconfirmed,
-        _rule_inventory_missing,
-        _rule_client_name_unconfirmed,
-    ]
-    for rule in p2_rules:
-        issue = rule(profile)
-        if issue:
-            issues.append(issue)
-
-    # ---- Sort: P0 → P1 → P2, then by field name ----
-    severity_order = {"P0": 0, "P1": 1, "P2": 2}
-    issues.sort(key=lambda i: (severity_order[i.severity], i.field))
-
-    # ---- Determine verdict ----
-    has_p0 = any(i.severity == "P0" for i in issues)
-    has_p1 = any(i.severity == "P1" for i in issues)
-
-    if has_p0:
+    # Verdict
+    if any(i.severity == "P0" for i in issues):
         verdict = "FAIL"
-    elif has_p1:
+    elif any(i.severity == "P1" for i in issues):
         verdict = "CONDITIONAL_PASS"
     else:
         verdict = "PASS"
@@ -527,63 +531,72 @@ def run_qa(
     return verdict, [i.to_dict() for i in issues]
 
 
+def _text_based_p0_rules(profile: dict, tender_text: str) -> list[QAIssue]:
+    """Rules that detect P0 issues from raw tender text."""
+    issues = []
+
+    if not profile.get("insurance_budget"):
+        if _has_pattern(tender_text, ["保险", "保费", "投保", "承保", "货运险", "财产险"]):
+            issues.append(QAIssue(
+                severity="P0", field="insurance_budget", rule="insurance_budget_missing",
+                message="保险条款存在但未提供保险预算",
+                suggested_fix="请客户提供年度保险预算或说明保险要求",
+                blocking=True,
+            ))
+
+    if not profile.get("dg_handling"):
+        if _has_pattern(tender_text, [
+            "危险品", "DG", "hazardous", "易燃", "易爆", "有毒", "腐蚀",
+            "放射性", "化工品", "危化品", "CLASS", "UN number",
+        ]):
+            issues.append(QAIssue(
+                severity="P0", field="dg_handling", rule="dg_handling_missing",
+                message="涉及危险品处理，但未提供DG处理方案",
+                suggested_fix="请客户提供危险品等级、DG处理资质要求、特殊仓储条件",
+                blocking=True,
+            ))
+
+    return issues
+
+
 # =============================================================================
-# UI formatting helper
+# UI Formatting
 # =============================================================================
 
 def format_issues_for_ui(issues: list[dict]) -> list[dict]:
     """
-    Convert issues list to frontend-expected format with severity icons and labels.
+    Enrich issues list with severity label/icon/color for frontend display.
 
     Frontend format:
-    {
-        "severity": "P0" | "P1" | "P2",
-        "severity_label": "❌ P0" | "⚠️ P1" | "ℹ️ P2",
-        "severity_color": "#dc2626" | "#d97706" | "#2563eb",
-        "field": "...",
-        "message": "...",
-        "suggested_fix": "...",
-        "blocking": True | False,
-    }
+        {
+          "severity": "P0",
+          "severity_label": "❌ P0",
+          "severity_color": "#dc2626",
+          "severity_bg": "#fef2f2",
+          "field": "...",
+          "rule": "...",
+          "message": "...",
+          "suggested_fix": "...",
+          "blocking": True,
+        }
     """
-    SEVERITY_CONFIG = {
-        "P0": {
-            "label": "❌ P0",
-            "color": "#dc2626",  # red-600
-            "bg": "#fef2f2",     # red-50
-        },
-        "P1": {
-            "label": "⚠️ P1",
-            "color": "#d97706",  # amber-600
-            "bg": "#fffbeb",     # amber-50
-        },
-        "P2": {
-            "label": "ℹ️ P2",
-            "color": "#2563eb",  # blue-600
-            "bg": "#eff6ff",     # blue-50
-        },
+    cfg = {
+        "P0": {"label": "❌ P0", "color": "#dc2626", "bg": "#fef2f2"},
+        "P1": {"label": "⚠️ P1", "color": "#d97706", "bg": "#fffbeb"},
+        "P2": {"label": "ℹ️ P2", "color": "#2563eb", "bg": "#eff6ff"},
     }
-
-    formatted = []
+    result = []
     for issue in issues:
-        sev = issue.get("severity", "P2")
-        cfg = SEVERITY_CONFIG.get(sev, SEVERITY_CONFIG["P2"])
-        formatted.append({
+        c = cfg.get(issue.get("severity", "P2"), cfg["P2"])
+        result.append({
             **issue,
-            "severity_label": cfg["label"],
-            "severity_color": cfg["color"],
-            "severity_bg": cfg["bg"],
+            "severity_label": c["label"],
+            "severity_color": c["color"],
+            "severity_bg": c["bg"],
         })
-    return formatted
+    return result
 
-
-# =============================================================================
-# Convenience: quick QA check
-# =============================================================================
 
 def quick_qa(profile: dict, recommendations: list) -> tuple[str, list[dict]]:
-    """
-    Shorthand for run_qa without tender_text.
-    Useful for testing and simple calls.
-    """
-    return run_qa(profile, recommendations, tender_text="")
+    """Shorthand without tender_text or cost_comparisons."""
+    return run_qa(profile, recommendations, tender_text="", cost_comparisons=[])

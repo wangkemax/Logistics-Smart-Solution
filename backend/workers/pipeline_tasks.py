@@ -228,7 +228,7 @@ def pipeline_task(tender_document: str, project_profile_overrides: dict = None, 
     stage_start = datetime.now()
     _update_stage(pipeline_id, "4_qa_review", "RUNNING")
     try:
-        qa_verdict, qa_issues = run_qa(profile, recommendations, tender_document)
+        qa_verdict, qa_issues = run_qa(profile, recommendations, tender_document, cost_comparisons)
         qa_issues_ui = format_issues_for_ui(qa_issues)
 
         qa_file = pipeline_dir / "stage_4_qa_report.md"

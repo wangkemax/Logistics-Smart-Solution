@@ -672,6 +672,25 @@ def _render_results_panel():
     state = st.session_state.get("pipeline_state", "UNKNOWN")
     best = _safe_best_result(results)
 
+    # ---- Extraction Confidence Progress Bar ----
+    extraction_confidence = profile.get("extraction_confidence")
+    if extraction_confidence is not None:
+        conf_val = float(extraction_confidence)
+        conf_pct = conf_val * 100
+        conf_color = "#27ae60" if conf_val >= 0.80 else "#f39c12" if conf_val >= 0.65 else "#e74c3c"
+        st.markdown("**📊 提取置信度**")
+        conf_col1, conf_col2 = st.columns([3, 1])
+        with conf_col1:
+            st.progress(conf_val, text=f"{conf_pct:.0f}%")
+        with conf_col2:
+            if conf_val >= 0.80:
+                st.success("✅ 高")
+            elif conf_val >= 0.65:
+                st.warning("⚠️ 中")
+            else:
+                st.error("🔴 低")
+        st.divider()
+
     # ---- Profile Summary Cards ----
     st.markdown("**📋 项目画像**")
     m1, m2 = st.columns(2)
@@ -726,7 +745,6 @@ def _render_results_panel():
                     st.warning(w)
 
     # ---- QA Verdict Panel ----
-    # Check multiple sources: best (comparisons), results (pipeline_result), session state
     qa_verdict = (
         best.get("qa_verdict") or
         results.get("qa_verdict") or
@@ -745,53 +763,73 @@ def _render_results_panel():
         st.session_state.get("pipeline_retry_count", 0) or
         0
     )
-    has_risk_flags = (
-        best.get("has_risk_flags") or
-        results.get("has_risk_flags") or
-        st.session_state.get("pipeline_has_risk_flags", False) or
-        False
-    )
-    risk_flags = (
-        best.get("risk_flags") or
-        results.get("risk_flags") or
-        st.session_state.get("pipeline_risk_flags", []) or
-        []
-    )
     retry_history = (
         best.get("retry_history") or
         results.get("retry_history") or
         st.session_state.get("pipeline_retry_history", []) or
         []
     )
-    # Determine failed_stage: try retry_history first, then stages data
-    failed_stage = ""
-    if retry_history:
-        failed_stage = retry_history[-1].get("stage", "")
-    if not failed_stage:
-        # Look at stages data to find any FAILED stage
-        stages_data = st.session_state.get("pipeline_stages", []) or results.get("stages", [])
-        for s in stages_data:
-            if s.get("status") == "FAILED":
-                failed_stage = s.get("stage", "")
-                break
-
     # Store qa_issues in session state for the correction panel to access
     if qa_issues and qa_verdict in ("CONDITIONAL_PASS", "FAIL"):
         st.session_state.pipeline_qa_issues = qa_issues
 
-    if qa_verdict == "PASS":
-        st.success("✅ QA 审核通过")
-    elif qa_verdict == "CONDITIONAL_PASS":
-        st.warning("⚠️ QA 条件通过 — 以下事项需确认：")
-        for rf in risk_flags:
-            st.markdown(f"- **{rf}**")
-    elif qa_verdict == "FAIL":
-        st.error("❌ QA 审核未通过")
-        if failed_stage:
-            st.markdown(f"失败阶段：**{failed_stage}**")
-        st.markdown(f"已重试：**{retry_count}** 次")
-    else:
-        st.caption(f"QA Verdict: `{qa_verdict or 'UNKNOWN'}`")
+    # --- QA Verdict Header ---
+    st.markdown("**🛡️ QA 审核**")
+    v_cols = st.columns([1, 3])
+    with v_cols[0]:
+        if qa_verdict == "PASS":
+            st.success("✔ PASS")
+        elif qa_verdict == "CONDITIONAL_PASS":
+            st.warning("⚠️ CONDITIONAL PASS")
+        elif qa_verdict == "FAIL":
+            st.error("✖ FAIL")
+        else:
+            st.caption(f"QA: `{qa_verdict or 'UNKNOWN'}`")
+    with v_cols[1]:
+        if qa_verdict == "FAIL":
+            retry_history_list = st.session_state.get("pipeline_retry_history") or []
+            st.caption(f"已重试：{len(retry_history_list)} 次 | 失败")
+        elif qa_verdict == "CONDITIONAL_PASS":
+            st.caption("有风险项，请确认后继续")
+        elif qa_verdict == "PASS":
+            st.caption("所有检查项通过")
+
+    # --- QA Issues Table (P0/P1/P2) ---
+    if qa_issues and isinstance(qa_issues, list):
+        p0_issues = [i for i in qa_issues if i.get("severity") == "P0"]
+        p1_issues = [i for i in qa_issues if i.get("severity") == "P1"]
+        p2_issues = [i for i in qa_issues if i.get("severity") == "P2"]
+
+        if p0_issues:
+            with st.expander(f"🔴 P0 阻塞问题（{len(p0_issues)}项）— 必须修正", expanded=True):
+                for iss in p0_issues:
+                    sev_label = iss.get("severity_label") or "❌ P0"
+                    field = iss.get("field", "—")
+                    rule = iss.get("rule", "")
+                    msg = iss.get("message", "—")
+                    fix = iss.get("suggested_fix", "")
+                    st.markdown(f"**{msg}**")
+                    st.markdown(f"字段：`{field}` | 规则：`{rule}`")
+                    if fix:
+                        st.markdown(f"💡 修正建议：{fix}")
+                    st.divider()
+
+        if p1_issues:
+            with st.expander(f"🟡 P1 风险项（{len(p1_issues)}项）— 建议确认", expanded=False):
+                for iss in p1_issues:
+                    msg = iss.get("message", "—")
+                    field = iss.get("field", "—")
+                    fix = iss.get("suggested_fix", "")
+                    st.markdown(f"**{msg}**")
+                    st.markdown(f"字段：`{field}`")
+                    if fix:
+                        st.markdown(f"💡 建议：{fix}")
+                    st.divider()
+
+        if p2_issues:
+            with st.expander(f"🔵 P2 提示信息（{len(p2_issues)}项）", expanded=False):
+                for iss in p2_issues:
+                    st.markdown(f"ℹ️ {iss.get('message', '—')}")
 
     # ---- QA Correction Panel (CONDITIONAL_PASS / FAIL only) ----
     if qa_verdict in ("CONDITIONAL_PASS", "FAIL") and qa_issues:
