@@ -238,6 +238,32 @@ def recompute_project_state(
             "fields_still_blocked": remaining_p0,
         }
 
+        # Build condensed summaries for frontend explainability panels
+        si_raw = downstream_input_new.get("source_inputs", {})
+        ai_raw = downstream_input_new.get("assumed_inputs", {})
+        uf_raw = downstream_input_new.get("unusable_fields", [])
+
+        source_inputs_summary = {
+            k: {
+                "value": v.get("value"),
+                "status": v.get("status"),
+                "priority": v.get("priority"),
+                "source_section": v.get("source_section"),
+                "impact": v.get("impact"),
+            }
+            for k, v in si_raw.items()
+        }
+        assumed_inputs_summary = {
+            k: {
+                "value": v.get("value"),
+                "fallback_value": v.get("fallback_value"),
+                "assumption_rule": v.get("assumption_rule"),
+                "impact": v.get("impact"),
+                "priority": v.get("priority"),
+            }
+            for k, v in ai_raw.items()
+        }
+
         return {
             "success": True,
             "pipeline_id": pipeline_id,
@@ -250,6 +276,10 @@ def recompute_project_state(
                 "p0_summary": downstream_input_new.get("p0_summary"),
                 "p1_summary": downstream_input_new.get("p1_summary"),
                 "blocking_reasons": downstream_input_new.get("blocking_reasons", []),
+                "source_inputs": source_inputs_summary,
+                "assumed_inputs": assumed_inputs_summary,
+                "unusable_fields": uf_raw,
+                "assumptions_template": downstream_input_new.get("assumptions_template", []),
             },
             "recommended_mode": new_mode,
             "changes_summary": changes_summary,

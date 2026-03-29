@@ -2591,11 +2591,99 @@ elif app_mode == "💬 Clarification Workspace":
             elif new_mode in ("ready", "full_calc"):
                 st.success("🎉 项目已就绪！可进入**正式成本测算**。")
 
-            # ---- 本次补录字段详情 ----
-            if fields_updated:
-                with st.expander("📋 本次补录字段详情", expanded=False):
-                    for f in fields_updated:
-                        st.markdown(f"  • `{f}` — ✅ 人工确认")
+            # ====================================================================
+            # v0.6.3 New Panels — Downstream Explainability
+            # ====================================================================
+
+            source_inputs = downstream.get("source_inputs", {})
+            assumed_inputs = downstream.get("assumed_inputs", {})
+            unusable_fields = downstream.get("unusable_fields", [])
+            p0_summary = downstream.get("p0_summary", {})
+            p1_summary = downstream.get("p1_summary", {})
+
+            # ---- Panel 1: Resolved Inputs Summary (always show) ----
+            provided_count = len(source_inputs)
+            assumed_count = len(assumed_inputs)
+            unusable_count = len(unusable_fields)
+            # Count from p0/p1 summaries
+            p0_missing = p0_summary.get("missing", 0) if p0_summary else 0
+            p1_missing = p1_summary.get("missing", 0) if p1_summary else 0
+            missing_count = p0_missing + p1_missing
+
+            st.markdown("##### 📊 字段状态总览")
+            ris_col1, ris_col2, ris_col3, ris_col4 = st.columns(4)
+            with ris_col1:
+                st.metric("✅ 已确认 (Provided)", f"{provided_count}个",
+                    help="直接来自招标文件或人工确认的字段，可直接用于测算")
+            with ris_col2:
+                st.metric("🔄 区间估算 (Assumed)", f"{assumed_count}个",
+                    help="P1字段因缺失而采用业务假设值，结论为区间范围")
+            with ris_col3:
+                st.metric("⬜ 缺失 (Missing)", f"{missing_count}个",
+                    help="招标文件未提供且未人工补录的字段")
+            with ris_col4:
+                st.metric("🚫 不可用 (Unusable)", f"{unusable_count}个",
+                    help="P0字段状态为missing/ambiguous，禁止进入任何正式测算")
+
+            st.divider()
+
+            # ---- Panel 2: Blocking Reasons Panel (mode = blocked) ----
+            if new_mode == "blocked":
+                st.markdown("#####🚨 阻塞原因详情")
+                st.warning("当前存在P0关键字段缺失或歧义，系统无法进入任何形式的成本测算。")
+
+                if blocking_reasons:
+                    for i, reason in enumerate(blocking_reasons, 1):
+                        st.markdown(f"**{i}.** {reason}")
+
+                if unusable_fields:
+                    st.markdown("**受阻塞字段：**")
+                    uf_cols = st.columns(min(len(unusable_fields), 3))
+                    for idx, fkey in enumerate(unusable_fields):
+                        with uf_cols[idx % 3]:
+                            st.markdown(f"• `{fkey}`")
+                    st.markdown("**建议：** 请回到上方「Clarification Tasks」补录这些字段的招标文件原文或人工确认值。")
+
+                st.divider()
+
+            # ---- Panel 3: Assumptions Used Panel (mode = range_estimate) ----
+            if new_mode in ("partial_ready", "range_estimate") and assumed_inputs:
+                st.markdown("##### 📐 当前业务假设（区间估算依据）")
+                st.info(f"以下 **{len(assumed_inputs)}个** P1字段因缺失而采用业务假设值，最终结论为区间范围而非精确值。")
+
+                for fkey, finfo in assumed_inputs.items():
+                    with st.expander(f"🔹 `{fkey}` — 假设值: {finfo.get('value', 'N/A')}", expanded=False):
+                        col_a, col_b = st.columns([1, 2])
+                        with col_a:
+                            st.markdown(f"**假设值:** `{finfo.get('value')}`")
+                            st.markdown(f"** fallback值:** `{finfo.get('fallback_value')}`")
+                            st.markdown(f"**优先级:** `{finfo.get('priority')}`")
+                        with col_b:
+                            st.markdown(f"**假设依据:** {finfo.get('assumption_rule', '未提供')}")
+                            st.markdown(f"**影响范围:** {finfo.get('impact', '未知')}")
+
+                st.divider()
+
+            # ---- Panel 3b: Assumptions Template (fields that could be assumed) ----
+            if new_mode in ("partial_ready", "range_estimate"):
+                assumptions_template = downstream.get("assumptions_template", [])
+                if assumptions_template:
+                    with st.expander("💡 还可以做区间估算的字段（点击展开）", expanded=False):
+                        st.caption("以下P1字段目前缺失但允许业务假设，补充后可将区间收窄：")
+                        for t in assumptions_template:
+                            st.markdown(f"• **{t.get('field_key')}**: {t.get('assumption_rule', '允许假设')}")
+
+            # ---- Panel 4: Source Breakdown (provided fields detail) ----
+            if source_inputs and st.toggle("📋 查看已确认字段详情", value=False, key="toggle_source_detail"):
+                st.markdown("**以下字段已确认，可直接用于成本测算：**")
+                for fkey, finfo in source_inputs.items():
+                    pri = finfo.get("priority", "")
+                    pri_emoji = {"P0": "🔴", "P1": "🟡", "P2": "🟢"}.get(pri, "⚪")
+                    section = finfo.get("source_section", "—")
+                    impact = finfo.get("impact", "—")
+                    val = finfo.get("value")
+                    st.markdown(f"{pri_emoji} **`{fkey}`** = `{val}`  |  优先级:{pri}  |  来源章节:{section}")
+                    st.caption(f"   影响: {impact}")
 
 
 # =============================================================================
