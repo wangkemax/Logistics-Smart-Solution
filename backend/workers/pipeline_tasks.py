@@ -147,20 +147,33 @@ def pipeline_task(tender_document: str, project_profile_overrides: dict = None, 
             downstream_input = profile.pop("_downstream_input", {})
             field_traces = profile.pop("_field_traces", {})
 
-            # Pipeline Gate: computed from quality score
-            readiness = (quality_score or {}).get("readiness", {}) or {}
-            gate_cost_ok = readiness.get("cost_model_ready", False)
-            gate_solution_ok = readiness.get("solution_design_ready", False)
-            gate_contract_ok = readiness.get("contract_review_ready", False)
+            # Pipeline Gate: read from new _readiness (v0.2) with old quality_score fallback
+            # New: profile._readiness = {for_cost_model, for_solution_design, ...}
+            # Old: quality_score.readiness = {cost_model_ready, ...}
+            new_readiness = profile.get("_readiness", {}) or {}
+            old_readiness = (quality_score or {}).get("readiness", {}) or {}
+
+            # Prefer new keys; fall back to old for backward compat
+            gate_cost_ok = new_readiness.get("for_cost_model", old_readiness.get("cost_model_ready", False))
+            gate_solution_ok = new_readiness.get("for_solution_design", old_readiness.get("solution_design_ready", False))
+            gate_contract_ok = new_readiness.get("for_contract_review", old_readiness.get("contract_review_ready", False))
+            readiness_summary = (
+                new_readiness.get("readiness_score", 0.0) if new_readiness else
+                old_readiness.get("summary", "就绪")
+            )
+            # blocked_reasons (new) takes priority; fall back to missing_p0 (old)
+            blocked_reasons = new_readiness.get("blocked_reasons", []) or old_readiness.get("blocking_items", [])
             if not missing_p0:
-                missing_p0 = readiness.get("blocking_items", [])
+                missing_p0 = blocked_reasons or []
 
             pipeline_gate = {
                 "cost_model": "PASS" if gate_cost_ok else "BLOCK",
                 "solution_design": "PASS" if gate_solution_ok else "WARN",
                 "contract_review": "PASS" if gate_contract_ok else "BLOCK",
                 "blocking_items": missing_p0 or [],
-                "readiness_summary": readiness.get("summary", "就绪"),
+                "readiness_score": new_readiness.get("readiness_score") if new_readiness else None,
+                "p0_field_status": new_readiness.get("p0_field_status", {}) if new_readiness else {},
+                "blocked_reasons": blocked_reasons,
             }
 
         extraction_file = pipeline_dir / "stage_1_extraction.md"
@@ -255,6 +268,55 @@ def pipeline_task(tender_document: str, project_profile_overrides: dict = None, 
                       duration_seconds=(datetime.now() - stage_start).total_seconds())
         complete_pipeline(pipeline_id, "CANCELLED")
         return {"pipeline_id": pipeline_id, "status": "CANCELLED"}
+
+    # ---- Cost Model Gate: Block if P0 fields are missing ----
+    if pipeline_gate.get("cost_model") == "BLOCK":
+        _update_stage(pipeline_id, "3_cost_comparison", "BLOCKED",
+                      error="P0 fields missing — cost model gate blocked",
+                      duration_seconds=0)
+        cost_comparisons = []
+        best_id = None
+        qa_verdict = "GATE_BLOCKED"
+        _update_stage(pipeline_id, "4_qa_review", "SKIPPED",
+                      error="Skipped due to cost_model gate BLOCK")
+        _update_stage(pipeline_id, "5_pdf_report", "SKIPPED",
+                      error="Skipped due to cost_model gate BLOCK")
+        if generate_pdf:
+            pass  # PDF still generated if requested, with partial data
+        total_duration = (datetime.now() - overall_start).total_seconds()
+        result_summary = {
+            "industry": profile.get("industry") if isinstance(profile, dict) else "—",
+            "region": profile.get("region") if isinstance(profile, dict) else "—",
+            "confidence": 0.0,
+            "verdict": "GATE_BLOCKED",
+            "best_scenario": "—",
+            "roi_5y": None,
+            "payback_years": None,
+            "capex_estimate": None,
+            "gate_blocked_reason": "P0字段缺失，无法进入成本测算",
+            "blocking_items": pipeline_gate.get("blocking_items", []),
+        }
+        complete_pipeline(
+            pipeline_id=pipeline_id,
+            status="COMPLETE",
+            profile_json=dict(profile) if isinstance(profile, dict) else {},
+            recommendations_json=recommendations[:5] if recommendations else [],
+            comparisons_json=[],
+            qa_verdict="GATE_BLOCKED",
+            pipeline_gate_json=pipeline_gate,
+            total_duration_seconds=total_duration,
+            result_summary=result_summary,
+        )
+        return {
+            "pipeline_id": pipeline_id,
+            "status": "COMPLETE",
+            "project_profile": dict(profile) if isinstance(profile, dict) else {},
+            "recommendations": recommendations[:5] if recommendations else [],
+            "cost_comparisons": [],
+            "qa_verdict": "GATE_BLOCKED",
+            "gate": pipeline_gate,
+            "total_duration_seconds": total_duration,
+        }
 
     # ---- Stage 3: Cost Comparison ----
     stage_start = datetime.now()
@@ -421,6 +483,7 @@ def pipeline_task(tender_document: str, project_profile_overrides: dict = None, 
         missing_items_json={"p0": missing_p0 or [], "p1": profile.get("missing_p1", [])},
         clarification_questions_json=clarification_questions or [],
         quality_score_json=quality_score or {},
+        pipeline_gate_json=pipeline_gate,
     )
 
     return {
@@ -431,6 +494,7 @@ def pipeline_task(tender_document: str, project_profile_overrides: dict = None, 
         "cost_comparisons": cost_comparisons,
         "best_scenario_id": best_id,
         "qa_verdict": qa_verdict,
+        "gate": pipeline_gate,
         "pdf_path": str(pdf_path) if pdf_path else None,
         "pdf_download_url": pdf_url,
         "total_duration_seconds": total_duration,

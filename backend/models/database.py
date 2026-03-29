@@ -107,6 +107,7 @@ class PipelineRun(Base):
     quality_score_json = Column(Text, nullable=True)       # JSON: completeness/evidence/readiness scores
     analysis_version = Column(String(20), default="v1.0")   # Schema version for downstream comparison
     prompt_version = Column(String(20), default="v1.0")    # Prompt template version
+    pipeline_gate_json = Column(Text, nullable=True)     # JSON: {cost_model: BLOCK|PASS, ...}
     created_at = Column(DateTime, default=datetime.utcnow)
     completed_at = Column(DateTime, nullable=True)
     cancelled_at = Column(DateTime, nullable=True)

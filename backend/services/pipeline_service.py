@@ -146,7 +146,8 @@ def complete_pipeline(pipeline_id: str, status: str,
                       normalized_fields_json: dict = None,
                       missing_items_json: dict = None,
                       clarification_questions_json: list = None,
-                      quality_score_json: dict = None):
+                      quality_score_json: dict = None,
+                      pipeline_gate_json: dict = None):
     """Mark pipeline as complete or failed."""
     db = SessionLocal()
     try:
@@ -175,6 +176,8 @@ def complete_pipeline(pipeline_id: str, status: str,
                 run.clarification_questions_json = json.dumps(clarification_questions_json, ensure_ascii=False)
             if quality_score_json is not None:
                 run.quality_score_json = json.dumps(quality_score_json, ensure_ascii=False)
+            if pipeline_gate_json is not None:
+                run.pipeline_gate_json = json.dumps(pipeline_gate_json, ensure_ascii=False)
             if status in ("COMPLETE", "FAILED"):
                 run.completed_at = datetime.utcnow()
             # Build result_summary for task list UI if not provided
