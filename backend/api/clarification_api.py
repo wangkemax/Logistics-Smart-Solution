@@ -72,6 +72,9 @@ class RecomputeResponse(BaseModel):
     validation_errors: Optional[list[ValidationError]] = None
     clarification_tasks: Optional[dict] = None
     downstream_input: Optional[dict] = None
+    operation_profile: Optional[dict] = None  # v0.6.5: derived from service_scope
+    labor_modules: Optional[dict] = None     # v0.6.5: from operation_profile
+    operation_narrative: Optional[str] = None  # v0.6.5: human-readable operation description
 
 
 class InputDefinitionResponse(BaseModel):
@@ -286,6 +289,9 @@ def recompute_endpoint(
         validation_errors=validation_errors_formatted,
         clarification_tasks=result.get("clarification_tasks"),
         downstream_input=result.get("downstream_input"),
+        operation_profile=result.get("downstream_input", {}).get("operation_profile"),
+        labor_modules=result.get("downstream_input", {}).get("labor_modules"),
+        operation_narrative=result.get("downstream_input", {}).get("operation_narrative"),
     )
 
 

@@ -2735,6 +2735,110 @@ elif app_mode == "💬 Clarification Workspace":
                     st.markdown(f"{pri_emoji} **`{fkey}`** = `{val}`  |  优先级:{pri}  |  来源章节:{section}")
                     st.caption(f"   影响: {impact}")
 
+            # ====================================================================
+            # v0.6.5 New Panel — Operation Model
+            # ====================================================================
+            operation_profile = downstream.get("operation_profile")
+            labor_modules = downstream.get("labor_modules")
+            operation_narrative = downstream.get("operation_narrative")
+
+            if operation_profile:
+                st.divider()
+                st.markdown("##### ⚙️ 运营模型（自动推导）")
+
+                # Sub-panels row 1: operation type + complexity + required modules
+                op_type = operation_profile.get("operation_type", "unknown")
+                complexity = operation_profile.get("service_complexity_level", "unknown")
+                complexity_score = operation_profile.get("service_complexity_score", 0)
+                complexity_emoji = {"low": "🟢", "medium": "🟡", "high": "🔴"}.get(complexity, "⚪")
+
+                om_col1, om_col2, om_col3 = st.columns(3)
+                with om_col1:
+                    OP_TYPE_LABELS = {
+                        "warehouse_distribution": "仓配一体化",
+                        "cold_chain": "冷链仓储",
+                        "bonded_warehouse_distribution": "保税仓配",
+                        "distribution_only": "纯配送",
+                        "warehouse_inbound_only": "仓储入库",
+                        "warehouse_outbound_only": "仓储出库",
+                        "value_added_services": "增值服务",
+                        "custom": "综合物流",
+                    }
+                    st.metric(
+                        "运营类型",
+                        OP_TYPE_LABELS.get(op_type, op_type),
+                        help="基于服务范围矩阵自动推导的运营类型"
+                    )
+                with om_col2:
+                    st.metric(
+                        "服务复杂度",
+                        f"{complexity_emoji} {complexity.title()} ({complexity_score}/20)",
+                        help="综合评分：服务项数量+增值复杂度+温控+系统对接"
+                    )
+                with om_col3:
+                    # Count required modules
+                    req_modules = []
+                    for mod, active in (labor_modules or {}).items():
+                        if active:
+                            req_modules.append(mod.replace("_team", ""))
+                    st.metric(
+                        "人员模块",
+                        f"{len(req_modules)}个",
+                        delta=", ".join(req_modules) if req_modules else None,
+                        help="从服务范围推导的人员配置模块"
+                    )
+
+                # Required modules detail
+                if labor_modules:
+                    st.markdown("**🧑‍🔧 人员模块配置：**")
+                    module_labels = {
+                        "receiving_team": "收货组",
+                        "putaway_team": "上架组",
+                        "picking_team": "拣选组",
+                        "packing_team": "包装组",
+                        "loading_team": "装车队",
+                        "return_processing_team": "退货处理组",
+                        "inventory_control_team": "库存管控组",
+                    }
+                    active_mods = [m for m, v in labor_modules.items() if v]
+                    inactive_mods = [m for m, v in labor_modules.items() if not v]
+
+                    mod_cols = st.columns(min(len(labor_modules), 4))
+                    for idx, (mod_key, active) in enumerate(labor_modules.items()):
+                        with mod_cols[idx % 4]:
+                            label = module_labels.get(mod_key, mod_key)
+                            if active:
+                                st.markdown(f"✅ {label}")
+                            else:
+                                st.markdown(f"⚪ {label}")
+
+                # Required capabilities
+                st.markdown("**📦 运营能力需求：**")
+                capability_items = [
+                    ("inbound_required", "📥", "入库作业"),
+                    ("outbound_required", "📤", "出库作业"),
+                    ("value_added_required", "🔧", "增值服务"),
+                    ("support_required", "⚙️", "支持服务"),
+                    ("temperature_control_required", "❄️", "温控管理"),
+                    ("return_flow_required", "↩️", "退货处理"),
+                ]
+                cap_cols = st.columns(len(capability_items))
+                for idx, (key, emoji, label) in enumerate(capability_items):
+                    with cap_cols[idx]:
+                        val = operation_profile.get(key, False)
+                        color = "✅" if val else "⚪"
+                        st.markdown(f"{color} {emoji} {label}")
+
+                # Operation narrative
+                if operation_narrative:
+                    st.markdown("**📄 运营描述：**")
+                    st.info(operation_narrative)
+            elif new_mode in ("partial_ready", "range_estimate"):
+                # Show placeholder when service_scope not yet resolved
+                st.divider()
+                st.markdown("##### ⚙️ 运营模型（自动推导）")
+                st.info("📌 完成服务范围补录后，系统将自动推导运营模型。")
+
 
 # =============================================================================
 # Clarification Task Editor Helper

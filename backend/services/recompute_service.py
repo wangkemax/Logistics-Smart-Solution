@@ -38,6 +38,7 @@ from backend.services.input_capture_service import (
     get_manual_inputs,
 )
 from backend.services.tender_schema import get_p0_fields, get_p1_fields
+from backend.services.operation_profile_service import derive_operation_profile
 from backend.downstream.downstream_input_builder import build_cost_model_input
 from backend.models.database import PipelineRun, SessionLocal
 
@@ -205,6 +206,17 @@ def recompute_project_state(
         )
         new_mode = downstream_input_new.get("recommended_mode", "blocked")
 
+        # ---- Step 8b: Derive operation_profile from service_scope (v0.6.5) ----
+        service_scope_resolved = None
+        if "service_scope" in resolved:
+            rf = resolved["service_scope"]
+            if rf.usable and rf.final_value:
+                service_scope_resolved = rf.final_value
+
+        operation_profile = None
+        if service_scope_resolved and isinstance(service_scope_resolved, dict):
+            operation_profile = derive_operation_profile(service_scope_resolved)
+
         # ---- Step 9: Write back to DB ----
         run.manual_inputs_json = json.dumps(manual_inputs, ensure_ascii=False)
         run.resolved_fields_json = json.dumps(
@@ -219,6 +231,12 @@ def recompute_project_state(
             "solution_design": "PASS" if readiness.get("for_solution_design") else "BLOCK",
             "contract_review": "PASS" if readiness.get("for_contract_review") else "BLOCK",
         }, ensure_ascii=False)
+
+        # v0.6.5: Write operation_profile
+        if operation_profile is not None:
+            run.operation_profile_json = json.dumps(
+                operation_profile.model_dump(), ensure_ascii=False
+            )
 
         db.commit()
 
@@ -280,6 +298,10 @@ def recompute_project_state(
                 "assumed_inputs": assumed_inputs_summary,
                 "unusable_fields": uf_raw,
                 "assumptions_template": downstream_input_new.get("assumptions_template", []),
+                # v0.6.5: operation model
+                "operation_profile": operation_profile.model_dump() if operation_profile else None,
+                "labor_modules": operation_profile.labor_modules.model_dump() if operation_profile else None,
+                "operation_narrative": operation_profile.operation_narrative if operation_profile else None,
             },
             "recommended_mode": new_mode,
             "changes_summary": changes_summary,

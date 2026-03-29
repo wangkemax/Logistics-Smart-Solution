@@ -127,6 +127,53 @@ class ScenarioComparisonRow(BaseModel):
     y1_ebita: float | None = None
 
 
+# =============================================================================
+# Operation Profile Schemas — v0.6.5
+# =============================================================================
+
+
+class LaborModules(BaseModel):
+    """Derived labor modules based on service scope."""
+    receiving_team: bool = False
+    putaway_team: bool = False
+    picking_team: bool = False
+    packing_team: bool = False
+    loading_team: bool = False
+    return_processing_team: bool = False
+    inventory_control_team: bool = False
+
+    model_config = ConfigDict(extra="allow")
+
+
+class OperationProfile(BaseModel):
+    """
+    Derived operation profile from service_scope matrix.
+    Single source of truth for operation model downstream of cost model.
+    """
+    operation_type: str = Field(
+        description="运营类型: warehouse_distribution / warehouse_only / distribution_only / cold_chain / custom"
+    )
+    inbound_required: bool = Field(description="是否需要入库作业模块")
+    outbound_required: bool = Field(description="是否需要出库作业模块")
+    value_added_required: bool = Field(description="是否需要增值服务模块")
+    support_required: bool = Field(description="是否需要支持服务模块")
+    temperature_control_required: bool = Field(description="是否需要温控管理")
+    return_flow_required: bool = Field(description="是否需要退货处理流程")
+    bonded_warehouse_required: bool = Field(default=False, description="是否需要保税仓储")
+    service_complexity_score: int = Field(description="服务复杂度评分 (0-20)")
+    service_complexity_level: str = Field(
+        description="复杂度等级: low / medium / high"
+    )
+    labor_modules: LaborModules = Field(description="人员模块配置")
+    operation_narrative: str = Field(description="运营描述文本，用于报告与方案生成")
+    derived_from_fields: list[str] = Field(
+        default_factory=list,
+        description="推导所依据的原始字段"
+    )
+
+    model_config = ConfigDict(extra="allow")
+
+
 class CompareResponse(BaseModel):
     comparisons: List[ScenarioComparisonRow]
     best_scenario_id: Optional[int] = None
