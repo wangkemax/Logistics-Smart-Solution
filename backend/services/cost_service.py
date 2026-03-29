@@ -8,11 +8,16 @@ Responsibilities:
   2. Batch comparison across multiple scenarios
   3. Safe division / NaN / rounding guards
   4. Normalized numeric output for UI / PDF / reports
+  5. Three operating modes: full_calc / range_estimate / blocked
 
 Called by:
   - pipeline_tasks.py (Stage 3)
   - /api/cost and /api/compare endpoints
   - Future: Agent, CLI
+
+v0.2 CHANGE: Cost Model Agent must now consume downstream_input from
+  downstream_input_builder.build_cost_model_input().
+  It is the ONLY entry point — direct profile field access is deprecated.
 """
 
 from typing import Optional, Any
@@ -119,20 +124,32 @@ def calculate_solution_financials(
     profile: dict,
     scenario: dict,
     region: str = "华东",
+    downstream_input: dict = None,
 ) -> dict:
     """
     Calculate detailed financials for a single automation scenario.
 
+    v0.2: Accepts downstream_input (from build_cost_model_input()) as the
+    authoritative source of field values and usability decisions.
+    The three operating modes:
+
+    - full_calc:   All P0 fields provided → normal precise calculation
+    - range_estimate: P0 fields complete, P1 missing → best/base/worst estimate
+    - blocked:     P0 fields missing/ambiguous → returns mode info, no calc
+
     Args:
-        profile: Project profile dict
+        profile: Project profile dict (legacy, used only if downstream_input absent)
         scenario: Single scenario dict (from recommendation_service output)
         region: Cost parameter region
+        downstream_input: Optional downstream_input.cost_model dict.
+                        If provided, used instead of raw profile fields.
 
     Returns:
         {
             "scenario_id": int,
             "scenario_name": str,
             "category": str,
+            "calculation_mode": "full_calc" | "range_estimate" | "blocked",
             "capex_estimate": float,
             "opex_annual": float,
             "annual_labor_saving": float,
@@ -148,6 +165,10 @@ def calculate_solution_financials(
             "is_best": bool,
             "warnings": list[str],
             "currency_fmt": {...},
+            # v0.2 new fields:
+            "input_source": {"field_name": "provided" | "assumed" | "blocked"},
+            "assumptions_used": list[dict],   # [{field, value, assumption}]
+            "downstream_input_meta": {...},
         }
     """
     profile = normalize_profile(profile)
@@ -155,7 +176,54 @@ def calculate_solution_financials(
     raw_params = load_cost_parameters(region)
     cost_params = normalize_cost_parameters(raw_params)
 
-    # Extract scenario values
+    # ---- v0.2: Determine calculation mode from downstream_input ----
+    downstream_meta = None
+    input_source = {}      # field_key → "provided" | "assumed" | "blocked"
+    assumptions_used = []  # list of {field, value, assumption}
+    calc_mode = "full_calc"
+
+    if downstream_input is not None:
+        downstream_meta = {
+            "level": downstream_input.get("readiness", {}).get("level", "unknown"),
+            "recommended_mode": downstream_input.get("recommended_mode", "full_calc"),
+            "mode_reason": downstream_input.get("mode_reason", ""),
+            "p0_summary": downstream_input.get("p0_summary", {}),
+            "p1_summary": downstream_input.get("p1_summary", {}),
+            "blocking_reasons": downstream_input.get("blocking_reasons", []),
+        }
+        calc_mode = downstream_input.get("recommended_mode", "full_calc")
+
+        if calc_mode == "blocked":
+            blocking_reasons = downstream_input.get("blocking_reasons", [])
+            return {
+                "scenario_id": scenario.get("scenario_id"),
+                "scenario_name": scenario.get("scenario_name", "未知方案"),
+                "category": scenario.get("category", ""),
+                "calculation_mode": "blocked",
+                "capex_estimate": None,
+                "opex_annual": None,
+                "annual_labor_saving": None,
+                "annual_efficiency_saving": None,
+                "net_annual_benefit": None,
+                "roi_5y": None,
+                "roi_3y": None,
+                "payback_years": None,
+                "payback_years_str": "无法计算（P0字段缺失/歧义）",
+                "headcount_saved": None,
+                "headcount_required": None,
+                "total_annual_cost": None,
+                "is_best": False,
+                "warnings": ["P0关键字段缺失或歧义，禁止正式成本测算。需先澄清。"],
+                "currency_fmt": {"capex": "—", "opex_annual": "—", "annual_saving": "—", "payback": "—"},
+                "input_source": {},
+                "assumptions_used": [],
+                "downstream_input_meta": downstream_meta,
+                "blocking_reasons": blocking_reasons,
+                "clarification_questions": downstream_input.get("clarification_questions", []),
+                "assumptions_template": downstream_input.get("assumptions_template", []),
+            }
+
+    # ---- Extract scenario values ----
     scenario_id = scenario.get("scenario_id")
     scenario_name = scenario.get("scenario_name", "未知方案")
     category = scenario.get("category", "")
@@ -168,16 +236,60 @@ def calculate_solution_financials(
     capex_max = scenario.get("capex_max", 999999999)
     capex_estimate = (capex_min + capex_max) / 2 if capex_max > capex_min else capex_min
 
-    # Labor savings
-    labor_cost_multiplier = {"低": 0.8, "中": 1.0, "高": 1.2}.get(_fv(profile, "labor_cost_level", "中"), 1.0)
+    # ---- Field value resolution (downstream_input or legacy profile) ----
+    def _resolved_val(field_key: str, default=None):
+        """
+        Resolve field value from downstream_input or legacy profile.
+
+        Updates input_source and assumptions_used as side effects.
+        Returns (value, source_tag).
+        """
+        if downstream_input is not None:
+            req_inputs = downstream_input.get("required_inputs", {})
+            inp = req_inputs.get(field_key, {})
+            if inp.get("usable"):
+                status = inp.get("status", "provided")
+                val = inp.get("value", default)
+                if val is None:
+                    # Try fallback value for assumed inputs
+                    val = inp.get("fallback_value", default)
+                    if inp.get("fallback_value") is not None:
+                        input_source[field_key] = "assumed"
+                        assumptions_used.append({
+                            "field": field_key,
+                            "value": val,
+                            "assumption": inp.get("fallback_assumption", inp.get("assumption_rule", "")),
+                        })
+                    else:
+                        input_source[field_key] = "provided"
+                else:
+                    if status in ("provided", "inferred"):
+                        input_source[field_key] = "provided"
+                    else:
+                        input_source[field_key] = status
+                return val, input_source[field_key]
+            else:
+                input_source[field_key] = "blocked"
+                return default, "blocked"
+
+        # Legacy fallback
+        val = _fv(profile, field_key, default)
+        input_source[field_key] = "provided" if val is not None else "blocked"
+        return val, input_source[field_key]
+
+    # ---- Core calculations with resolved values ----
+    labor_cost_multiplier = {"低": 0.8, "中": 1.0, "高": 1.2}.get(
+        _resolved_val("labor_cost_level", "中")[0], 1.0
+    )
     labor_cost_per_person = cost_params["labor_cost_per_person_year"] * labor_cost_multiplier
-    base_headcount = _estimate_headcount(profile)
+
+    daily_orders, _ = _resolved_val("daily_orders", 0)
+    base_headcount = max(1, int(daily_orders / 150)) if daily_orders else 1
+
     headcount_saved = base_headcount * labor_saving_ratio
     annual_labor_saving = headcount_saved * labor_cost_per_person
 
-    # Efficiency gain value (estimate as labor-hours equivalent)
-    daily_orders = _fv(profile, "daily_orders", 0)
-    efficiency_saving_hours = daily_orders * efficiency_gain_ratio * 0.01  # rough estimate
+    efficiency_saving_hours = (daily_orders or 0) * efficiency_gain_ratio * 0.01
     annual_efficiency_saving = efficiency_saving_hours * cost_params["labor_cost_per_person_year"]
 
     # OPEX (annual maintenance, ~8% of CAPEX for automation systems)
@@ -196,7 +308,7 @@ def calculate_solution_financials(
     # Headcount required (remaining after automation)
     headcount_required = max(1, int(round(base_headcount * (1 - labor_saving_ratio))))
 
-    # Warnings for edge cases
+    # Warnings
     warnings = []
     if capex_estimate <= 0:
         warnings.append("CAPEX估值无效（设备投资为0）")
@@ -206,11 +318,23 @@ def calculate_solution_financials(
         warnings.append(f"回本周期较长（{payback_years:.1f}年），建议重新评估")
     if risk_level == "高":
         warnings.append("方案风险等级为高，建议分阶段实施")
+    if calc_mode == "range_estimate":
+        warnings.append("⚠️ 当前为区间估算模式，部分数据为假设值，不可作为正式报价依据")
+        warnings.append("  假设项：" + ", ".join(a["field"] for a in assumptions_used) if assumptions_used else "")
+    if any(v == "blocked" for v in input_source.values()):
+        blocked_fields = [k for k, v in input_source.items() if v == "blocked"]
+        warnings.append(f"⚠️ 以下字段无法使用（blocked）: {', '.join(blocked_fields)}")
+
+    # Mode-specific note
+    mode_label = {"full_calc": "正式测算", "range_estimate": "区间估算", "blocked": "已阻塞"}.get(calc_mode, "")
+    if mode_label:
+        warnings.append(f"计算模式: {mode_label}")
 
     return {
         "scenario_id": scenario_id,
         "scenario_name": scenario_name,
         "category": category,
+        "calculation_mode": calc_mode,
         "capex_estimate": _round2(capex_estimate),
         "opex_annual": _round2(opex_annual),
         "annual_labor_saving": _round2(annual_labor_saving),
@@ -235,6 +359,10 @@ def calculate_solution_financials(
             "annual_saving": _fmt_currency(net_annual_benefit),
             "payback": f"{payback_years:.1f}年" if payback_years else "—",
         },
+        # v0.2 new fields
+        "input_source": input_source,
+        "assumptions_used": assumptions_used,
+        "downstream_input_meta": downstream_meta,
     }
 
 
@@ -255,6 +383,7 @@ def compare_solution_financials(
     profile: dict,
     scenarios: list[dict],
     region: str = "华东",
+    downstream_input: dict = None,
 ) -> list[dict]:
     """
     Calculate and compare financials for multiple scenarios.
@@ -263,9 +392,12 @@ def compare_solution_financials(
         profile: Project profile dict
         scenarios: List of scenario dicts (from recommendation_service)
         region: Cost parameter region
+        downstream_input: Optional downstream_input.cost_model dict.
+                        If provided, passed to each calculate_solution_financials call.
 
     Returns:
         List of financial results, sorted by ROI desc, with is_best flag on top.
+        Blocked scenarios are included with calculation_mode="blocked".
     """
     if not scenarios:
         return []
@@ -273,7 +405,7 @@ def compare_solution_financials(
     results = []
     for scenario in scenarios:
         try:
-            result = calculate_solution_financials(profile, scenario, region)
+            result = calculate_solution_financials(profile, scenario, region, downstream_input)
             results.append(result)
         except Exception:
             # Skip scenarios that fail financial calc — don't crash the whole batch
@@ -282,11 +414,18 @@ def compare_solution_financials(
     if not results:
         return []
 
-    # Sort by 5-year ROI desc
-    results.sort(key=lambda x: x["roi_5y"] or 0, reverse=True)
+    # Sort: blocked scenarios last, then by ROI desc
+    def _sort_key(r):
+        if r.get("calculation_mode") == "blocked":
+            return (-1, 0)  # blocked go last
+        return (0, -(r.get("roi_5y") or 0))
+    results.sort(key=_sort_key)
 
-    # Mark best
-    results[0]["is_best"] = True
+    # Mark best (skip blocked scenarios)
+    for r in results:
+        if r.get("calculation_mode") != "blocked":
+            r["is_best"] = True
+            break
 
     return results
 
