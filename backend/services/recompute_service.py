@@ -124,10 +124,15 @@ def recompute_project_state(
         p0_keys = get_p0_fields()
         p1_keys = get_p1_fields()
 
+        # Build field_priorities dict for resolve_all_fields
+        field_priorities = {k: "P0" for k in p0_keys}
+        field_priorities.update({k: "P1" for k in p1_keys})
+
         resolved = resolve_all_fields(
             extracted_fields=normalized_fields or {},
             manual_inputs=manual_inputs,
             assumptions=None,  # Assumptions come from downstream_input_builder, handled below
+            field_priorities=field_priorities,
         )
 
         resolved_summary = build_resolved_fields_summary(resolved)
@@ -171,9 +176,23 @@ def recompute_project_state(
         )
 
         # ---- Step 7 & 8: Re-build downstream_input & determine mode ----
-        # Build full analyzer_result for downstream_input_builder
+        # Build resolved_as_normalized: resolved fields mapped to downstream format
+        resolved_as_normalized = {}
+        for fkey, rf in resolved.items():
+            resolved_as_normalized[fkey] = {
+                "value": rf.final_value,
+                "unit": rf.final_unit,
+                # Map ResolvedField to downstream format:
+                # usable fields → status="provided" (downstream understands this)
+                # non-usable fields → status="missing"
+                "status": "provided" if rf.usable else "missing",
+                "source_basis": rf.source_type,
+                "section": "",
+            }
+
+        # Build analyzer_result with RESOLVED fields (not originals)
         analyzer_result = {
-            "normalized_fields": normalized_fields or {},
+            "normalized_fields": resolved_as_normalized,
             "readiness": readiness,
             "critical_missing_items": [],
             "important_missing_items": [],
@@ -181,20 +200,8 @@ def recompute_project_state(
             "analysis_sections": analysis_sections,
         }
 
-        # Override normalized_fields with resolved fields
-        resolved_as_normalized = {}
-        for fkey, rf in resolved.items():
-            resolved_as_normalized[fkey] = {
-                "value": rf.final_value,
-                "unit": rf.final_unit,
-                "status": rf.final_status,
-                "source_basis": rf.source_type,
-                "section": "",
-            }
-
         downstream_input_new = build_cost_model_input(
             analyzer_result=analyzer_result,
-            normalized_fields=resolved_as_normalized,
         )
         new_mode = downstream_input_new.get("recommended_mode", "blocked")
 
