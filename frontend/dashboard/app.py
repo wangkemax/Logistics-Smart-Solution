@@ -744,6 +744,207 @@ def _render_results_panel():
             st.caption(f"📌 {gate_detail[:120]}")
         st.divider()
 
+    # =============================================================================
+    # Cost Model Readiness Card (Max v0.2 P0 Priority)
+    # Shows: current mode, P0/P1 counts, blocking reasons or assumptions summary
+    # =============================================================================
+    readiness_data = results.get("readiness") or profile.get("_readiness") or {}
+    downstream_input_meta = results.get("downstream_input_meta") or {}
+
+    # Determine recommended mode from available data
+    calc_mode = "UNKNOWN"
+    mode_label = ""
+    mode_desc = ""
+    mode_color = "gray"
+    blocking_reasons = []
+    assumptions_used = []
+    clar_questions = []
+    p0_summary = {}
+    p1_summary = {}
+    unusable_fields = []
+
+    # Try to read from downstream_input_meta first (v0.2 cost service)
+    if downstream_input_meta:
+        calc_mode = downstream_input_meta.get("recommended_mode", "UNKNOWN")
+        blocking_reasons = downstream_input_meta.get("blocking_reasons", [])
+        p0_summary = downstream_input_meta.get("p0_summary", {})
+        p1_summary = downstream_input_meta.get("p1_summary", {})
+        clar_questions = results.get("clarification_questions") or []
+        assumptions_used = results.get("assumptions_used", [])
+        unusable_fields = results.get("unusable_fields", [])
+
+    # Fall back to readiness dict (pre-v0.2)
+    elif readiness_data:
+        cost_ready = readiness_data.get("for_cost_model", None)
+        if cost_ready is True:
+            calc_mode = "full_calc"
+        elif cost_ready is False:
+            calc_mode = "blocked"
+        else:
+            calc_mode = "range_estimate"
+
+    # Map mode to display properties
+    mode_map = {
+        "full_calc": {
+            "label": "✅ Full Calculation",
+            "desc": "关键字段齐备，可进行正式测算",
+            "color": "green",
+            "bg": "#eafaf1",
+        },
+        "range_estimate": {
+            "label": "⚠️ Range Estimate",
+            "desc": "关键字段齐备，但部分参数使用假设，结果为区间估算",
+            "color": "yellow",
+            "bg": "#fef9e7",
+        },
+        "blocked": {
+            "label": "🚫 Blocked",
+            "desc": "存在关键字段缺失或冲突，暂不支持正式测算",
+            "color": "red",
+            "bg": "#fdecea",
+        },
+    }
+    mode_info = mode_map.get(calc_mode, {
+        "label": "❓ 未知",
+        "desc": "数据不足，无法判断计算模式",
+        "color": "gray",
+        "bg": "#f5f5f5",
+    })
+
+    # P0/P1 counts
+    p0_total = p0_summary.get("total", 0)
+    p0_missing = p0_summary.get("missing", 0)
+    p0_ambiguous = p0_summary.get("ambiguous", 0)
+    p1_total = p1_summary.get("total", 0)
+    p1_missing = p1_summary.get("missing", 0)
+    p1_ambiguous = p1_summary.get("ambiguous", 0)
+
+    # Readability: build business-language blocking reasons
+    blocking_bullets = []
+    if blocking_reasons:
+        for reason in blocking_reasons:
+            # Convert technical field names to business language
+            reason_str = str(reason)
+            if "dc_count" in reason_str or "DC数量" in reason_str:
+                blocking_bullets.append("📦 DC/仓库数量缺失，无法建立网络成本模型")
+            elif "warehouse_area" in reason_str or "仓库面积" in reason_str:
+                blocking_bullets.append("🏭 仓库面积缺失，无法测算仓租和设备投入")
+            elif "daily_orders" in reason_str or "日均出库量" in reason_str:
+                blocking_bullets.append("📋 日均出库量缺失，无法建立作业量模型")
+            elif "contract_years" in reason_str or "合同年限" in reason_str:
+                blocking_bullets.append("📄 合同年限缺失或存在冲突，无法计算ROI回本周期")
+            elif "service_scope" in reason_str or "服务范围" in reason_str:
+                blocking_bullets.append("⚙️ 服务范围未明确，无法确定作业成本边界")
+            else:
+                blocking_bullets.append(reason_str[:80])
+
+    st.markdown("**🎯 Cost Model 就绪状态**")
+
+    # Row 1: Mode badge + counts
+    mode_col, counts_col = st.columns([2, 3])
+    with mode_col:
+        st.markdown(
+            f'<div style="background:{mode_info["bg"]};padding:12px 16px;border-radius:8px;'
+            f'border-left:4px solid #{mode_info["color"]}">'
+            f'<b>{mode_info["label"]}</b><br>'
+            f'<span style="font-size:13px;color:#555">{mode_info["desc"]}</span>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+
+    with counts_col:
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            p0_issues = p0_missing + p0_ambiguous
+            if p0_issues > 0:
+                st.error(f"P0 缺失/冲突：{p0_issues}")
+            else:
+                st.success(f"P0 正常：{p0_total}")
+        with c2:
+            p1_issues = p1_missing + p1_ambiguous
+            if p1_issues > 0:
+                st.warning(f"P1 缺失/冲突：{p1_issues}")
+            else:
+                st.success(f"P1 正常：{p1_total}")
+        with c3:
+            st.info(f"澄清问题：{len(clar_questions)}项")
+
+    # Row 2: Blocking reasons OR assumptions summary
+    if calc_mode == "blocked" and blocking_bullets:
+        st.markdown("**🚫 阻塞原因（业务语言）**")
+        for b in blocking_bullets:
+            st.markdown(f"- {b}")
+        if clar_questions:
+            with st.expander(f"📝 澄清问题清单（{len(clar_questions)}项）", expanded=False):
+                for q in clar_questions[:8]:
+                    severity = q.get("severity", "P1")
+                    icon = "🔴" if severity == "P0" else "🟡"
+                    st.markdown(f"{icon} **{q.get('display_name', q.get('field_key', '?'))}**：{q.get('question', '—')}")
+                    fmt = q.get("suggested_answer_format", "")
+                    if fmt:
+                        st.caption(f"   建议格式：{fmt}")
+
+    elif calc_mode == "range_estimate" and (assumptions_used or clar_questions):
+        st.markdown("**⚠️ 假设使用摘要**")
+        if assumptions_used:
+            st.caption("以下字段使用系统假设，非招标文件原文数据：")
+            for a in assumptions_used[:6]:
+                st.markdown(
+                    f"- `{a.get('field', '?')}`: {a.get('value', '—')} "
+                    f"（{a.get('assumption', '假设')[:40]}）"
+                )
+        # Show clarification questions too
+        if clar_questions:
+            with st.expander(f"📝 建议澄清的问题（{len(clar_questions)}项）", expanded=False):
+                for q in clar_questions[:6]:
+                    st.markdown(f"- **{q.get('display_name', q.get('field_key', '?'))}**：{q.get('question', '—')[:60]}")
+    else:
+        st.success("✅ 所有关键字段齐备，可进入正式成本测算")
+
+    # Row 3: Expandable full details (P1 enhancement)
+    with st.expander("🔍 展开：Cost Model 输入详情", expanded=False):
+        # Per-field status table
+        required_inputs = results.get("required_inputs", {})
+        readiness_from_result = results.get("downstream_input", {}).get("required_inputs", {})
+        inputs_to_show = readiness_from_result if readiness_from_result else required_inputs
+
+        if inputs_to_show:
+            rows = []
+            for fname, finfo in inputs_to_show.items():
+                if not isinstance(finfo, dict):
+                    continue
+                status = finfo.get("status", "unknown")
+                priority = finfo.get("priority", "?")
+                usable = finfo.get("usable", False)
+                src = finfo.get("source_section", "")
+                impact = finfo.get("impact", "")
+                val = finfo.get("value")
+                source_tag = finfo.get("input_source", ("provided" if usable else "blocked"))
+                if isinstance(source_tag, bool):
+                    source_tag = "provided" if usable else "blocked"
+
+                icon = {"provided": "🔬", "assumed": "🔎", "inferred": "🔶",
+                        "blocked": "⬜", "missing": "⬜", "ambiguous": "⚠️"}.get(status, "•")
+                prio_tag = {"P0": "🔴", "P1": "🟡", "P2": "⚪"}.get(priority, "•")
+                usable_tag = "✅" if usable else "❌"
+                rows.append({
+                    "字段": fname,
+                    "值": str(val) if val is not None else "—",
+                    "状态": f"{icon} {status}",
+                    "优先级": f"{prio_tag} {priority}",
+                    "可用": usable_tag,
+                    "来源章节": src[:30],
+                    "影响": impact[:40] if impact else "—",
+                })
+            if rows:
+                st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
+        elif clar_questions:
+            st.markdown("**澄清问题：**")
+            for q in clar_questions:
+                st.markdown(f"- **{q.get('display_name', '?')}**：{q.get('question', '—')}")
+
+    st.divider()
+
     # ---- Extraction Confidence Progress Bar ----
     extraction_confidence = profile.get("extraction_confidence")
     if extraction_confidence is not None:

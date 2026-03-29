@@ -370,10 +370,20 @@ def pipeline_task(tender_document: str, project_profile_overrides: dict = None, 
             "roi_5y": None,
             "payback_years": None,
             "capex_estimate": None,
+            "calculation_mode": "blocked",
             "gate_blocked_reason": gate_detail,
             "blocking_items": blocking_fields,
             "network_blocking_fields": network_blocked,
             "kpi_warn": pipeline_gate.get("kpi_warn_message", ""),
+            "downstream_input_meta": {
+                "recommended_mode": "blocked",
+                "mode_reason": gate_detail[:120],
+                "level": "blocked",
+                "p0_summary": {"total": 0, "provided": 0, "missing": len(blocking_fields), "ambiguous": 0},
+                "p1_summary": {"total": 0, "provided": 0, "missing": 0, "ambiguous": 0},
+                "blocking_reasons": pipeline_gate.get("blocking_items", []),
+                "clarification_questions_count": 0,
+            },
         }
         complete_pipeline(
             pipeline_id=pipeline_id,
@@ -413,10 +423,21 @@ def pipeline_task(tender_document: str, project_profile_overrides: dict = None, 
     stage_start = datetime.now()
     _update_stage(pipeline_id, "3_cost_comparison", "RUNNING")
     try:
+        # Build cost_model_input from analyzer result — this is the ONLY way
+        # Cost Model Agent reads from downstream_input; bypass = silent fabrication
+        cost_model_input = None
+        try:
+            from backend.downstream.downstream_input_builder import build_cost_model_input
+            cost_model_input = build_cost_model_input(profile)
+        except Exception:
+            pass  # Fall back to legacy calculation without downstream_input
+
         if len(compare_ids) >= 2:
-            # Use new cost service for batch comparison
+            # Use new cost service for batch comparison (with downstream_input for gating)
             scenario_list = [r for r in recommendations if r.get("scenario_id") in compare_ids]
-            cost_comparisons = compare_solution_financials(profile, scenario_list, region)
+            cost_comparisons = compare_solution_financials(
+                profile, scenario_list, region, downstream_input=cost_model_input
+            )
         elif best_id:
             cost_result = get_cost_analysis(profile, region, best_id)
             cost_comparisons = [cost_result.get("cost_breakdown", {})]
@@ -547,6 +568,22 @@ def pipeline_task(tender_document: str, project_profile_overrides: dict = None, 
     # ---- Finalize ----
     total_duration = (datetime.now() - start_time).total_seconds()
     best_cost = next((c for c in cost_comparisons if c.get("is_best")), cost_comparisons[0] if cost_comparisons else {})
+
+    # Build downstream_input_meta from cost_model_input for frontend display
+    downstream_meta_for_summary = {}
+    if cost_model_input:
+        dm = cost_model_input.get("readiness", {})
+        downstream_meta_for_summary = {
+            "recommended_mode": cost_model_input.get("recommended_mode", "unknown"),
+            "mode_reason": cost_model_input.get("mode_reason", ""),
+            "level": dm.get("level", "unknown"),
+            "cost_model_ready": dm.get("cost_model_ready", False),
+            "p0_summary": cost_model_input.get("p0_summary", {}),
+            "p1_summary": cost_model_input.get("p1_summary", {}),
+            "blocking_reasons": cost_model_input.get("blocking_reasons", []),
+            "clarification_questions_count": len(cost_model_input.get("clarification_questions", [])),
+        }
+
     result_summary = {
         "industry": profile.get("industry", "—"),
         "region": region,
@@ -556,6 +593,10 @@ def pipeline_task(tender_document: str, project_profile_overrides: dict = None, 
         "roi_5y": best_cost.get("roi_5y") if best_cost else None,
         "payback_years": best_cost.get("payback_years") if best_cost else None,
         "capex_estimate": best_cost.get("capex_estimate") if best_cost else None,
+        "calculation_mode": best_cost.get("calculation_mode") if best_cost else None,
+        "input_source": best_cost.get("input_source", {}) if best_cost else {},
+        "assumptions_used": best_cost.get("assumptions_used", []) if best_cost else [],
+        "downstream_input_meta": downstream_meta_for_summary,
     }
     complete_pipeline(
         pipeline_id=pipeline_id,
@@ -595,6 +636,15 @@ def pipeline_task(tender_document: str, project_profile_overrides: dict = None, 
         "qa_verdict": qa_verdict,
         "gate": pipeline_gate,
         "analysis_meta": analysis_meta,
+        # v0.2: Cost Model downstream input (for frontend readiness card)
+        "downstream_input": cost_model_input,
+        "downstream_input_meta": downstream_meta_for_summary,
+        "required_inputs": (cost_model_input.get("required_inputs", {})
+                            if cost_model_input else {}),
+        "unusable_fields": (cost_model_input.get("unusable_fields", [])
+                            if cost_model_input else []),
+        "clarification_questions": (cost_model_input.get("clarification_questions", [])
+                                  if cost_model_input else []),
         "pdf_path": str(pdf_path) if pdf_path else None,
         "pdf_download_url": pdf_url,
         "total_duration_seconds": total_duration,

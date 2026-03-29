@@ -286,6 +286,15 @@ def get_pipeline_run(pipeline_id: str) -> Optional[dict]:
         result["prompt_version"] = run.prompt_version
         result["model_name"] = run.model_name
 
+        # v0.2: lift downstream_input fields from result_summary to top level
+        # so frontend can read results.get("downstream_input_meta") directly
+        rs = json.loads(run.result_summary) if run.result_summary else {}
+        for key in ("downstream_input_meta", "clarification_questions", "required_inputs",
+                    "unusable_fields", "assumptions_used", "calculation_mode",
+                    "input_source", "blocking_reasons"):
+            if key in rs:
+                result[key] = rs[key]
+
         return result
     finally:
         db.close()
