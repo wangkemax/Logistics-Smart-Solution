@@ -114,11 +114,12 @@ QA 检查项：
 ### v0.6 子任务
 
 - [x] `pipeline_status == "COMPLETE"` 完成判断修复
-- [ ] 置信度进度条 UI
-- [ ] PDF 报告在线预览
-- [ ] 历史任务列表完整加载（load 到 session）
-- [ ] ROI unrealistic 检查规则
-- [ ] constraint conflict 检测
+- [x] 置信度进度条 UI（progress bar + 高/中/低标签）
+- [x] PDF 报告在线预览（base64 iframe + 下载按钮并列）
+- [x] 历史任务列表完整加载（全部 session 字段 + `qa_issues` API 修复）
+- [x] ROI unrealistic 检查规则（7条 ROI 财务规则，规则引擎架构）
+- [x] Constraint Conflict 检测（9条约束冲突矩阵）
+- [x] QA v2 规则引擎（Field Rules + ROI Rules + Constraint Rules）
 
 ---
 
@@ -298,3 +299,14 @@ QA Agent → Quality Gate
 - [x] 置信度评分 → `extraction_confidence` 字段
 - [x] 异常字段提示 + 手动补充界面
 - [x] SQLAlchemy 2.x + Pydantic 2.x 弃用警告消除
+
+### v0.6 — QA 规则引擎 + 体验优化 ✅
+- [x] QA v2 声明式规则引擎（Field / ROI / Constraint 三类）
+- [x] 7条 ROI 财务规则（roi_too_high / payback_too_fast / negative_saving 等）
+- [x] 9条约束冲突矩阵（FIFO↔Drive-in / 低预算↔ASRS / 高吞吐↔人工 等）
+- [x] QA 三级判定：FAIL / CONDITIONAL_PASS / PASS
+- [x] Dashboard QA 面板：✔/⚠/✖ 状态 + P0/P1/P2 可折叠问题列表
+- [x] 置信度进度条（progress bar + 高/中/低标签）
+- [x] PDF 在线预览（base64 iframe + 下载按钮）
+- [x] 历史任务完整加载（全部 session 字段）
+- [x] `get_pipeline_run` 修复：`qa_issues` 顶层返回
