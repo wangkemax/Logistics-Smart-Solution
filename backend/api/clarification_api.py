@@ -48,7 +48,8 @@ router = APIRouter(prefix="/api/clarification", tags=["clarification"])
 # =============================================================================
 
 class ManualInputItem(BaseModel):
-    value: str | int | float
+    # Note: service_scope is a nested dict — accept Any and handle at usage site
+    value: str | int | float | dict | list
     unit: Optional[str] = None
     comment: Optional[str] = None
 
