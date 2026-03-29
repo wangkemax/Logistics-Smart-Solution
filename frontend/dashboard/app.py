@@ -269,7 +269,7 @@ def _submit_qa_correction(pipeline_id: str, overrides: dict) -> tuple[bool, str]
         if resp.status_code == 200:
             return True, "✅ 已提交修正，Pipeline 正在重新运行…"
         else:
-            return False, f"❌ 重试失败 [{resp.status_code}]: {(resp.text or "")[:120]}"
+            return False, f"❌ 重试失败 [{resp.status_code}]: {str(resp.text or '')[:120]}"
     except Exception as e:
         return False, f"❌ 请求失败: {e}"
 
@@ -584,7 +584,7 @@ def _render_stage_retry_section(pipeline_id: str, stages: list, key_prefix: str 
             with row_cols[1]:
                 st.markdown(f"**{label}**")
                 if err:
-                    st.caption(f"⚠️ {(err or "")[:80]}")
+                    st.caption(f"⚠️ {str(err or '')[:80]}")
             with row_cols[2]:
                 if dur is not None:
                     st.caption(f"⏱️ {dur:.1f}s")
@@ -658,7 +658,7 @@ def _render_stage_retry_section(pipeline_id: str, stages: list, key_prefix: str 
                             st.success(f"✅ 已重置阶段: {', '.join(reset_list)}")
                             st.rerun()
                         else:
-                            st.error(f"重试失败 [{resp.status_code}]: {(resp.text or "")[:100]}")
+                            st.error(f"重试失败 [{resp.status_code}]: {str(resp.text or '')[:100]}")
                     except Exception as ex:
                         st.error(f"重试请求失败: {ex}")
 
@@ -1308,7 +1308,7 @@ elif app_mode == "🚀 Pipeline Run":
                                     st.session_state.pipeline_state = "done"
                                     # Fetch full data
                                     try:
-                                        full = requests.get(f"{API_BASE_URL}/api/pipeline/status/"{pid}", timeout=10)
+                                        full = requests.get(f"{API_BASE_URL}/api/pipeline/status/{pid}", timeout=10)
                                         if full.status_code == 200:
                                             fd = full.json()
                                             st.session_state.pipeline_profile = fd.get("profile", {})
@@ -1347,7 +1347,7 @@ elif app_mode == "🚀 Pipeline Run":
                     st.rerun()
 
             try:
-                resp = requests.get(f"{API_BASE_URL}/api/pipeline/status/"{pipeline_id}", timeout=10)
+                resp = requests.get(f"{API_BASE_URL}/api/pipeline/status/{pipeline_id}", timeout=10)
                 if resp.status_code == 404:
                     st.error(f"Pipeline {pipeline_id} 未找到")
                     st.stop()
@@ -1456,6 +1456,7 @@ elif app_mode == "🚀 Pipeline Run":
                     # Show stage breakdown with retry buttons in center column
                     _render_stage_retry_section(pipeline_id, st.session_state.pipeline_stages, key_prefix="center_")
                     st.session_state.pipeline_state = "done"
+                    st.session_state.app_mode = "view_results"
                     st.rerun()
                 elif pipeline_status == "FAILED":
                     st.error(f"❌ 失败: {status_data.get('error', '未知错误')}")
@@ -1463,6 +1464,7 @@ elif app_mode == "🚀 Pipeline Run":
                     # Show stage breakdown with retry buttons in center column
                     _render_stage_retry_section(pipeline_id, st.session_state.pipeline_stages, key_prefix="center_")
                     st.session_state.pipeline_state = "done"
+                    st.session_state.app_mode = "view_results"
                     st.rerun()
                 else:
                     # Auto-rerun after 2s to keep polling backend status
