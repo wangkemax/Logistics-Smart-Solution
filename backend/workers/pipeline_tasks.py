@@ -120,16 +120,14 @@ def pipeline_task(tender_document: str, project_profile_overrides: dict = None, 
     clarification_questions = []
     quality_score = {}
     field_traces = {}  # normalized fields with status/source_basis/priority/impact
+    downstream_input = {}  # hints for downstream stages
+    analysis_meta = {}    # v0.2 meta: {analysis_version, prompt_version, generated_at}
+    analysis_sections = {}  # 13-dimension section texts
 
     # ---- Stage 1: Extraction ----
     stage_start = datetime.now()
     _update_stage(pipeline_id, "1_extraction", "RUNNING")
 
-    # Default Stage 1 outputs (populated below in each branch)
-    analysis_report = ""
-    structured = {}
-    clarification_questions = []
-    quality_score = {}
     pipeline_gate = {"cost_model": "PASS", "solution_design": "PASS",
                     "contract_review": "PASS", "blocking_items": [], "readiness_summary": "就绪"}
 
@@ -152,12 +150,41 @@ def pipeline_task(tender_document: str, project_profile_overrides: dict = None, 
             quality_score = profile.pop("_quality_score", {})
             downstream_input = profile.pop("_downstream_input", {})
             field_traces = profile.pop("_field_traces", {})
+            analysis_meta = profile.pop("_meta", {})
+            analysis_result = profile.pop("_analysis_result", {})
+            summary = profile.pop("_summary", {})
+
+            # analysis_sections: the 13-dimension section texts for downstream use
+            analysis_sections = (
+                analysis_result.get("analysis_sections") or
+                profile.get("analysis_sections") or
+                {}
+            )
+
+            # Re-attach analysis context to profile so downstream stages can read it
+            # (services receive profile dict; we add these so they have the full picture)
+            profile["_analysis_sections"] = analysis_sections
+            profile["_downstream_input"] = downstream_input
+            profile["_analysis_meta"] = analysis_meta
 
             # Pipeline Gate: read from new _readiness (v0.2) with old quality_score fallback
             # New: profile._readiness = {for_cost_model, for_solution_design, ...}
             # Old: quality_score.readiness = {cost_model_ready, ...}
-            new_readiness = profile.get("_readiness", {}) or {}
+            new_readiness = profile.pop("_readiness", {}) or {}
             old_readiness = (quality_score or {}).get("readiness", {}) or {}
+
+            # Prefer new keys; fall back to old for backward compat
+            gate_cost_ok = new_readiness.get("for_cost_model", old_readiness.get("cost_model_ready", False))
+            gate_solution_ok = new_readiness.get("for_solution_design", old_readiness.get("solution_design_ready", False))
+            gate_contract_ok = new_readiness.get("for_contract_review", old_readiness.get("contract_review_ready", False))
+            readiness_summary = (
+                new_readiness.get("readiness_score", 0.0) if new_readiness else
+                old_readiness.get("summary", "就绪")
+            )
+            # blocked_reasons (new) takes priority; fall back to missing_p0 (old)
+            blocked_reasons = new_readiness.get("blocked_reasons", []) or old_readiness.get("blocking_items", [])
+            if not missing_p0:
+                missing_p0 = blocked_reasons or []
 
             # Prefer new keys; fall back to old for backward compat
             gate_cost_ok = new_readiness.get("for_cost_model", old_readiness.get("cost_model_ready", False))
@@ -358,9 +385,9 @@ def pipeline_task(tender_document: str, project_profile_overrides: dict = None, 
             pipeline_gate_json=pipeline_gate,
             total_duration_seconds=total_duration,
             result_summary=result_summary,
-            # Stage 1: Tender Understanding — still store analysis even if gate blocked
+            # Stage 1: Tender Understanding v0.2 — store all analysis even if gate blocked
             analysis_markdown=analysis_report,
-            normalized_fields_json={},
+            normalized_fields_json=field_traces,
             missing_items_json={"p0": missing_p0 or [], "p1": profile.get("missing_p1", []) if isinstance(profile, dict) else []},
             clarification_questions_json=clarification_questions or [],
             quality_score_json=quality_score or {},
@@ -559,6 +586,7 @@ def pipeline_task(tender_document: str, project_profile_overrides: dict = None, 
         "best_scenario_id": best_id,
         "qa_verdict": qa_verdict,
         "gate": pipeline_gate,
+        "analysis_meta": analysis_meta,
         "pdf_path": str(pdf_path) if pdf_path else None,
         "pdf_download_url": pdf_url,
         "total_duration_seconds": total_duration,

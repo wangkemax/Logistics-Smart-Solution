@@ -511,11 +511,37 @@ def extract_requirements(
 
     elif mode == "analysis":
         # Two-phase: tender deep analysis + structured normalization
-        # Returns full analysis result with:
-        #   _analysis_report, _structured, _raw_llm_response,
-        #   _clarification_questions, _quality_score, _downstream_input, _field_traces
+        # Returns a unified result with canonical v0.2 keys:
+        #   mode, analysis_result (full analysis), normalized_fields (field traces),
+        #   summary (critical_missing_count, cost_model_ready, ...),
+        #   plus underscore-prefixed fields for backward compat.
         try:
             result = analyze_and_extract(text)
+
+            # Build normalized_fields dict from field objects (value/status/priority/...)
+            normalized_fields = {}
+            for key, val in result.items():
+                if key.startswith("_") or key.startswith("analysis_") or key in (
+                    "critical_missing_items", "important_missing_items",
+                    "clarification_questions", "readiness", "quality_scores", "meta",
+                ):
+                    continue
+                if isinstance(val, dict) and "value" in val and "status" in val:
+                    normalized_fields[key] = val
+
+            # Build summary dict
+            readiness = result.get("readiness") or {}
+            qs = result.get("quality_scores") or {}
+            summary = {
+                "critical_missing_count": len(result.get("critical_missing_items") or []),
+                "important_missing_count": len(result.get("important_missing_items") or []),
+                "clarification_questions_count": len(result.get("clarification_questions") or []),
+                "cost_model_ready": readiness.get("for_cost_model", True),
+                "solution_design_ready": readiness.get("for_solution_design", True),
+                "contract_review_ready": readiness.get("for_contract_review", True),
+                "readiness_score": qs.get("readiness_score", 0.0),
+            }
+
             # Flatten scalar values for backward compat with existing callers
             flat = {}
             for key, val in result.items():
@@ -525,22 +551,31 @@ def extract_requirements(
                     flat[key] = val["value"]       # scalar for compat
                 else:
                     flat[key] = val
-            # Attach all analysis outputs (underscore-prefixed so callers can use them)
+
+            # Attach the full analysis result + summary + meta (underscore-prefixed)
             flat["_analysis_report"] = result.get("_analysis_report", "")
             flat["_structured"] = result.get("_structured", {})
             flat["_raw_llm_response"] = result.get("_raw_llm_response", "")
             flat["_clarification_questions"] = result.get("_clarification_questions", [])
             flat["_quality_score"] = result.get("_quality_score", {})
             flat["_downstream_input"] = result.get("_downstream_input", {})
-            # Per-field traces: {field_name: {value, status, source_basis, section}}
-            flat["_field_traces"] = {
-                k: v
-                for k, v in result.items()
-                if not k.startswith("_")
-                and isinstance(v, dict)
-                and "value" in v
-                and "status" in v
+            flat["_readiness"] = readiness
+            flat["_field_traces"] = normalized_fields
+
+            # Unified v0.2 return keys (Max's suggestion #4)
+            flat["_analysis_result"] = {
+                "analysis_markdown": result.get("analysis_markdown", ""),
+                "analysis_sections": result.get("analysis_sections", {}),
+                "critical_missing_items": result.get("critical_missing_items", []),
+                "important_missing_items": result.get("important_missing_items", []),
+                "clarification_questions": result.get("clarification_questions", []),
+                "risks": result.get("_quality_score", {}).get("risks", []),
+                "ambiguities": result.get("_quality_score", {}).get("ambiguities", []),
+                "downstream_hints": result.get("_downstream_input", {}),
             }
+            flat["_summary"] = summary
+            flat["_meta"] = result.get("meta", {})
+
             return flat
         except Exception as e:
             print(f"[tender_service] Analysis mode failed: {e}", file=sys.stderr)

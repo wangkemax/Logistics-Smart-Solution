@@ -507,6 +507,31 @@ def _empty_result():
         "analysis_sections": empty_sections,
     }
 
+
+# =============================================================================
+# Canonical field status taxonomy (Max v0.2 suggestion #4)
+# =============================================================================
+FIELD_STATUS = {
+    "explicit":   "文件明确给出，无歧义",
+    "inferred":   "可合理推断，但未经原文明确",
+    "partial":   "部分信息存在，但不完整",
+    "missing":   "文档中完全未提及",
+    "ambiguous": "存在冲突或歧义表述",
+}
+
+# Suggested answer formats per field key (used in clarification questions)
+_SUGGESTED_ANSWER_FORMAT = {
+    "dc_count": "数字 + 各仓库所在城市 + 面积（平方米）",
+    "daily_orders": "数值 + 单位（件/单）+ 口径说明（自然日/工作日）+ 峰值倍数",
+    "warehouse_area": "总面积（平方米）+ 各仓库分别面积明细",
+    "sku_count": "SKU总数 + ABC分类占比（A类X%/B类Y%/C类Z%）",
+    "kpi_targets": "指标名 + 目标值 + 考核维度 + 数据来源 + 惩罚规则",
+    "penalty_rules": "条款内容 + 类型（否决项/惩罚项/义务项）",
+    "service_scope": "报价结构说明（元/平米/月 or 元/件）+ 各服务单价区间",
+    "inventory": "平均库存量 + 峰值 + 是否含VMI + VMI占比",
+}
+
+
 def _build_metadata(s):
     """
     Build rich extraction metadata from structured LLM output.
@@ -664,18 +689,6 @@ def _build_metadata(s):
         "sections_total": len(sects),
     }
 
-
-# Suggested answer formats per field key (used in _build_metadata)
-_SUGGESTED_ANSWER_FORMAT = {
-    "dc_count": "数字 + 各仓库所在城市 + 面积（平方米）",
-    "daily_orders": "数值 + 单位（件/单）+ 口径说明（自然日/工作日）+ 峰值倍数",
-    "warehouse_area": "总面积（平方米）+ 各仓库分别面积明细",
-    "sku_count": "SKU总数 + ABC分类占比（A类X%/B类Y%/C类Z%）",
-    "kpi_targets": "指标名 + 目标值 + 考核维度 + 数据来源 + 惩罚规则",
-    "penalty_rules": "条款内容 + 类型（否决项/惩罚项/义务项）",
-    "service_scope": "报价结构说明（元/平米/月 or 元/件）+ 各服务单价区间",
-    "inventory": "平均库存量 + 峰值 + 是否含VMI + VMI占比",
-}
 
 # =============================================================================
 # Schema Contract — defines expected types/ranges for each s-key in LLM JSON output
@@ -1374,6 +1387,23 @@ def generate_clarification_questions(profile, structured=None, question_id_start
     return qs
 
 def analyze_and_extract(tender_text):
+    """
+    Two-phase tender understanding: deep analysis + field normalization.
+
+    Returns a unified dict containing:
+      - analysis_markdown: raw Markdown report
+      - analysis_sections: 13-dimension section dict (English keys)
+      - normalized_fields: {field_key: field_object} with status/priority/impact
+      - critical_missing_items / important_missing_items: from _build_metadata
+      - clarification_questions: rich question list
+      - readiness: {for_cost_model, for_solution_design, ...}
+      - quality_scores: {completeness_score, evidence_score, readiness_score}
+      - meta: {analysis_version, prompt_version, generated_at, model}
+      Plus underscore-prefixed fields for backward compat with existing callers.
+
+    The top-level keys (without underscore) form the canonical v0.2 contract
+    consumed by pipeline stages, frontend, and database.
+    """
     analysis = analyze_tender_document(tender_text)
     profile  = normalize_extracted_fields(analysis)
 
@@ -1386,8 +1416,39 @@ def analyze_and_extract(tender_text):
 
     quality = compute_analysis_quality_score(profile)
     profile["_quality_score"] = quality
-    profile["_readiness"] = compute_readiness(profile)
+    readiness = compute_readiness(profile)
+    profile["_readiness"] = readiness
     profile["_downstream_input"] = build_downstream_input(
         profile, analysis.get("structured", {}), quality)
 
+    meta = analysis.get("extraction_metadata", {})
+    extraction_meta = _build_metadata(analysis.get("structured", {}))
+
+    # Canonical top-level v0.2 keys (no underscore — stable contract)
+    profile["analysis_markdown"] = analysis["analysis_report"]
+    profile["analysis_sections"] = analysis.get("analysis_sections", {})
+    profile["critical_missing_items"] = extraction_meta.get("critical_missing_items", [])
+    profile["important_missing_items"] = extraction_meta.get("important_missing_items", [])
+    profile["clarification_questions"] = profile["_clarification_questions"]
+    profile["readiness"] = readiness
+    profile["quality_scores"] = {
+        "completeness_score": quality.get("completeness", {}).get("total_score", 0.0),
+        "evidence_score": _evidence_score(quality),
+        "readiness_score": readiness.get("readiness_score", 0.0),
+    }
+    profile["meta"] = {
+        "analysis_version": "v0.2",
+        "prompt_version": "tender_understanding_v0.2",
+        "generated_at": datetime.now().isoformat(),
+        "model": analysis.get("raw_llm_response", "")[:80],  # truncated model identifier
+    }
+
     return profile
+
+
+def _evidence_score(quality: dict) -> float:
+    """Compute a 0-1 evidence score from quality dict."""
+    evidence = quality.get("evidence", {})
+    total = sum(evidence.values()) if evidence else 1.0
+    explicit_ratio = evidence.get("explicit", 0) / total if total else 0.0
+    return explicit_ratio
