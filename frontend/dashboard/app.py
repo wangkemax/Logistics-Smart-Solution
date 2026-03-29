@@ -2880,17 +2880,31 @@ elif app_mode == "💬 Clarification Workspace":
                 st.info("📌 完成服务范围补录后，系统将自动推导运营模型。")
 
     # =============================================================================
-    # v0.7: Base Solution Studio
+    # v0.7.1: Base Solution Studio
     # =============================================================================
     if selected_pid:
         st.divider()
         st.markdown("### 🧩 基础方案（Base Solution Studio）")
-        st.caption("基于服务范围 · 运营模型 · 成本模式自动生成 | v0.7")
+        st.caption("基于服务范围 · 运营模型 · 成本模式自动生成 | v0.7.1")
 
-        # Generate button
-        sol_col1, sol_col2 = st.columns([1, 4])
+        # Action buttons row
+        sol_col1, sol_col2, sol_col3 = st.columns([1, 1, 3])
         with sol_col1:
             generate_solution_clicked = st.button("🧩 生成基础方案", type="primary", width="stretch")
+        with sol_col2:
+            # Markdown export button
+            try:
+                md_resp = requests.get(f"{API}/api/solution/base/{selected_pid}/markdown", timeout=5)
+                if md_resp.status_code == 200:
+                    st.download_button(
+                        "📄 导出 Markdown",
+                        data=md_resp.text,
+                        file_name=f"base_solution_{selected_pid[:8]}.md",
+                        mime="text/markdown",
+                        width="stretch",
+                    )
+            except Exception:
+                pass
 
         solution_data = None
         load_error = None
@@ -2919,8 +2933,10 @@ elif app_mode == "💬 Clarification Workspace":
         if load_error:
             st.error(load_error)
 
-        # Display solution if available
-        if solution_data:
+        # Show empty state if no solution yet
+        if not solution_data:
+            st.info("📌 点击上方「生成基础方案」或「导出 Markdown」按钮开始。")
+        else:
             sol = solution_data.get("solution", {})
             ns = sol.get("narrative_sections", {})
             pf = sol.get("project_fit", {})
