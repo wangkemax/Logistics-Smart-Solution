@@ -1,48 +1,248 @@
-# Roadmap
+# Roadmap — Logistics Smart Solution v1.0
 
-## v0.1 — MVP ✅
-- 自动化场景推荐引擎（15 种场景）
-- 成本测算 + ROI 计算
-- PDF 方案报告生成（Jinja2 + WeasyPrint）
-- FastAPI 后端 + Streamlit 前端
-- SQLite 数据库
+> **愿景：** 物流解决方案 AI 平台，从招标文件到完整投标方案的全流程自动化。
 
-## v0.2 — 异步 Pipeline + UI 升级 ✅
-- **异步 Pipeline**：后台线程执行，非阻塞，5 步实时状态
-- **Redis 状态存储**：每步进度实时可查
-- **三栏 Pipeline Run UI**：左输入 / 中状态 / 右结果
-- **中途参数修正**：低置信度时支持 PATCH 修正
-- **PDF 下载接口**：`/api/pipeline/{id}/download`
-- **模板 None 防护**：所有 Jinja2 除法加 `or 0` 保护
+---
 
-## v0.3 — 任务持久化 ✅
-- [x] Pipeline 任务写入 SQLite，支持刷新页面不丢失
-- [x] 历史任务列表 API（`GET /api/pipeline/history`）
-- [ ] 前端历史任务列表页面
-- [ ] 单 Step 重试按钮
-- [ ] 任务超时自动标记
+## 系统目标形态（v1.0）
 
-## v0.4 — 高级 UI ✅
-- [x] 权重滑块拖动实时刷新（`on_change=st.rerun`）
-- [x] 雷达图多维对比可视化（🕸️ 雷达图 Tab）
-- [x] Tender 文件预览关键字段检测（面积/SKU/日订单/行业）
-- [ ] 置信度进度条
+```
+招标文件 / 客户需求
+     ↓
+Requirement Extraction (LLM + Rules)
+     ↓
+Automation Opportunity Analysis
+     ↓
+Solution Generation
+     ↓
+Cost & Financial Model
+     ↓
+Scenario Comparison
+     ↓
+QA Gate
+     ↓
+Proposal Generation
+```
+
+**最终输出：** 自动化方案 · ROI/EBITA · 多方案对比 · 标准化 Proposal · 可复用案例库
+
+---
+
+## 目标架构
+
+```
+┌─────────────────────────────────┐
+│         Frontend                │
+│  Dashboard / Report UI          │
+└──────────────┬──────────────────┘
+               │
+┌──────────────▼──────────────────┐
+│         API Layer               │
+│  FastAPI Gateway               │
+└──────────────┬──────────────────┘
+               │
+┌──────────────▼──────────────────┐
+│       Business Services         │
+│  solution / cost / qa          │
+└──────────────┬──────────────────┘
+               │
+┌──────────────▼──────────────────┐
+│       AI Agent Layer            │
+│  architect / writer / QA        │
+└──────────────┬──────────────────┘
+               │
+┌──────────────▼──────────────────┐
+│        Engine Layer             │
+│  recommendation / cost         │
+└──────────────┬──────────────────┘
+               │
+┌──────────────▼──────────────────┐
+│      Data & Knowledge          │
+│  scenarios / cases / KB        │
+└─────────────────────────────────┘
+```
+
+---
+
+## Phase 1（当前阶段 → v0.6）— 打通完整业务闭环
+
+### 目标：需求输入结构化 + QA Gate 升级 + Pipeline Retry
+
+**1. LLM Requirement Extraction（最大短板）**
+
+当前痛点：需求输入结构化能力不足。
+
+```
+Tender Document
+     ↓
+LLM Extractor（规则 + LLM hybrid）
+     ↓
+Structured Requirement
+```
+
+提取字段：`warehouse_area` · `sku_count` · `order_profile` · `labor` · `industry` · `constraints` · `automation_intent`
+
+- 规则：稳定、可控
+- LLM：理解复杂语义
+- 混合：取长补短
+
+**2. QA Gate 升级**
+
+从简单检查升级为三级判断：
+
+| 判断 | 行为 |
+|------|------|
+| `PASS` | Pipeline 继续 |
+| `CONDITIONAL_PASS` | 标记风险项，继续生成报告 |
+| `FAIL` | 返回修正，不生成报告 |
+
+QA 检查项：
+- [x] `missing required input` — 已有（缺失 P0 字段检测）
+- [ ] `ROI unrealistic` — 数值逻辑校验
+- [ ] `constraint conflict` — 约束冲突检测
+- [ ] `solution mismatch` — 方案与需求不匹配
+
+**3. Pipeline Retry**
+
+支持：
+- [x] FAIL → 修正 → 重跑（已完成）
+- [x] 阶段重跑（已完成：`extract` / `recommend` / `cost` / `report` / `qa`）
+- [ ] stage resume 持久化（已在 UI 实现，需后台支持）
+- [ ] retry limit 计数
+- [ ] retry history 日志
+
+### v0.6 子任务
+
+- [x] `pipeline_status == "COMPLETE"` 完成判断修复
+- [ ] 置信度进度条 UI
 - [ ] PDF 报告在线预览
+- [ ] 历史任务列表完整加载（load 到 session）
+- [ ] ROI unrealistic 检查规则
+- [ ] constraint conflict 检测
 
-## v0.5 — LLM Extractor
-- [x] MiniMax API 调用（环境变量 MINIMAX_API_KEY 或 OPENAI_API_KEY）
-- [x] OpenAI-compatible API 调用（gpt-4o-mini）
-- [x] 结构化 JSON 提取 Prompt（项目名称/行业/面积/SKU/订单量/预算等）
-- [x] LLM + 增强正则混合方案（use_llm 参数控制）
-- [x] 置信度评分 → extraction_confidence 字段返回
-- [x] 异常字段提示 + 手动补充界面（Pipeline Run 已有表单修正）
-- [ ] OpenClaw sessions_spawn 深度集成（长期规划）
+---
 
-## v0.6 — 知识库与案例学习
-- [ ] 历史投标项目案例库
-- [ ] 行业模板（电商/3PL/制造/医药/快递）
-- [ ] 客户画像标签体系
-- [ ] 中标结果反馈学习
+## Phase 2（v0.7）— 系统开始具备学习能力
+
+### 新增模块：Knowledge Base + Case Reuse Engine
+
+**Knowledge Base**
+
+存储：
+```
+knowledge/
+  scenarios.json    # 自动化场景库
+  equipment.json    # 设备参数库
+  case_library.json # 历史项目案例
+```
+
+未来升级：Vector Database（推荐 LanceDB 或 Qdrant）
+
+**Case Reuse Engine**
+
+- [ ] similar project detection（按行业/面积/SKU 匹配）
+- [ ] solution baseline reuse（新项目借鉴历史方案）
+- [ ] cost benchmark（行业参考成本对标）
+
+---
+
+## Phase 3（v0.8）— 真正的 Multi-Agent 系统
+
+当前 Agent 只是 YAML 定义。未来演进为可执行的 Agent 架构：
+
+**Agent 角色：**
+- CEO Agent（任务分发与协调）
+- Tender Extractor（招标文件解析）
+- Solution Architect（方案架构设计）
+- Tender Writer（标书撰写）
+- QA Agent（质量审核）
+
+**执行流程：**
+```
+CEO Agent
+     ↓
+Tender Extractor → Requirement Structure
+     ↓
+Solution Architect → Solution Design
+     ↓
+Tender Writer → Proposal Draft
+     ↓
+QA Agent → Quality Gate
+```
+
+**关键能力：**
+- [ ] task delegation（任务分发）
+- [ ] agent communication（Agent 间通信）
+- [ ] context sharing（上下文共享）
+- [ ] retry strategy（失败重试策略）
+
+---
+
+## Phase 4（v0.9）— 自动化解决方案设计
+
+**Solution Architect Agent**
+
+自动设计：
+- warehouse layout（仓库布局）
+- automation architecture（自动化架构）
+- equipment mix（设备组合）
+
+输出：`solution architecture` · `equipment list` · `capacity estimation`
+
+**Equipment Database**
+
+建立设备库，覆盖：
+
+| 设备 | CAPEX 范围 | 吞吐量 | 空间需求 |
+|------|-----------|--------|---------|
+| AMR | 50-200万 | — | — |
+| GTP | 200-800万 | — | — |
+| AS/RS | 500-2000万 | — | — |
+| Shuttle | — | — | — |
+| Conveyor | — | — | — |
+| Sorter | — | — | — |
+
+字段：`capex` · `throughput` · `space_requirement` · `energy` · `maintenance`
+
+推荐引擎会变得更真实。
+
+---
+
+## Phase 5（v1.0）— AI Proposal System
+
+系统可直接生成完整投标方案：
+
+**输出：**
+- [ ] PDF Proposal
+- [ ] PPT Proposal
+- [ ] 完整 solution design
+- [ ] financial model（财务模型）
+- [ ] timeline（实施时间线）
+- [ ] implementation plan（实施计划）
+- [ ] risk analysis（风险分析）
+
+---
+
+## AI 能力升级方向
+
+| 方向 | 说明 |
+|------|------|
+| **ROI Optimization AI** | AI 自动优化设备组合/人工分配/自动化程度，目标是 maximize ROI |
+| **Layout Generation AI** | 输入仓库尺寸 + 自动化方案，输出 layout diagram（未来支持 CAD） |
+| **Tender Strategy AI** | 辅助售前判断是否值得投标，输出 bid/no-bid recommendation |
+
+---
+
+## 商业价值
+
+当系统达到 v1.0 时：
+
+| 能力 | 价值 |
+|------|------|
+| 售前自动化 | 输入客户需求，输出完整解决方案 |
+| 售前效率 | 提升 5-10 倍 |
+| 投标自动生成 | 输入 RFP，输出 Proposal，减少大量手工工作 |
+| 知识沉淀 | 企业自动化方案知识库——非常重要的长期资产 |
 
 ---
 
@@ -50,5 +250,51 @@
 
 - [ ] 将 `project_service.py` 拆分为 `recommendation_service.py` + `cost_service.py`
 - [ ] RESTful 统一错误码规范
-- [ ] API 限流（/api/pipeline/* 防止滥用）
+- [ ] API 限流（`/api/pipeline/*` 防止滥用）
 - [ ] Streamlit session_state 持久化到 localStorage
+- [ ] Docker 多阶段构建优化
+- [ ] 单元测试覆盖率提升
+
+---
+
+## 已完成版本
+
+### v0.1 — MVP ✅
+- 自动化场景推荐引擎（15 种场景）
+- 成本测算 + ROI 计算
+- PDF 方案报告生成（Jinja2 + WeasyPrint）
+- FastAPI 后端 + Streamlit 前端
+- SQLite 数据库
+
+### v0.2 — 异步 Pipeline + UI 升级 ✅
+- 异步 Pipeline（后台线程，非阻塞，5 步实时状态）
+- SQLite 状态存储（刷新页面不丢失）
+- 三栏 Pipeline Run UI（左输入 / 中状态 / 右结果）
+- 中途参数修正（低置信度时支持 PATCH）
+- PDF 下载接口
+- 模板 None 防护
+
+### v0.3 — 任务持久化 ✅
+- [x] Pipeline 任务写入 SQLite
+- [x] 历史任务列表 API（`GET /api/pipeline/history`）
+- [x] 前端历史任务列表页面
+- [x] 单 Step 重试按钮
+- [x] stage retry 逻辑（含 `from_stage` 选择器）
+
+### v0.4 — 高级 UI ✅
+- [x] 权重滑块拖动实时刷新
+- [x] 雷达图多维对比可视化
+- [x] Tender 文件预览关键字段检测
+- [x] QA 修正面板（CONDITIONAL_PASS / FAIL）
+- [x] ROI 对比 + 阶段重试 UI
+- [ ] 置信度进度条
+- [ ] PDF 报告在线预览
+
+### v0.5 — LLM Extractor ✅
+- [x] MiniMax API 调用
+- [x] OpenAI-compatible API 调用（gpt-4o-mini）
+- [x] 结构化 JSON 提取 Prompt
+- [x] LLM + 增强正则混合方案（`use_llm` 参数控制）
+- [x] 置信度评分 → `extraction_confidence` 字段
+- [x] 异常字段提示 + 手动补充界面
+- [x] SQLAlchemy 2.x + Pydantic 2.x 弃用警告消除
