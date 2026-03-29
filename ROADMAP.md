@@ -310,3 +310,55 @@ QA Agent → Quality Gate
 - [x] PDF 在线预览（base64 iframe + 下载按钮）
 - [x] 历史任务完整加载（全部 session 字段）
 - [x] `get_pipeline_run` 修复：`qa_issues` 顶层返回
+
+### v0.6.x — Clarification & Quality Gate
+
+#### v0.6.1 — Clarification UX ✅
+- [x] Clarification Workspace tab in dashboard
+- [x] Per-field task cards with guidance text
+- [x] Submit and recompute pipeline
+- [x] QA verdict card
+
+#### v0.6.2 — Quality Gate Stability ✅
+- [x] Fix schema/CostModel field priority sync (contract_years, service_scope)
+- [x] Fix resolved field → downstream status mapping
+- [x] Fix downstream_input not returned in API response
+- [x] Schema field fixes: contract_years P0, service_scope P0
+- [x] 保时捷PDC真实项目闭环验证
+
+#### v0.6.3 — Downstream Explainability Patch ✅
+- [x] Blocking Reasons Panel (mode=blocked)
+- [x] Assumptions Used Panel (mode=range_estimate)
+- [x] Resolved Inputs Summary (provided/assumed/missing/unusable 4格)
+- [x] Expand to show provided fields with source section
+
+#### v0.6.4 — Service Scope Structuring ✅
+- [x] SERVICE_MATRIX constant (5 categories, 22 service items)
+- [x] service_scope type: string → dict matrix
+- [x] Frontend: checkbox matrix UI for service scope
+- [x] downstream_input: _derived_labor flags from matrix
+- [x] Backward compat: legacy flat format also supported
+
+#### v0.6.5 — Operation Model Derivation ✅
+- [x] OperationProfile + LaborModules pydantic schemas
+- [x] operation_profile_service: 5 derivation functions
+- [x] calculate_service_complexity() — score 0-20, low/medium/high
+- [x] derive_labor_modules() — 7 team modules from service_scope
+- [x] derive_operation_type() — warehouse/cold_chain/bonded/distribution
+- [x] generate_operation_narrative() — Chinese business description
+- [x] Frontend: ⚙️ Operation Model panel (type/complexity/labor/capabilities)
+- [x] Integrated into recompute_service (Step 8b), written to DB
+- [x] RecomputeResponse: operation_profile + labor_modules + narrative fields
+- [x] 21/21 tests pass
+
+---
+
+## v0.7 — Solution Studio（规划中）
+- [ ] Base Solution Generator
+- [ ] Automation Solution Generator
+- [ ] Optimization Solution Generator
+- [ ] Solution comparison matrix
+
+## v0.8 — Tender Writer（规划中）
+- [ ] Automated proposal PDF generation
+- [ ] Multi-scenario tender document output
