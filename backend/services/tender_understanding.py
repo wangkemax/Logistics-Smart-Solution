@@ -1007,112 +1007,219 @@ def compute_readiness(profile) -> dict:
     }
 
 
-def generate_clarification_questions(profile, structured=None):
+def generate_clarification_questions(profile, structured=None, question_id_start: int = 1) -> list[dict]:
     """
-    Generate clarification questions for missing / ambiguous / partial fields.
+    Generate structured clarification questions from missing / ambiguous / partial fields.
 
-    Each question links to:
-    - field_key (canonical)
-    - display_name (from FIELD_REGISTRY)
-    - priority (P0/P1)
-    - field_object (the actual field trace)
+    Each question is a self-contained, executable object:
+    - id: sortable question ID (Q-001, Q-002, ...)
+    - field_key / display_name: which field this question targets
+    - severity: P0 (blocking) | P1 (important)
+    - question: the question text in Chinese
+    - why_it_matters: why this field matters to the project
+    - impact: downstream modules affected (from FIELD_REGISTRY)
+    - suggested_answer_format: what format the answer should take
+    - example_answer: a concrete example answer
+    - rejected_answer_patterns: answers that are not acceptable
+    - source_field_object: the full field trace (for audit/UI)
+    - source_section: which tender section this came from
+    - tracking: status / answered_value / answered_at / notes
+      (status: pending | answered | partially_answered | rejected | deferred)
     """
     qs = []
-    traces = profile.get("_field_traces", profile)  # fall back to profile itself
+    q_counter = question_id_start
+    traces = profile.get("_field_traces", profile)
 
-    def add_q(field_key, question, severity, reason, fmt, field_obj=None):
+    def next_id():
+        nonlocal q_counter
+        cid = f"Q-{q_counter:03d}"
+        q_counter += 1
+        return cid
+
+    def add_q(field_key, question, severity, why, fmt, example,
+              rejected=None, field_obj=None, source_section="", snippet=""):
         fdef = FIELD_REGISTRY.get(field_key) if field_key else None
         qs.append({
+            "id": next_id(),
             "field_key": field_key,
-            "display_name": fdef.display_name if fdef else field_key,
-            "question": question,
+            "display_name": fdef.display_name if fdef else (field_key or "通用"),
             "severity": severity,
-            "reason": reason,
-            "suggested_answer_format": fmt,
-            "priority": severity,
+            "question": question,
+            "why_it_matters": why,
             "impact": fdef.impact if fdef else [],
-            "field_object": field_obj,  # full trace for UI drill-down
+            "suggested_answer_format": fmt,
+            "example_answer": example,
+            "rejected_answer_patterns": rejected or ["暂时无法提供", "待定", "视情况而定", "TBD"],
+            "source_field_object": field_obj,
+            "source_section": source_section,
+            "source_text_snippet": snippet[:200] if snippet else "",
+            # Tracking (fillable by external system)
+            "status": "pending",
+            "answered_value": None,
+            "answered_at": None,
+            "answered_by": None,
+            "notes": "",
         })
 
     m0 = profile.get("missing_p0", [])
     m1 = profile.get("missing_p1", [])
 
-    # Map missing item labels → field keys using registry
+    # ---- P0: missing fields ----
     for label in m0:
         fkey = resolve_missing_label(label)
         fdef = FIELD_REGISTRY.get(fkey) if fkey else None
-        if fkey == "dc_count":
-            add_q(fkey, "请确认本项目实际覆盖的仓库DC数量及各仓库所在城市或地区。",
-                  "P0", "下游成本测算和ROI模型需要准确的仓网规模",
-                  "例：共5个DC，分别位于上海、广州、武汉、成都、北京，总面积约8万平方米")
-        elif fkey == "daily_orders":
-            add_q(fkey, "请确认日出库量或日均订单量的统计口径：是否按自然日？峰值和均值分别是多少？",
-                  "P0", "自动化方案选型和人力测算依赖订单量数据",
-                  "例：日均出库约8000件，旺季峰值约20000件，按自然日统计")
-        elif fkey == "sku_count":
-            add_q(fkey, "请确认SKU总数及ABC分类占比（快速流转/中速/慢速）。",
-                  "P0", "自动化设备选型依赖SKU周转特性",
-                  "例：总计约30000个SKU，A类占80%出货量")
-        elif not fkey:
-            # Unresolved label — add generic question
-            add_q(None, f"招标文件缺少「{label}」信息，请补充。",
-                  "P0", "下游方案设计依赖此数据",
-                  "请提供具体数值或说明")
 
+        if fkey == "dc_count":
+            add_q(fkey,
+                  "请确认本项目实际覆盖的仓库DC数量及各仓库所在城市或地区。",
+                  "P0",
+                  "下游成本测算和ROI模型需要准确的仓网规模，是所有方案设计的基础。",
+                  "数字 + 城市列表 + 面积估算",
+                  "共5个DC，分别位于上海、广州、武汉、成都、北京，总面积约8万平方米",
+                  field_obj=traces.get(fkey),
+                  source_section="s3_warehouse_dc_list",
+                  snippet=str(traces.get(fkey, {}).get("source_basis", "")))
+        elif fkey == "daily_orders":
+            add_q(fkey,
+                  "请确认日出库量或日均订单量的统计口径：是否按自然日？峰值和均值分别是多少？",
+                  "P0",
+                  "自动化方案选型和人力测算依赖订单量数据，口径不同导致方案差异巨大。",
+                  "数值 + 单位（件/单） + 口径说明（自然日/工作日）+ 峰值倍数",
+                  "日均出库约8000件，旺季峰值约20000件，按自然日统计",
+                  field_obj=traces.get(fkey),
+                  source_section="s7_kpi_sla",
+                  snippet=str(traces.get(fkey, {}).get("source_basis", "")))
+        elif fkey == "sku_count":
+            add_q(fkey,
+                  "请确认SKU总数及ABC分类占比（快速流转/中速/慢速）。",
+                  "P0",
+                  "自动化设备选型依赖SKU周转特性，A类高频品需要不同设备配置。",
+                  "总数 + ABC占比（如A类80%/B类15%/C类5%）",
+                  "总计约30000个SKU，A类占80%出货量，B类15%，C类5%",
+                  field_obj=traces.get(fkey),
+                  source_section="s1_project_overview",
+                  snippet=str(traces.get(fkey, {}).get("source_basis", "")))
+        elif fkey == "warehouse_area":
+            add_q(fkey,
+                  "请确认投标仓库的总建筑面积（含卸货区、公摊）是多少？各仓库分别多大？",
+                  "P0",
+                  "仓库面积直接决定投资规模、设备数量和人员配置，是成本测算的第一输入。",
+                  "总面积（平米）+ 各仓库分别面积",
+                  "总建筑面积约8万平方米，上海仓3万、广州2万、武汉1.5万、成都1万、北京0.5万",
+                  field_obj=traces.get(fkey),
+                  source_section="s3_warehouse_dc_list",
+                  snippet=str(traces.get(fkey, {}).get("source_basis", "")))
+        elif not fkey:
+            add_q(None,
+                  f"招标文件缺少「{label}」信息，请补充具体数据。",
+                  "P0",
+                  "下游方案设计依赖此数据，缺失会导致无法完成成本测算。",
+                  "具体数值或明细清单",
+                  "请提供具体数字或说明来源依据")
+
+    # ---- P1: missing fields ----
     for label in m1:
         fkey = resolve_missing_label(label)
-        if fkey == "kpi_targets":
-            add_q(fkey, "请提供完整的KPI指标清单（含目标值、考核维度、数据来源及惩罚机制）。",
-                  "P1", "方案设计必须匹配客户KPI要求，惩罚机制影响风险测算",
-                  "例：库存准确率不低于99.9%，每降低0.1%罚款X元")
-        elif fkey == "penalty_rules":
-            add_q(fkey, "请提供完整的强制条款清单（含否决项），以便在方案设计阶段提前规避。",
-                  "P1", "某些自动化方案可能在强制条款下不可行，需尽早识别",
-                  "例：仓库必须为丙二类以上消防资质，叉车必须为电动")
-        elif fkey == "service_scope":
-            add_q(fkey, "请确认报价结构：是按仓储面积报价，还是按订单量或件报价，或是混合报价？",
-                  "P1", "成本模型和方案推荐依赖报价结构假设",
-                  "例：仓租加力资分开报，仓租元每平米每月，力资元每件")
+        fdef = FIELD_REGISTRY.get(fkey) if fkey else None
 
-    # Iterate through field traces for ambiguous / partial fields
+        if fkey == "kpi_targets":
+            add_q(fkey,
+                  "请提供完整的KPI指标清单（含目标值、考核维度、数据来源及惩罚机制）。",
+                  "P1",
+                  "方案设计必须严格匹配客户KPI要求，惩罚机制直接影响风险测算和报价策略。",
+                  "指标名 + 目标值 + 考核维度 + 数据来源 + 惩罚规则",
+                  "库存准确率≥99.9%，每降低0.1%罚款5000元；日出库量≥10000件，低于90%罚款",
+                  field_obj=traces.get(fkey),
+                  source_section="s7_kpi_sla",
+                  snippet=str(traces.get(fkey, {}).get("source_basis", "")))
+        elif fkey == "penalty_rules":
+            add_q(fkey,
+                  "请提供完整的强制条款清单（含否决项），以便在方案设计阶段提前规避不可行方案。",
+                  "P1",
+                  "某些自动化方案可能在强制条款下不可行（如消防资质、叉车类型要求），需尽早识别。",
+                  "条款内容 + 类型（否决项/惩罚项/义务项）",
+                  "仓库必须为丙二类以上消防资质；叉车必须为电动（不允许柴油）；员工必须购买五险",
+                  field_obj=traces.get(fkey),
+                  source_section="s10_mandatory_clauses",
+                  snippet=str(traces.get(fkey, {}).get("source_basis", "")))
+        elif fkey == "service_scope":
+            add_q(fkey,
+                  "请确认报价结构：是按仓储面积报价，还是按订单量/件报价，或是混合报价？",
+                  "P1",
+                  "成本模型和方案推荐依赖报价结构假设，结构不同最优方案完全不同。",
+                  "报价结构说明 + 各部分单价区间",
+                  "仓租按面积报（元/平米/月）；力资按件报（元/件）；安保费按月固定报",
+                  field_obj=traces.get(fkey),
+                  source_section="s2_service_scope",
+                  snippet=str(traces.get(fkey, {}).get("source_basis", "")))
+        elif fkey == "inventory":
+            add_q(fkey,
+                  "请确认平均库存量和库存峰值分别是多少？是否涉及VMI仓？",
+                  "P1",
+                  "库容规划和货架选型依赖库存数据，VMI仓需要单独的方案设计。",
+                  "平均库存量 + 峰值 + 是否含VMI + VMI占比",
+                  "平均库存约50万件，峰值约80万件，含VMI 10万件",
+                  field_obj=traces.get(fkey),
+                  source_section="s4_business_process",
+                  snippet=str(traces.get(fkey, {}).get("source_basis", "")))
+
+    # ---- Ambiguous / Partial fields from traces ----
     for fname, entry in traces.items():
         if not isinstance(entry, dict) or fname.startswith("_"): continue
         status = entry.get("status", "")
         basis = entry.get("source_basis", "")
         fdef = FIELD_REGISTRY.get(fname)
+        section = entry.get("section", "")
+
         if status == "ambiguous":
             add_q(fname,
                   f"招标文件在「{fdef.display_name if fdef else fname}」上存在歧义或冲突：{basis}。请甲方明确实际要求。",
-                  "P0", "歧义不澄清会导致方案设计方向错误",
-                  "请给出唯一明确的要求", field_obj=entry)
+                  "P0",
+                  "歧义不澄清会导致方案设计方向错误，可能造成报价严重偏离。",
+                  "唯一明确的要求数值或条款内容",
+                  "请给出唯一明确的要求，并说明原文中哪句话引起了歧义",
+                  field_obj=entry,
+                  source_section=section,
+                  snippet=basis)
         elif status == "partial":
             add_q(fname,
                   f"招标文件在「{fdef.display_name if fdef else fname}」上只提供了部分信息：{basis}。请补充完整数据。",
-                  "P1", "部分数据不足以支撑准确的自动化方案设计",
-                  "请提供完整明细数据（不仅是汇总数）", field_obj=entry)
+                  "P1",
+                  "部分数据不足以支撑准确的自动化方案设计，可能导致设备选型和人力配置偏差。",
+                  "完整明细数据（不仅是汇总数）",
+                  f"请提供{fdef.display_name if fdef else fname}的完整明细，补充缺失的{len(basis)}项数据",
+                  field_obj=entry,
+                  source_section=section,
+                  snippet=basis)
 
+    # ---- Peak factor (common missing P1) ----
     peak = traces.get("peak_factor", {})
     if isinstance(peak, dict) and peak.get("status") in ("missing", "partial"):
         add_q("peak_factor",
               "请确认旺季（如CNY/618/双11等）订单峰值是平时的多少倍？持续多长时间？",
-              "P1", "旺季扩产方案和临时仓需求依赖高峰系数",
-              "例：CNY期间约3到4倍，持续约30天", field_obj=peak)
+              "P1",
+              "旺季扩产方案和临时仓需求依赖高峰系数，峰值期间人手不足会直接影响KPI。",
+              "高峰倍数 + 旺季名称 + 持续天数",
+              "CNY期间约3倍（持续30天），618约2.5倍（持续15天），双11约4倍（持续20天）",
+              field_obj=peak,
+              source_section="s6_operations",
+              snippet=str(peak.get("source_basis", "")))
 
+    # ---- Service scope (expanded) ----
     svc = traces.get("service_scope", {})
     if isinstance(svc, dict) and svc.get("status") == "missing":
         add_q("service_scope",
               "请确认是否需要承接以下增值服务：VMI管理、退货处理、贴标组套、越库配送或温控存储？",
-              "P1", "增值服务直接影响方案设计和人力配置",
-              "例：需要退货处理和贴标服务，VMI不需要", field_obj=svc)
+              "P1",
+              "增值服务直接影响方案设计和人力配置，漏报会导致报价低于实际成本。",
+              "所需增值服务列表 + 预计单量",
+              "需要退货处理（约占5%）和贴标服务（约占10%），VMI和温控暂不需要",
+              field_obj=svc,
+              source_section="s2_service_scope",
+              snippet=str(svc.get("source_basis", "")))
 
-    inv = traces.get("inventory", {})
-    if isinstance(inv, dict) and inv.get("status") in ("missing", "partial"):
-        add_q("inventory",
-              "请确认平均库存量和库存峰值分别是多少？是否涉及VMI仓？",
-              "P1", "库容规划和货架选型依赖库存数据",
-              "例：平均库存约50万件，峰值约80万件，含VMI 10万件", field_obj=inv)
-
-    qs.sort(key=lambda q: {"P0": 0, "P1": 1, "P2": 2}.get(q["severity"], 9))
+    # Sort: P0 first, then P1, then by question ID
+    qs.sort(key=lambda q: ({"P0": 0, "P1": 1, "P2": 2}.get(q["severity"], 9), q["id"]))
     return qs
 
 def analyze_and_extract(tender_text):
