@@ -18,6 +18,17 @@ import os
 import re
 from typing import Optional
 
+
+# ---- Field value accessor (same as cost_service) ----
+
+def _fv(profile: dict, key: str, default=None):
+    """Safely extract field value from profile supporting both raw values and field objects."""
+    val = profile.get(key, default)
+    if isinstance(val, dict) and "value" in val:
+        return val["value"]
+    return val if val is not None else default
+
+
 # =============================================================================
 # QAIssue
 # =============================================================================
@@ -441,25 +452,29 @@ def _run_constraint_rules(profile: dict, recommendations: list) -> list[QAIssue]
     # Build constraint keywords from profile
     constraint_keys: set[str] = set()
     # Detect from text fields
-    industry = profile.get("industry", "")
+    industry = _fv(profile, "industry", "")
     if industry in ("医药", "医疗"):
         constraint_keys.add("pharmaceutical")
     if industry in ("食品", "生鲜", "冷链"):
         constraint_keys.add("cold_chain")
-    if profile.get("dg_handling"):
+    if _fv(profile, "dg_handling"):
         constraint_keys.add("dg_handling")
-    if profile.get("net_height") and _safe_float(profile["net_height"], 99) < 9:
+    net_height = _fv(profile, "net_height")
+    if net_height is not None and _safe_float(net_height, 99) < 9:
         constraint_keys.add("low_net_height")
-    if profile.get("warehouse_area") and _safe_float(profile["warehouse_area"], 99999) < 3000:
+    warehouse_area = _fv(profile, "warehouse_area")
+    if warehouse_area is not None and _safe_float(warehouse_area, 99999) < 3000:
         constraint_keys.add("small_warehouse")
-    if profile.get("daily_orders") and _safe_float(profile["daily_orders"], 0) > 5000:
+    daily_orders = _fv(profile, "daily_orders")
+    if daily_orders is not None and _safe_float(daily_orders, 0) > 5000:
         constraint_keys.add("high_throughput")
-    budget = profile.get("budget_level", "")
+    budget = _fv(profile, "budget_level", "")
     if budget == "低":
         constraint_keys.add("low_capex")
-    if profile.get("strict_fifo"):
+    if _fv(profile, "strict_fifo"):
         constraint_keys.add("strict_fifo")
-    if profile.get("temperature_range") and "," in str(profile.get("temperature_range", "")):
+    temp_range = _fv(profile, "temperature_range")
+    if temp_range and "," in str(temp_range):
         constraint_keys.add("multi_temp")
 
     for rec in recommendations:
@@ -535,7 +550,7 @@ def _text_based_p0_rules(profile: dict, tender_text: str) -> list[QAIssue]:
     """Rules that detect P0 issues from raw tender text."""
     issues = []
 
-    if not profile.get("insurance_budget"):
+    if not _fv(profile, "insurance_budget"):
         if _has_pattern(tender_text, ["保险", "保费", "投保", "承保", "货运险", "财产险"]):
             issues.append(QAIssue(
                 severity="P0", field="insurance_budget", rule="insurance_budget_missing",
@@ -544,7 +559,7 @@ def _text_based_p0_rules(profile: dict, tender_text: str) -> list[QAIssue]:
                 blocking=True,
             ))
 
-    if not profile.get("dg_handling"):
+    if not _fv(profile, "dg_handling"):
         if _has_pattern(tender_text, [
             "危险品", "DG", "hazardous", "易燃", "易爆", "有毒", "腐蚀",
             "放射性", "化工品", "危化品", "CLASS", "UN number",

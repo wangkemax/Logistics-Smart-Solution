@@ -363,7 +363,7 @@ def _ensure_standard_keys(profile: dict):
 def extract_requirements(
     text: str,
     mode: str = "hybrid",
-    project_context: dict | None = None,
+    project_context: Optional[dict] = None,
     fallback_to_rule: bool = True,
 ) -> dict:
     """

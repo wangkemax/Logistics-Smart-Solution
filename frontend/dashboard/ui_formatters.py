@@ -3,40 +3,54 @@ UI Formatters — safe formatting utilities for Streamlit dashboard
 ================================================================
 All dashboard display values go through these formatters to prevent
 NoneType / TypeError crashes when backend returns null/missing fields.
+
+Also handles field objects from tender_understanding v0.2:
+  - profile[key] = {"value": 80000, "status": "explicit", ...}  → extracts 80000
+  - profile[key] = 80000                                    → returns 80000 as-is
 """
 
 from typing import Any, Optional
 
 
+def _unpack(val: Any) -> Any:
+    """Extract .value from field objects; return val as-is otherwise."""
+    if isinstance(val, dict) and "value" in val:
+        return val["value"]
+    return val
+
+
 def safe_float(value: Any, default: Optional[float] = None) -> Optional[float]:
     """Safe conversion to float. None / '' / non-numeric → default."""
-    if value is None:
+    val = _unpack(value)
+    if val is None:
         return default
-    if value == "":
+    if val == "":
         return default
     try:
-        return float(value)
+        return float(val)
     except (TypeError, ValueError):
         return default
 
 
 def safe_int(value: Any, default: Optional[int] = None) -> Optional[int]:
     """Safe conversion to int."""
-    if value is None:
+    val = _unpack(value)
+    if val is None:
         return default
-    if value == "":
+    if val == "":
         return default
     try:
-        return int(float(value))
+        return int(float(val))
     except (TypeError, ValueError):
         return default
 
 
 def fmt_text(value: Any, default: str = "—") -> str:
     """Generic text with fallback."""
-    if value is None:
+    val = _unpack(value)
+    if val is None:
         return default
-    text = str(value).strip()
+    text = str(val).strip()
     return text if text else default
 
 

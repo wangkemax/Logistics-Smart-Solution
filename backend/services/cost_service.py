@@ -24,6 +24,23 @@ from backend.engines.cost_engine import (
 from backend.engines.automation_engine import normalize_profile
 
 
+# ---- Field value accessor ----
+
+def _fv(profile: dict, key: str, default=None):
+    """
+    Safely extract a field value from a profile that may use field objects.
+
+    Handles both legacy raw values and new field object format:
+      - profile[key] = 8000           → returns 8000
+      - profile[key] = {value: 8000, ...}  → returns 8000
+      - profile[key] = None            → returns default
+    """
+    val = profile.get(key, default)
+    if isinstance(val, dict) and "value" in val:
+        return val["value"]
+    return val if val is not None else default
+
+
 # ---- Cost parameter normalization ----
 
 def normalize_cost_parameters(cost_params: dict) -> dict:
@@ -152,14 +169,14 @@ def calculate_solution_financials(
     capex_estimate = (capex_min + capex_max) / 2 if capex_max > capex_min else capex_min
 
     # Labor savings
-    labor_cost_multiplier = {"低": 0.8, "中": 1.0, "高": 1.2}.get(profile.get("labor_cost_level", "中"), 1.0)
+    labor_cost_multiplier = {"低": 0.8, "中": 1.0, "高": 1.2}.get(_fv(profile, "labor_cost_level", "中"), 1.0)
     labor_cost_per_person = cost_params["labor_cost_per_person_year"] * labor_cost_multiplier
     base_headcount = _estimate_headcount(profile)
     headcount_saved = base_headcount * labor_saving_ratio
     annual_labor_saving = headcount_saved * labor_cost_per_person
 
     # Efficiency gain value (estimate as labor-hours equivalent)
-    daily_orders = profile.get("daily_orders", 0)
+    daily_orders = _fv(profile, "daily_orders", 0)
     efficiency_saving_hours = daily_orders * efficiency_gain_ratio * 0.01  # rough estimate
     annual_efficiency_saving = efficiency_saving_hours * cost_params["labor_cost_per_person_year"]
 
@@ -227,7 +244,7 @@ def _estimate_headcount(profile: dict) -> int:
     manual baseline = 150 orders/person/day
     Minimum 1 to avoid div-by-zero in downstream calculations.
     """
-    daily_orders = profile.get("daily_orders") or 0
+    daily_orders = _fv(profile, "daily_orders") or 0
     base_hc = max(1, int(daily_orders / 150))
     return max(1, base_hc)
 
