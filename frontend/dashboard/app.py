@@ -37,9 +37,10 @@ _sys.excepthook = _debug_excepthook
 def _render_clarification_task_editor(pipeline_id: str, tasks: list, api: str, key_prefix: str = ""):
     """Render a list of clarification tasks with input forms."""
     if not tasks:
+        st.info("暂无任务")
         return
 
-    for i, task in enumerate(tasks[:10]):  # Max 10 shown per tab
+    for i, task in enumerate(tasks[:10]):
         fkey = task.get("field_key", "")
         display_name = task.get("display_name", fkey)
         task_id = task.get("question_id", f"Q-{i}")
@@ -54,51 +55,35 @@ def _render_clarification_task_editor(pipeline_id: str, tasks: list, api: str, k
         example = task.get("example_answer", "")
 
         resolved = status == "resolved"
-
-        if resolved:
-            container = st.container()
-        else:
-            container = st.container()
-
+        container = st.container()
         with container:
             pri_color = "🔴" if priority == "P0" else "🟡"
             status_icon = "✅" if resolved else "⏳"
             with st.expander(f"{pri_color} {status_icon} [{task_id}] **{display_name}**", expanded=(not resolved)):
                 st.markdown(f"**问题:** {task.get('question_text', '请补充该字段')}")
                 if blocking:
-                    st.caption(f"**影响:** {blocking}")
+                    st.warning(f"⚠️ {blocking}")
                 if guidance:
-                    st.caption(f"**说明:** {guidance}")
+                    st.caption(f"💡 {guidance}")
                 if example:
-                    st.caption(f"**示例:** {example}")
-
+                    st.caption(f"📝 示例: {example}")
                 if current_val:
-                    st.info(f"当前值: **{current_val}**")
+                    st.success(f"当前值: **{current_val}**")
 
                 if not resolved:
-                    # Input fields
                     inp_key = f"cw_{key_prefix}{fkey}"
                     if input_type == "number_with_unit":
                         val_col, unit_col = st.columns([2, 1])
                         with val_col:
-                            num_val = st.number_input(
-                                "数值",
-                                min_value=0.0,
-                                format="%f",
-                                key=f"{inp_key}_val",
-                            )
+                            num_val = st.number_input("数值", min_value=0.0, format="%f", key=f"{inp_key}_val")
                         with unit_col:
                             unit_opts = acceptable_units if acceptable_units else ["orders/day", "月订单量", "年订单量"]
                             selected_unit = st.selectbox("单位", options=unit_opts, key=f"{inp_key}_unit")
                         comment = st.text_input("备注（可选）", key=f"{inp_key}_comment", placeholder="来源说明...")
-
-                        # Store in session state
                         if f"cw_input_{fkey}" not in st.session_state:
                             st.session_state[f"cw_input_{fkey}"] = {}
                         st.session_state[f"cw_input_{fkey}"].update({
-                            "value": num_val,
-                            "unit": selected_unit,
-                            "comment": comment,
+                            "value": num_val, "unit": selected_unit, "comment": comment,
                         })
 
                     elif input_type == "choice":
@@ -109,13 +94,11 @@ def _render_clarification_task_editor(pipeline_id: str, tasks: list, api: str, k
                         st.session_state[f"cw_input_{fkey}"].update({"value": chosen})
 
                     elif input_type == "service_scope_matrix":
-                        # v0.6.4: Render structured service scope checkbox matrix
                         matrix = task.get("service_matrix", {})
                         if not matrix:
                             st.warning("服务矩阵配置缺失，请联系管理员")
                         else:
                             selected_services = {}
-
                             st.markdown("**请勾选本项目包含的服务项：**")
                             category_descs = {
                                 "inbound": "货物从供应商到达仓库到完成上架的全过程",
@@ -124,45 +107,39 @@ def _render_clarification_task_editor(pipeline_id: str, tasks: list, api: str, k
                                 "value_added": "核心仓储配送以外的增值作业",
                                 "support": "运营管理、数据与系统支持",
                             }
-
+                            emoji_map = {"inbound": "📥", "storage": "📦", "outbound": "📤", "value_added": "🔧", "support": "⚙️"}
                             for cat_key, cat_info in matrix.items():
                                 cat_label = cat_info.get("label", cat_key)
                                 cat_desc = category_descs.get(cat_key, "")
                                 services = cat_info.get("services", {})
-
-                                with st.expander(f"**{'📥' if cat_key=='inbound' else '📦' if cat_key=='storage' else '📤' if cat_key=='outbound' else '🔧' if cat_key=='value_added' else '⚙️'} {cat_label}**", expanded=True):
+                                emoji = emoji_map.get(cat_key, "📌")
+                                with st.expander(f"**{emoji} {cat_label}**", expanded=True):
                                     if cat_desc:
                                         st.caption(cat_desc)
                                     for svc_key, svc_info in services.items():
                                         svc_label = svc_info.get("label", svc_key)
-                                        checkbox_key = f"{inp_key}_{cat_key}_{svc_key}"
-                                        checked = st.checkbox(svc_label, value=False, key=checkbox_key)
+                                        checked = st.checkbox(svc_label, value=False, key=f"{inp_key}_{cat_key}_{svc_key}")
                                         selected_services[f"{cat_key}.{svc_key}"] = checked
-
-                            # Store in session state as {category: {service: bool}}
                             structured_value = {}
                             for full_key, checked in selected_services.items():
                                 cat, svc = full_key.rsplit(".", 1)
-                                if cat not in structured_value:
-                                    structured_value[cat] = {}
-                                structured_value[cat][svc] = checked
-
+                                structured_value.setdefault(cat, {})[svc] = checked
                             if f"cw_input_{fkey}" not in st.session_state:
                                 st.session_state[f"cw_input_{fkey}"] = {}
                             st.session_state[f"cw_input_{fkey}"].update({"value": structured_value})
-
-                            # Show summary
-                            total_selected = sum(sum(v.values()) for v in structured_value.values())
-                            if total_selected > 0:
-                                st.success(f"已选择 {total_selected} 项服务")
+                            total = sum(sum(v.values()) for v in structured_value.values())
+                            if total > 0:
+                                st.success(f"已选择 {total} 项服务")
                             else:
                                 st.warning("尚未选择任何服务")
 
-                    else:  # text or default
-                        text_val = st.text_input("输入值", key=f"{inp_key}_text", placeholder="请输入...")
+                    else:
+                        # text or unknown type: show text input + mark as resolved button
+                        text_val = st.text_input("补充内容", key=f"{inp_key}_text", placeholder="请输入...", value=str(current_val) if current_val else "")
                         if f"cw_input_{fkey}" not in st.session_state:
                             st.session_state[f"cw_input_{fkey}"] = {}
                         st.session_state[f"cw_input_{fkey}"].update({"value": text_val})
+                        st.caption("💡 填写完毕后，点击上方「🔄 提交并重新计算」按钮，系统将更新就绪状态")
                 else:
                     st.success("✅ 已解决")
 
@@ -2031,14 +2008,22 @@ elif app_mode == "🚀 Pipeline Run":
                 if hist_resp.status_code == 200:
                     hist_data = hist_resp.json().get("runs", [])
                     if hist_data:
-                        for run in hist_data[:10]:
+                        # Sort newest first
+                        hist_data = sorted(hist_data, key=lambda x: x.get("created_at", ""), reverse=True)
+                        for run in hist_data[:15]:
                             pid = run.get("pipeline_id", "")
                             status = run.get("status", "")
                             verdict = run.get("qa_verdict", "") or ""
                             dur = run.get("total_duration_seconds")
                             created = run.get("created_at", "")
-                            if created:
-                                created = created[11:16]  # HH:MM
+                            if created and len(created) >= 19:
+                                try:
+                                    from datetime import timezone, timedelta
+                                    utc_dt = datetime.fromisoformat(created[:19].replace("Z", "+00:00"))
+                                    cst = utc_dt + timedelta(hours=8)
+                                    created = cst.strftime("%m-%d %H:%M")  # UTC+8
+                                except Exception:
+                                    created = created[5:16]
                             dur_str = f"{dur:.1f}s" if dur else "—"
                             icon = "✅" if status == "COMPLETE" else "❌" if status == "FAILED" else "⏳"
                             cols_h = st.columns([3, 1, 1])
@@ -2380,6 +2365,7 @@ elif app_mode == "💬 Clarification Workspace":
 
     with col_left:
         st.markdown("### 📋 项目选择")
+        st.caption("💡 时间显示北京时间(UTC+8)，最新任务在顶部 | 推荐测试 Base Solution：`13223d2c`")
 
         # Load list of completed pipelines
         try:
@@ -2388,11 +2374,29 @@ elif app_mode == "💬 Clarification Workspace":
                 hist_data = hist_resp.json().get("runs", [])
                 completed = [r for r in hist_data if r.get("status") == "COMPLETE"]
                 if completed:
-                    options = {r.get("pipeline_id", ""): r for r in completed}
+                    # Sort newest first and show CST time (UTC+8)
+                    completed_sorted = sorted(completed, key=lambda x: x.get("created_at", ""), reverse=True)
+                    options = {r.get("pipeline_id", ""): r for r in completed_sorted}
+                    def fmt_item(x):
+                        r = options[x]
+                        t = r.get("created_at", "")
+                        # Convert UTC → CST (UTC+8)
+                        if t and len(t) >= 19:
+                            try:
+                                from datetime import timedelta
+                                utc_dt = datetime.fromisoformat(t[:19].replace("Z", "+00:00"))
+                                cst = utc_dt + timedelta(hours=8)
+                                time_str = cst.strftime("%m-%d %H:%M")  # CST
+                            except Exception:
+                                time_str = t[5:16]  # fallback UTC
+                        else:
+                            time_str = t[5:16] if t else ""
+                        verdict = r.get("qa_verdict", "") or r.get("status", "")
+                        return f"{time_str} | {x[:8]}… | {verdict}"
                     selected_pid = st.selectbox(
-                        "选择已完成的任务",
+                        "选择已完成的任务（最新优先）",
                         options=list(options.keys()),
-                        format_func=lambda x: f"{x} — {options[x].get('created_at', '')[:16]}",
+                        format_func=fmt_item,
                         index=0,
                     )
                     if selected_pid:
