@@ -114,6 +114,12 @@ def pipeline_task(tender_document: str, project_profile_overrides: dict = None, 
     qa_verdict = "CONDITIONAL_PASS"
     pdf_path = None
     pdf_url = None
+    # Stage 1 outputs — initialized here so they are always available in complete_pipeline
+    analysis_report = ""
+    structured = {}
+    clarification_questions = []
+    quality_score = {}
+    field_traces = {}  # normalized fields with status/source_basis/priority/impact
 
     # ---- Stage 1: Extraction ----
     stage_start = datetime.now()
@@ -200,18 +206,50 @@ def pipeline_task(tender_document: str, project_profile_overrides: dict = None, 
                       })
 
         # ---- Pipeline Gate: check if ready for downstream stages ----
+        # Max's suggestion #3: richer gate logic with specific blocking rules
+        #   • P0 missing → BLOCK cost_model + network estimation
+        #   • KPI/SLA missing → WARN solution_design (保守表述)
+        #   • dc_count / warehouse_area missing → BLOCK network cost estimation
         readiness = (quality_score or {}).get("readiness", {}) or {}
         gate_cost_ok = readiness.get("cost_model_ready", False)
         gate_solution_ok = readiness.get("solution_design_ready", False)
         gate_contract_ok = readiness.get("contract_review_ready", False)
+
+        # Deep-dive gate: check specific P0 fields for network cost estimation
+        p0_blocking_network = []
+        if isinstance(profile, dict):
+            dc_count_entry = profile.get("dc_count", {})
+            warehouse_area_entry = profile.get("warehouse_area", {})
+            daily_orders_entry = profile.get("daily_orders", {})
+            dc_status = dc_count_entry.get("status", "missing") if isinstance(dc_count_entry, dict) else "missing"
+            wh_status = warehouse_area_entry.get("status", "missing") if isinstance(warehouse_area_entry, dict) else "missing"
+            orders_status = daily_orders_entry.get("status", "missing") if isinstance(daily_orders_entry, dict) else "missing"
+            if dc_status in ("missing", "ambiguous"):
+                p0_blocking_network.append("dc_count")
+            if wh_status in ("missing", "ambiguous"):
+                p0_blocking_network.append("warehouse_area")
+            if orders_status in ("missing", "ambiguous"):
+                p0_blocking_network.append("daily_orders")
+
+        # KPI gate: warn but allow progression
+        kpi_entry = profile.get("kpi_targets", {}) if isinstance(profile, dict) else {}
+        kpi_status = kpi_entry.get("status", "missing") if isinstance(kpi_entry, dict) else "missing"
+        kpi_gate = "WARN" if kpi_status in ("missing",) else "PASS"
+        kpi_warn_message = ""
+        if kpi_gate == "WARN":
+            kpi_warn_message = "KPI/SLA缺失，方案设计阶段服务承诺须保守表述，建议在澄清后补充"
 
         # Store gate results for downstream reference
         pipeline_gate = {
             "cost_model": "PASS" if gate_cost_ok else "BLOCK",
             "solution_design": "PASS" if gate_solution_ok else "WARN",
             "contract_review": "PASS" if gate_contract_ok else "BLOCK",
+            "network_estimation": "BLOCK" if p0_blocking_network else "PASS",
+            "kpi_gate": kpi_gate,
             "blocking_items": missing_p0 or [],
+            "network_blocking_fields": p0_blocking_network,
             "readiness_summary": readiness.get("summary", ""),
+            "kpi_warn_message": kpi_warn_message,
         }
     except PipelineCancelled:
         _update_stage(pipeline_id, "1_extraction", "CANCELLED",
@@ -271,9 +309,23 @@ def pipeline_task(tender_document: str, project_profile_overrides: dict = None, 
 
     # ---- Cost Model Gate: Block if P0 fields are missing ----
     if pipeline_gate.get("cost_model") == "BLOCK":
+        blocking_fields = pipeline_gate.get("blocking_items", missing_p0 or [])
+        network_blocked = pipeline_gate.get("network_blocking_fields", [])
+        gate_detail = (
+            f"无法进入成本测算，原因：{', '.join(blocking_fields) if blocking_fields else 'P0字段缺失'}。"
+            f"{'其中仓网成本估算被阻塞（缺：' + ', '.join(network_blocked) + '）' if network_blocked else ''}"
+            f"请在澄清后重新测算。"
+        )
         _update_stage(pipeline_id, "3_cost_comparison", "BLOCKED",
-                      error="P0 fields missing — cost model gate blocked",
-                      duration_seconds=0)
+                      error=gate_detail,
+                      duration_seconds=0,
+                      extra={
+                          "gate": "cost_model",
+                          "blocking_fields": blocking_fields,
+                          "network_blocked_fields": network_blocked,
+                          "kpi_warn": pipeline_gate.get("kpi_warn_message", ""),
+                          "gate_detail": gate_detail,
+                      })
         cost_comparisons = []
         best_id = None
         qa_verdict = "GATE_BLOCKED"
@@ -281,9 +333,7 @@ def pipeline_task(tender_document: str, project_profile_overrides: dict = None, 
                       error="Skipped due to cost_model gate BLOCK")
         _update_stage(pipeline_id, "5_pdf_report", "SKIPPED",
                       error="Skipped due to cost_model gate BLOCK")
-        if generate_pdf:
-            pass  # PDF still generated if requested, with partial data
-        total_duration = (datetime.now() - overall_start).total_seconds()
+        total_duration = (datetime.now() - start_time).total_seconds()
         result_summary = {
             "industry": profile.get("industry") if isinstance(profile, dict) else "—",
             "region": profile.get("region") if isinstance(profile, dict) else "—",
@@ -293,8 +343,10 @@ def pipeline_task(tender_document: str, project_profile_overrides: dict = None, 
             "roi_5y": None,
             "payback_years": None,
             "capex_estimate": None,
-            "gate_blocked_reason": "P0字段缺失，无法进入成本测算",
-            "blocking_items": pipeline_gate.get("blocking_items", []),
+            "gate_blocked_reason": gate_detail,
+            "blocking_items": blocking_fields,
+            "network_blocking_fields": network_blocked,
+            "kpi_warn": pipeline_gate.get("kpi_warn_message", ""),
         }
         complete_pipeline(
             pipeline_id=pipeline_id,
@@ -306,6 +358,12 @@ def pipeline_task(tender_document: str, project_profile_overrides: dict = None, 
             pipeline_gate_json=pipeline_gate,
             total_duration_seconds=total_duration,
             result_summary=result_summary,
+            # Stage 1: Tender Understanding — still store analysis even if gate blocked
+            analysis_markdown=analysis_report,
+            normalized_fields_json={},
+            missing_items_json={"p0": missing_p0 or [], "p1": profile.get("missing_p1", []) if isinstance(profile, dict) else []},
+            clarification_questions_json=clarification_questions or [],
+            quality_score_json=quality_score or {},
         )
         return {
             "pipeline_id": pipeline_id,
@@ -315,6 +373,7 @@ def pipeline_task(tender_document: str, project_profile_overrides: dict = None, 
             "cost_comparisons": [],
             "qa_verdict": "GATE_BLOCKED",
             "gate": pipeline_gate,
+            "gate_detail": gate_detail,
             "total_duration_seconds": total_duration,
         }
 
@@ -477,10 +536,15 @@ def pipeline_task(tender_document: str, project_profile_overrides: dict = None, 
         pdf_url=pdf_url,
         total_duration_seconds=total_duration,
         result_summary=result_summary,
-        # Stage 1: Tender Understanding
+        # Stage 1: Tender Understanding — normalized_fields_json stores the full
+        # field trace objects (status / source_basis / priority / impact) per Max's
+        # suggestion #2. analysis_version tracks the schema version for benchmarks.
         analysis_markdown=analysis_report,
-        normalized_fields_json=field_traces if 'field_traces' in dir() else {},
-        missing_items_json={"p0": missing_p0 or [], "p1": profile.get("missing_p1", [])},
+        normalized_fields_json=field_traces,
+        missing_items_json={
+            "p0": missing_p0 or [],
+            "p1": profile.get("missing_p1", []) if isinstance(profile, dict) else [],
+        },
         clarification_questions_json=clarification_questions or [],
         quality_score_json=quality_score or {},
         pipeline_gate_json=pipeline_gate,

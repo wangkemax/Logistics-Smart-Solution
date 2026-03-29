@@ -508,23 +508,174 @@ def _empty_result():
     }
 
 def _build_metadata(s):
+    """
+    Build rich extraction metadata from structured LLM output.
+
+    Returns:
+        {
+          "confidence": float,
+          "missing_p0": [str],            # legacy flat list
+          "missing_p1": [str],            # legacy flat list
+          "critical_missing_items": [     # Max's suggestion #1
+              {"field_key": str, "display_name": str, "section": str,
+               "why_blocking": str, "downstream_impact": [str]}
+          ],
+          "important_missing_items": [
+              {"field_key": str, "display_name": str, "section": str,
+               "why_matters": str, "downstream_impact": [str]}
+          ],
+          "clarification_questions": [    # derived from missing + ambiguous
+              {"field_key": str, "display_name": str, "severity": str,
+               "question": str, "suggested_answer_format": str}
+          ],
+          "risks": [                      # from s11_risks.unclear_clauses
+              {"clause_text": str, "section": str, "risk_type": str}
+          ],
+          "ambiguities": [               # from s11_risks.conflicting_clauses
+              {"clause_a": str, "clause_b": str, "conflict_description": str}
+          ],
+          "downstream_hints": {           # from s13_downstream_inputs
+              "for_cost_model": str,
+              "for_solution_design": str,
+              "for_contract_review": str,
+              "for_kpi_plan": str
+          },
+          "analysis_timestamp": str,
+          "sections_filled": int,
+          "sections_total": int,
+        }
+    """
     m0, m1 = [], []
+    critical, important = [], []
+    risks_out, ambiguities_out = [], []
+    downstream_hints = {"for_cost_model": "", "for_solution_design": "",
+                        "for_contract_review": "", "for_kpi_plan": ""}
+
     if isinstance(s, dict):
+        # --- P0 detection ---
         if not s.get("s3_warehouse_dc_list"):
             m0.append("DC仓库明细")
+            critical.append({
+                "field_key": "dc_count",
+                "display_name": "DC数量",
+                "section": "s3_warehouse_dc_list",
+                "why_blocking": "成本测算需要仓库数量和面积，缺失则无法进行网络成本估算",
+                "downstream_impact": ["cost_model", "layout_design", "investment_plan"],
+            })
         if not s.get("s4_business_process", {}).get("outbound"):
             m0.append("日出库量/订单量")
+            critical.append({
+                "field_key": "daily_orders",
+                "display_name": "日均订单量",
+                "section": "s7_kpi_sla",
+                "why_blocking": "人力测算和自动化选型依赖日出库量，缺失则无法进行准确成本测算",
+                "downstream_impact": ["cost_model", "labor_plan", "automation_selection"],
+            })
+
+        # --- P1 detection ---
         if not s.get("s7_kpi_sla"):
             m1.append("KPI/SLA要求")
+            important.append({
+                "field_key": "kpi_targets",
+                "display_name": "KPI指标",
+                "section": "s7_kpi_sla",
+                "why_matters": "KPI是方案设计和合同审核的基础，缺失则无法量化服务承诺",
+                "downstream_impact": ["solution_design", "contract_review", "risk_assessment"],
+            })
         if not s.get("s10_mandatory_clauses"):
             m1.append("强制条款清单")
+            important.append({
+                "field_key": "penalty_rules",
+                "display_name": "强制条款/惩罚机制",
+                "section": "s10_mandatory_clauses",
+                "why_matters": "强制条款直接影响方案可行性和风险测算，必须在设计阶段识别",
+                "downstream_impact": ["contract_review", "risk_assessment"],
+            })
+
+        # --- Risks from s11 ---
+        s11 = s.get("s11_risks", {})
+        if isinstance(s11, dict):
+            for clause in (s11.get("unclear_clauses") or []):
+                if clause and clause not in ("无", "", "无歧义"):
+                    risks_out.append({
+                        "clause_text": str(clause)[:200],
+                        "section": "s11_risks",
+                        "risk_type": "unclear",
+                    })
+            for conflict in (s11.get("conflicting_clauses") or []):
+                if conflict and conflict not in ("无", "", "无矛盾"):
+                    if isinstance(conflict, dict):
+                        ambiguities_out.append({
+                            "clause_a": str(conflict.get("clause_a", ""))[:200],
+                            "clause_b": str(conflict.get("clause_b", ""))[:200],
+                            "conflict_description": str(conflict.get("description", ""))[:200],
+                        })
+                    else:
+                        ambiguities_out.append({
+                            "clause_a": str(conflict)[:200],
+                            "clause_b": "",
+                            "conflict_description": "条款内容存在歧义或前后矛盾",
+                        })
+
+        # --- Downstream hints from s13 ---
+        s13 = s.get("s13_downstream_inputs", {})
+        if isinstance(s13, dict):
+            downstream_hints["for_cost_model"] = s13.get("cost_boundary") or ""
+            downstream_hints["for_solution_design"] = s13.get("bid_strategy") or ""
+            downstream_hints["for_contract_review"] = s13.get("contract_review") or ""
+            downstream_hints["for_kpi_plan"] = s13.get("kpi_plan") or ""
+
+        # --- Clarification questions (compact, derived from missing) ---
+        clarifications = []
+        for item in critical:
+            clarifications.append({
+                "field_key": item["field_key"],
+                "display_name": item["display_name"],
+                "severity": "P0",
+                "question": f"招标文件缺少「{item['display_name']}」，请提供具体数据。",
+                "suggested_answer_format": _SUGGESTED_ANSWER_FORMAT.get(item["field_key"], "具体数值"),
+            })
+        for item in important:
+            clarifications.append({
+                "field_key": item["field_key"],
+                "display_name": item["display_name"],
+                "severity": "P1",
+                "question": f"招标文件缺少「{item['display_name']}」，请补充完整数据。",
+                "suggested_answer_format": _SUGGESTED_ANSWER_FORMAT.get(item["field_key"], "具体数值或明细"),
+            })
+
     sects = ["s1_project_overview","s2_service_scope","s3_warehouse_dc_list",
              "s4_business_process","s5_systems","s6_operations","s7_kpi_sla",
              "s8_commercial","s9_contract","s10_mandatory_clauses",
              "s11_risks","s12_missing","s13_downstream_inputs"]
     filled = sum(1 for x in sects if s.get(x) and s.get(x) not in ({},[],""))
-    return {"confidence": filled/len(sects), "missing_p0": m0, "missing_p1": m1,
-            "analysis_timestamp": datetime.now().isoformat()}
+    return {
+        "confidence": filled/len(sects) if sects else 0.0,
+        "missing_p0": m0,
+        "missing_p1": m1,
+        "critical_missing_items": critical,
+        "important_missing_items": important,
+        "clarification_questions": clarifications,
+        "risks": risks_out,
+        "ambiguities": ambiguities_out,
+        "downstream_hints": downstream_hints,
+        "analysis_timestamp": datetime.now().isoformat(),
+        "sections_filled": filled,
+        "sections_total": len(sects),
+    }
+
+
+# Suggested answer formats per field key (used in _build_metadata)
+_SUGGESTED_ANSWER_FORMAT = {
+    "dc_count": "数字 + 各仓库所在城市 + 面积（平方米）",
+    "daily_orders": "数值 + 单位（件/单）+ 口径说明（自然日/工作日）+ 峰值倍数",
+    "warehouse_area": "总面积（平方米）+ 各仓库分别面积明细",
+    "sku_count": "SKU总数 + ABC分类占比（A类X%/B类Y%/C类Z%）",
+    "kpi_targets": "指标名 + 目标值 + 考核维度 + 数据来源 + 惩罚规则",
+    "penalty_rules": "条款内容 + 类型（否决项/惩罚项/义务项）",
+    "service_scope": "报价结构说明（元/平米/月 or 元/件）+ 各服务单价区间",
+    "inventory": "平均库存量 + 峰值 + 是否含VMI + VMI占比",
+}
 
 # =============================================================================
 # Schema Contract — defines expected types/ranges for each s-key in LLM JSON output
