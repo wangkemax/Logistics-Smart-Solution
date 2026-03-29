@@ -25,6 +25,7 @@ from backend.services.operation_profile_service import (
     SERVICE_TO_LABOR_MODULE,
     COMPLEXITY_SCORING,
 )
+from backend.services.process_templates import build_process_modules, get_active_processes
 from backend.schemas.schemas import OperationProfile, LaborModules
 
 
@@ -232,6 +233,88 @@ class TestOperationProfileSchema:
         lm = LaborModules()
         assert isinstance(lm.receiving_team, bool)
         assert isinstance(lm.picking_team, bool)
+
+
+# =============================================================================
+# Process Modules Tests — v0.6.6
+# =============================================================================
+
+class TestProcessModules:
+    def test_receiving_triggers_receiving_process(self):
+        lm = {"receiving_team": True, "picking_team": False, "packing_team": False,
+              "loading_team": False, "return_processing_team": False, "inventory_control_team": False}
+        pm = build_process_modules(lm)
+        assert "receiving_process" in pm
+        assert pm["receiving_process"]["step_count"] == 8
+
+    def test_picking_triggers_outbound_process(self):
+        lm = {"receiving_team": False, "picking_team": True, "packing_team": False,
+              "loading_team": False, "return_processing_team": False, "inventory_control_team": False}
+        pm = build_process_modules(lm)
+        assert "outbound_process" in pm
+
+    def test_packing_and_loading_both_trigger_outbound(self):
+        lm = {"receiving_team": False, "picking_team": False, "packing_team": True,
+              "loading_team": True, "return_processing_team": False, "inventory_control_team": False}
+        pm = build_process_modules(lm)
+        assert "outbound_process" in pm
+
+    def test_inventory_control_triggers_storage_management(self):
+        lm = {"receiving_team": False, "picking_team": False, "packing_team": False,
+              "loading_team": False, "return_processing_team": False, "inventory_control_team": True}
+        pm = build_process_modules(lm)
+        assert "storage_management" in pm
+
+    def test_return_handling_triggers_return_process(self):
+        lm = {"receiving_team": False, "picking_team": False, "packing_team": False,
+              "loading_team": False, "return_processing_team": True, "inventory_control_team": False}
+        pm = build_process_modules(lm)
+        assert "return_process" in pm
+
+    def test_value_added_flag_triggers_va_process(self):
+        lm = {"receiving_team": False, "picking_team": False, "packing_team": False,
+              "loading_team": False, "return_processing_team": False, "inventory_control_team": False}
+        pm = build_process_modules(lm, value_added_required=True)
+        assert "va_process" in pm
+
+    def test_temperature_control_flag_triggers_tc_process(self):
+        lm = {"receiving_team": False, "picking_team": False, "packing_team": False,
+              "loading_team": False, "return_processing_team": False, "inventory_control_team": False}
+        pm = build_process_modules(lm, temperature_control_required=True)
+        assert "temperature_control" in pm
+
+    def test_empty_labor_modules_returns_empty_processes(self):
+        lm = {"receiving_team": False, "picking_team": False, "packing_team": False,
+              "loading_team": False, "return_processing_team": False, "inventory_control_team": False}
+        pm = build_process_modules(lm)
+        assert pm == {}
+
+    def test_full_porsche_like_scope_has_multiple_processes(self):
+        lm = {"receiving_team": True, "putaway_team": True, "picking_team": True,
+              "packing_team": True, "loading_team": True, "return_processing_team": False,
+              "inventory_control_team": True}
+        pm = build_process_modules(
+            lm,
+            value_added_required=True,
+            temperature_control_required=False,
+            support_required=True,
+        )
+        assert len(pm) >= 4
+        assert "receiving_process" in pm
+        assert "outbound_process" in pm
+        assert "storage_management" in pm
+        assert "va_process" in pm
+        assert "support_process" in pm
+
+    def test_process_modules_in_operation_profile(self):
+        scope = make_scope(
+            inbound={"receiving": True}, storage={"pallet_storage": True},
+            outbound={"picking": True}, value_added={}, support={}
+        )
+        op = derive_operation_profile(scope)
+        assert isinstance(op.process_modules, dict)
+        assert "receiving_process" in op.process_modules
+        assert "outbound_process" in op.process_modules
 
 
 if __name__ == "__main__":

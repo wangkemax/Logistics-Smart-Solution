@@ -166,6 +166,10 @@ class OperationProfile(BaseModel):
     )
     labor_modules: LaborModules = Field(description="人员模块配置")
     operation_narrative: str = Field(description="运营描述文本，用于报告与方案生成")
+    process_modules: dict = Field(
+        default_factory=dict,
+        description="v0.6.6: 作业流程模块 {process_key: {label, description, steps, kpis}}"
+    )
     derived_from_fields: list[str] = Field(
         default_factory=list,
         description="推导所依据的原始字段"
