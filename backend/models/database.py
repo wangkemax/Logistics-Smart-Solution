@@ -99,6 +99,14 @@ class PipelineRun(Base):
     api_base_url = Column(String(200), nullable=True)        # base URL used for this run
     compare_scenario_ids = Column(Text, nullable=True)       # JSON list of scenario IDs
     result_summary = Column(Text, nullable=True)            # JSON summary for task list UI
+    # Stage 1 — Tender Understanding fields
+    analysis_markdown = Column(Text, nullable=True)        # Full 13-section Markdown report
+    normalized_fields_json = Column(Text, nullable=True)   # JSON: normalized fields with priority/impact
+    missing_items_json = Column(Text, nullable=True)        # JSON: {p0: [...], p1: [...]}
+    clarification_questions_json = Column(Text, nullable=True)  # JSON: list of clarification questions
+    quality_score_json = Column(Text, nullable=True)       # JSON: completeness/evidence/readiness scores
+    analysis_version = Column(String(20), default="v1.0")   # Schema version for downstream comparison
+    prompt_version = Column(String(20), default="v1.0")    # Prompt template version
     created_at = Column(DateTime, default=datetime.utcnow)
     completed_at = Column(DateTime, nullable=True)
     cancelled_at = Column(DateTime, nullable=True)

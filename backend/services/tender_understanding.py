@@ -196,8 +196,9 @@ def normalize_extracted_fields(analysis_result):
     s = analysis_result.get("structured", {})
     meta = analysis_result.get("extraction_metadata", {})
 
-    def fld(value, status, basis, section=""):
-        return {"value": value, "status": status, "source_basis": basis, "section": section}
+    def fld(value, status, basis, section="", priority="P2", impact=None):
+        return {"value": value, "status": status, "source_basis": basis,
+                "section": section, "priority": priority, "impact": impact or []}
 
     p = {
         "warehouse_area":          fld(None,"missing","文档未提供仓库面积",""),
@@ -239,11 +240,11 @@ def normalize_extracted_fields(analysis_result):
             status = "explicit" if all_have else "partial"
             basis = ("从s3_warehouse_dc_list提取，共" + str(len(dcs)) +
                      "个仓库，总计" + str(total) + "平米")
-            p["total_warehouse_area"] = fld(total, status, basis, "仓库DC信息")
-            p["warehouse_area"] = fld(total, status, basis, "仓库DC信息")
+            p["total_warehouse_area"] = fld(total, status, basis, "仓库DC信息", "P0", ["cost_model", "layout_design", "investment_plan"])
+            p["warehouse_area"] = fld(total, status, basis, "仓库DC信息", "P0", ["cost_model", "roi_analysis", "layout_design", "investment_plan"])
             dc_basis = ("从s3_warehouse_dc_list明确提取，共" +
                         str(len(dcs)) + "个DC")
-            p["dc_count"] = fld(len(dcs), "explicit", dc_basis, "仓库DC信息")
+            p["dc_count"] = fld(len(dcs), "explicit", dc_basis, "仓库DC信息", "P0", ["cost_model", "layout_design", "investment_plan"])
 
     svc = s.get("s2_service_scope", {})
     if isinstance(svc, dict):
@@ -255,7 +256,7 @@ def normalize_extracted_fields(analysis_result):
             uniq = list(set(all_svc))
             svc_basis = ("从s2_service_scope提取，共" +
                          str(len(uniq)) + "项服务")
-            p["service_scope"] = fld(uniq, "explicit", svc_basis, "服务范围")
+            p["service_scope"] = fld(uniq, "explicit", svc_basis, "服务范围", "P1", ["solution_design", "cost_model", "automation_selection"])
 
     c9 = s.get("s9_contract", {})
     c11 = s.get("s11_risks", {})
@@ -287,7 +288,7 @@ def normalize_extracted_fields(analysis_result):
                 }
         if kd:
             kpi_basis = ("从s7_kpi_sla提取，共" + str(len(kd)) + "项KPI")
-            p["kpi_targets"] = fld(kd, "explicit", kpi_basis, "KPI/SLA要求")
+            p["kpi_targets"] = fld(kd, "explicit", kpi_basis, "KPI/SLA要求", "P1", ["solution_design", "contract_review", "risk_assessment"])
             for kpi in kpis:
                 ind = kpi.get("indicator","")
                 if any(x in ind for x in ("日出库","日均","日订单","出库量","订单量")):
@@ -308,7 +309,7 @@ def normalize_extracted_fields(analysis_result):
         if clauses:
             mc_basis = ("从s10_mandatory_clauses提取，共" +
                         str(len(clauses)) + "条强制条款")
-            p["penalty_rules"] = fld(clauses, "explicit", mc_basis, "强制条款否决项")
+            p["penalty_rules"] = fld(clauses, "explicit", mc_basis, "强制条款否决项", "P1", ["contract_review", "risk_assessment"])
 
     ops = s.get("s6_operations", {})
     if isinstance(ops, dict) and ops.get("peak_season_notes"):

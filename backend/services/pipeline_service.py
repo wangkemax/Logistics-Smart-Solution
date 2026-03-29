@@ -140,7 +140,13 @@ def complete_pipeline(pipeline_id: str, status: str,
                       pdf_url: str = None,
                       error: str = None,
                       total_duration_seconds: float = None,
-                      result_summary: dict = None):
+                      result_summary: dict = None,
+                      # Stage 1: Tender Understanding fields
+                      analysis_markdown: str = None,
+                      normalized_fields_json: dict = None,
+                      missing_items_json: dict = None,
+                      clarification_questions_json: list = None,
+                      quality_score_json: dict = None):
     """Mark pipeline as complete or failed."""
     db = SessionLocal()
     try:
@@ -158,6 +164,17 @@ def complete_pipeline(pipeline_id: str, status: str,
             run.pdf_url = pdf_url
             run.error = error
             run.total_duration_seconds = total_duration_seconds
+            # Stage 1: Tender Understanding
+            if analysis_markdown is not None:
+                run.analysis_markdown = analysis_markdown
+            if normalized_fields_json is not None:
+                run.normalized_fields_json = json.dumps(normalized_fields_json, ensure_ascii=False)
+            if missing_items_json is not None:
+                run.missing_items_json = json.dumps(missing_items_json, ensure_ascii=False)
+            if clarification_questions_json is not None:
+                run.clarification_questions_json = json.dumps(clarification_questions_json, ensure_ascii=False)
+            if quality_score_json is not None:
+                run.quality_score_json = json.dumps(quality_score_json, ensure_ascii=False)
             if status in ("COMPLETE", "FAILED"):
                 run.completed_at = datetime.utcnow()
             # Build result_summary for task list UI if not provided

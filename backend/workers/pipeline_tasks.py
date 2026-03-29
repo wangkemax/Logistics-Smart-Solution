@@ -118,6 +118,15 @@ def pipeline_task(tender_document: str, project_profile_overrides: dict = None, 
     # ---- Stage 1: Extraction ----
     stage_start = datetime.now()
     _update_stage(pipeline_id, "1_extraction", "RUNNING")
+
+    # Default Stage 1 outputs (populated below in each branch)
+    analysis_report = ""
+    structured = {}
+    clarification_questions = []
+    quality_score = {}
+    pipeline_gate = {"cost_model": "PASS", "solution_design": "PASS",
+                    "contract_review": "PASS", "blocking_items": [], "readiness_summary": "就绪"}
+
     try:
         if project_profile_overrides:
             profile = project_profile_overrides
@@ -125,15 +134,34 @@ def pipeline_task(tender_document: str, project_profile_overrides: dict = None, 
         else:
             # Use two-phase tender understanding (analysis + normalization)
             from backend.services.tender_service import extract_requirements
-            # Default to new analysis mode; set EXTRACTION_MODE=hybrid for old behavior
             extraction_mode = os.environ.get("EXTRACTION_MODE", "analysis")
             profile = extract_requirements(tender_document, mode=extraction_mode)
             missing_p0 = profile.get("missing_p0", [])
 
-            # New mode returns full analysis report
+            # Extract all new analysis outputs from the full result
             analysis_report = profile.pop("_analysis_report", "")
             structured = profile.pop("_structured", {})
             raw_llm = profile.pop("_raw_llm_response", "")
+            clarification_questions = profile.pop("_clarification_questions", [])
+            quality_score = profile.pop("_quality_score", {})
+            downstream_input = profile.pop("_downstream_input", {})
+            field_traces = profile.pop("_field_traces", {})
+
+            # Pipeline Gate: computed from quality score
+            readiness = (quality_score or {}).get("readiness", {}) or {}
+            gate_cost_ok = readiness.get("cost_model_ready", False)
+            gate_solution_ok = readiness.get("solution_design_ready", False)
+            gate_contract_ok = readiness.get("contract_review_ready", False)
+            if not missing_p0:
+                missing_p0 = readiness.get("blocking_items", [])
+
+            pipeline_gate = {
+                "cost_model": "PASS" if gate_cost_ok else "BLOCK",
+                "solution_design": "PASS" if gate_solution_ok else "WARN",
+                "contract_review": "PASS" if gate_contract_ok else "BLOCK",
+                "blocking_items": missing_p0 or [],
+                "readiness_summary": readiness.get("summary", "就绪"),
+            }
 
         extraction_file = pipeline_dir / "stage_1_extraction.md"
         extraction_file.write_text(
@@ -141,12 +169,37 @@ def pipeline_task(tender_document: str, project_profile_overrides: dict = None, 
             f"## Analysis Report\n\n{analysis_report}\n\n"
             f"## Normalized Profile\n\n```json\n{json.dumps(profile, ensure_ascii=False, indent=2)}\n```\n\n"
             f"## Structured JSON\n\n```json\n{json.dumps(structured, ensure_ascii=False, indent=2)}\n```\n\n"
-            f"## Missing P0 (Blocking)\n\n{missing_p0 or 'None'}",
+            f"## Quality Score\n\n```json\n{json.dumps(quality_score, ensure_ascii=False, indent=2)}\n```\n\n"
+            f"## Clarification Questions\n\n" + "\n".join(
+                f"- [{q.get('severity','?')}] {q.get('question','')}" 
+                for q in (clarification_questions or [])
+            ) + "\n\n"
+            f"## Missing P0 (Blocking)\n\n" + ("\n".join(f"- {x}" for x in (missing_p0 or [])) or "None"),
             encoding="utf-8"
         )
         _update_stage(pipeline_id, "1_extraction", "DONE",
                       output_file=str(extraction_file),
-                      duration_seconds=(datetime.now() - stage_start).total_seconds())
+                      duration_seconds=(datetime.now() - stage_start).total_seconds(),
+                      extra={
+                          "quality_score": quality_score,
+                          "missing_p0": missing_p0 or [],
+                          "readiness_summary": (quality_score.get("readiness", {}) or {}).get("summary", ""),
+                      })
+
+        # ---- Pipeline Gate: check if ready for downstream stages ----
+        readiness = (quality_score or {}).get("readiness", {}) or {}
+        gate_cost_ok = readiness.get("cost_model_ready", False)
+        gate_solution_ok = readiness.get("solution_design_ready", False)
+        gate_contract_ok = readiness.get("contract_review_ready", False)
+
+        # Store gate results for downstream reference
+        pipeline_gate = {
+            "cost_model": "PASS" if gate_cost_ok else "BLOCK",
+            "solution_design": "PASS" if gate_solution_ok else "WARN",
+            "contract_review": "PASS" if gate_contract_ok else "BLOCK",
+            "blocking_items": missing_p0 or [],
+            "readiness_summary": readiness.get("summary", ""),
+        }
     except PipelineCancelled:
         _update_stage(pipeline_id, "1_extraction", "CANCELLED",
                       duration_seconds=(datetime.now() - stage_start).total_seconds())
@@ -362,6 +415,12 @@ def pipeline_task(tender_document: str, project_profile_overrides: dict = None, 
         pdf_url=pdf_url,
         total_duration_seconds=total_duration,
         result_summary=result_summary,
+        # Stage 1: Tender Understanding
+        analysis_markdown=analysis_report,
+        normalized_fields_json=field_traces if 'field_traces' in dir() else {},
+        missing_items_json={"p0": missing_p0 or [], "p1": profile.get("missing_p1", [])},
+        clarification_questions_json=clarification_questions or [],
+        quality_score_json=quality_score or {},
     )
 
     return {

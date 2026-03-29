@@ -510,27 +510,31 @@ def extract_requirements(
         }
 
     elif mode == "analysis":
-        # New two-phase mode: tender deep analysis + structured normalization
-        # Each field: {value, status, source_basis, section}
-        # status: "explicit" | "derived" | "unclear" | "missing"
+        # Two-phase: tender deep analysis + structured normalization
+        # Returns full analysis result with:
+        #   _analysis_report, _structured, _raw_llm_response,
+        #   _clarification_questions, _quality_score, _downstream_input, _field_traces
         try:
             result = analyze_and_extract(text)
-            # Flatten: {field_name: value} for backward compat; keep full traced dict
+            # Flatten scalar values for backward compat with existing callers
             flat = {}
             for key, val in result.items():
                 if key.startswith("_"):
                     continue
                 if isinstance(val, dict) and "value" in val:
-                    flat[key] = val["value"]       # scalar value for compat
+                    flat[key] = val["value"]       # scalar for compat
                 else:
                     flat[key] = val
-            # Attach analysis outputs
+            # Attach all analysis outputs (underscore-prefixed so callers can use them)
             flat["_analysis_report"] = result.get("_analysis_report", "")
             flat["_structured"] = result.get("_structured", {})
             flat["_raw_llm_response"] = result.get("_raw_llm_response", "")
-            # Attach per-field tracing dict (value + status + source_basis + section)
+            flat["_clarification_questions"] = result.get("_clarification_questions", [])
+            flat["_quality_score"] = result.get("_quality_score", {})
+            flat["_downstream_input"] = result.get("_downstream_input", {})
+            # Per-field traces: {field_name: {value, status, source_basis, section}}
             flat["_field_traces"] = {
-                k: v  # full {value, status, source_basis, section} object
+                k: v
                 for k, v in result.items()
                 if not k.startswith("_")
                 and isinstance(v, dict)
