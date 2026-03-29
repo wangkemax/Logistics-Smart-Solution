@@ -155,6 +155,27 @@ def build_cost_model_input(
         elif not usable and req.priority == "P0":
             unusable_fields.append(fkey)
 
+    # ---- Derive labor flags from service_scope matrix (v0.6.4) ----
+    labor_flags = _derive_labor_flags(nf.get("service_scope", {}).get("value"))
+    if labor_flags:
+        required_inputs["_derived_labor"] = {
+            "value": labor_flags,
+            "status": "derived",
+            "priority": "derived",
+            "usable": True,
+            "usable_reason": "从服务范围矩阵自动推导，用于人员配置模型",
+            "source_basis": "service_scope_matrix",
+            "source_section": "",
+            "assumption_allowed": False,
+            "assumption_rule": None,
+            "fallback_value": None,
+            "fallback_assumption": None,
+            "clarification_needed": False,
+            "clarification_question": None,
+            "impact": "人员配置、作业流程设计",
+            "unit": "",
+        }
+
     # ---- Compute P0/P1 summaries ----
     p0_summary = _summarize(P0_FIELDS, required_inputs)
     p1_summary = _summarize(P1_FIELDS, required_inputs)
@@ -313,6 +334,59 @@ def _derive_fallback_value(field_key: str, entry: dict) -> Optional:
     # These are simple heuristics — the Cost Model Agent should still
     # explicitly label these as assumed inputs
     return None
+
+
+def _derive_labor_flags(service_scope_value) -> dict:
+    """
+    v0.6.4: Derive labor-relevant flags from structured service_scope matrix.
+
+    Returns a dict of boolean flags that drive labor model computation:
+      - inbound_steps: count of inbound services selected
+      - storage_types: list of storage types
+      - outbound_steps: count of outbound services selected
+      - has_picking, has_packing, has_loading: specific labor flags
+      - has_return_handling: affects退货labor
+      - va_service_count: count of value-added services (affects labor headcount)
+    """
+    if not isinstance(service_scope_value, dict):
+        return {}
+
+    flags = {
+        "inbound_services": [],
+        "storage_services": [],
+        "outbound_services": [],
+        "value_added_services": [],
+        "support_services": [],
+        "has_receiving": False,
+        "has_picking": False,
+        "has_packing": False,
+        "has_loading": False,
+        "has_return_handling": False,
+        "has_temperature_control": False,
+        "total_service_count": 0,
+    }
+
+    # Map of service keys to their labor impact flags
+    inbound_map = {"receiving": "has_receiving"}
+    storage_map = {"temperature_control": "has_temperature_control"}
+    outbound_map = {"picking": "has_picking", "packing": "has_packing", "loading": "has_loading"}
+    va_map = {"return_handling": "has_return_handling"}
+
+    for category, services in service_scope_value.items():
+        if not isinstance(services, dict):
+            continue
+        selected = [k for k, v in services.items() if v]
+        cat_key = f"{category}_services"
+        if cat_key in flags:
+            flags[cat_key].extend(selected)
+        flags["total_service_count"] += len(selected)
+
+        # Set specific flags
+        for svc_key, flag_key in {**inbound_map, **storage_map, **outbound_map, **va_map}.items():
+            if svc_key in selected and flag_key in flags:
+                flags[flag_key] = True
+
+    return flags
 
 
 def _summarize(field_keys: list, required_inputs: dict) -> dict:

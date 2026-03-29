@@ -108,6 +108,56 @@ def _render_clarification_task_editor(pipeline_id: str, tasks: list, api: str, k
                             st.session_state[f"cw_input_{fkey}"] = {}
                         st.session_state[f"cw_input_{fkey}"].update({"value": chosen})
 
+                    elif input_type == "service_scope_matrix":
+                        # v0.6.4: Render structured service scope checkbox matrix
+                        matrix = task.get("service_matrix", {})
+                        if not matrix:
+                            st.warning("服务矩阵配置缺失，请联系管理员")
+                        else:
+                            selected_services = {}
+
+                            st.markdown("**请勾选本项目包含的服务项：**")
+                            category_descs = {
+                                "inbound": "货物从供应商到达仓库到完成上架的全过程",
+                                "storage": "货物在库期间的管理与保管",
+                                "outbound": "从订单下达到货物出库的全过程",
+                                "value_added": "核心仓储配送以外的增值作业",
+                                "support": "运营管理、数据与系统支持",
+                            }
+
+                            for cat_key, cat_info in matrix.items():
+                                cat_label = cat_info.get("label", cat_key)
+                                cat_desc = category_descs.get(cat_key, "")
+                                services = cat_info.get("services", {})
+
+                                with st.expander(f"**{'📥' if cat_key=='inbound' else '📦' if cat_key=='storage' else '📤' if cat_key=='outbound' else '🔧' if cat_key=='value_added' else '⚙️'} {cat_label}**", expanded=True):
+                                    if cat_desc:
+                                        st.caption(cat_desc)
+                                    for svc_key, svc_info in services.items():
+                                        svc_label = svc_info.get("label", svc_key)
+                                        checkbox_key = f"{inp_key}_{cat_key}_{svc_key}"
+                                        checked = st.checkbox(svc_label, value=False, key=checkbox_key)
+                                        selected_services[f"{cat_key}.{svc_key}"] = checked
+
+                            # Store in session state as {category: {service: bool}}
+                            structured_value = {}
+                            for full_key, checked in selected_services.items():
+                                cat, svc = full_key.rsplit(".", 1)
+                                if cat not in structured_value:
+                                    structured_value[cat] = {}
+                                structured_value[cat][svc] = checked
+
+                            if f"cw_input_{fkey}" not in st.session_state:
+                                st.session_state[f"cw_input_{fkey}"] = {}
+                            st.session_state[f"cw_input_{fkey}"].update({"value": structured_value})
+
+                            # Show summary
+                            total_selected = sum(sum(v.values()) for v in structured_value.values())
+                            if total_selected > 0:
+                                st.success(f"已选择 {total_selected} 项服务")
+                            else:
+                                st.warning("尚未选择任何服务")
+
                     else:  # text or default
                         text_val = st.text_input("输入值", key=f"{inp_key}_text", placeholder="请输入...")
                         if f"cw_input_{fkey}" not in st.session_state:

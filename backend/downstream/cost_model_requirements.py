@@ -80,14 +80,14 @@ COST_MODEL_REQUIREMENTS: list[CostFieldRequirement] = [
     ),
     CostFieldRequirement(
         field_key="service_scope",
-        display_name="服务范围明细",
+        display_name="服务范围矩阵",
         priority="P0",
         assumption_allowed=False,
         assumption_rule="服务范围决定成本结构和报价策略，必须完整明确",
         usable_statuses=["explicit"],
-        clarification_template="请确认本次投标服务范围：含哪些具体服务项目（仓储/配送/增值服务）以及报价结构要求：",
+        clarification_template="请从以下服务矩阵中勾选本项目实际包含的服务项：",
         unit="",
-        impact_on_cost="OPEX结构、报价策略、合同条款",
+        impact_on_cost="OPEX结构、报价策略、合同条款、人员配置、设备选型",
     ),
 
     # ========================================================================

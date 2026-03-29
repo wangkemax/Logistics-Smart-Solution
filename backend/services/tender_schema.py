@@ -18,6 +18,71 @@ from typing import Optional
 
 
 # =============================================================================
+# Service Scope Matrix — v0.6.4 Structured Service Definition
+# =============================================================================
+SERVICE_MATRIX: dict = {
+    "inbound": {
+        "label": "入库作业",
+        "description": "货物从供应商到达仓库到完成上架的全过程",
+        "services": {
+            "receiving":       {"label": "收货/收货确认",  "label_en": "receiving"},
+            "unloading":       {"label": "卸货",           "label_en": "unloading"},
+            "quality_check":   {"label": "质量检验",       "label_en": "quality_check"},
+            "putaway":         {"label": "上架/归库",      "label_en": "putaway"},
+        },
+    },
+    "storage": {
+        "label": "存储管理",
+        "description": "货物在库期间的管理与保管",
+        "services": {
+            "pallet_storage":    {"label": "托盘位存储",      "label_en": "pallet_storage"},
+            "bin_storage":       {"label": "Bin位存储",        "label_en": "bin_storage"},
+            "temperature_control":{"label": "温度控制存储",    "label_en": "temperature_control"},
+            "bonded_storage":    {"label": "保税仓储",        "label_en": "bonded_storage"},
+        },
+    },
+    "outbound": {
+        "label": "出库作业",
+        "description": "从订单下达到货物出库的全过程",
+        "services": {
+            "picking":   {"label": "拣选",   "label_en": "picking"},
+            "packing":   {"label": "包装",   "label_en": "packing"},
+            "labeling":  {"label": "贴标",   "label_en": "labeling"},
+            "loading":   {"label": "装车",   "label_en": "loading"},
+            "shipping":  {"label": "发运",   "label_en": "shipping"},
+        },
+    },
+    "value_added": {
+        "label": "增值服务",
+        "description": "核心仓储配送以外的增值作业",
+        "services": {
+            "kitting":         {"label": "Kitting/组合装配", "label_en": "kitting"},
+            "repack":          {"label": "拆箱/换装",       "label_en": "repack"},
+            "light_assembly":  {"label": "轻装配",          "label_en": "light_assembly"},
+            "return_handling": {"label": "退货处理",        "label_en": "return_handling"},
+            "cycle_count":     {"label": "库存盘点",        "label_en": "cycle_count"},
+        },
+    },
+    "support": {
+        "label": "支持服务",
+        "description": "运营管理、数据与系统支持",
+        "services": {
+            "inventory_reporting": {"label": "库存报表",         "label_en": "inventory_reporting"},
+            "system_integration":  {"label": "系统对接",         "label_en": "system_integration"},
+            "data_reporting":     {"label": "数据报告/BI",      "label_en": "data_reporting"},
+        },
+    },
+}
+
+# Flat list of all service keys (for validation)
+ALL_SERVICE_KEYS = [
+    svc_key
+    for category in SERVICE_MATRIX.values()
+    for svc_key in category["services"]
+]
+
+
+# =============================================================================
 # Field Priority
 # =============================================================================
 FIELD_PRIORITY = {
@@ -157,14 +222,14 @@ FIELD_REGISTRY: dict[str, FieldDef] = {
     ),
     "service_scope": FieldDef(
         key="service_scope",
-        display_name="服务范围明细",
+        display_name="服务范围矩阵",
         priority="P0",
-        impact=["solution_design", "cost_model", "automation_selection"],
+        impact=["solution_design", "cost_model", "automation_selection", "labor_model"],
         tender_sections=["s2_service_scope"],
         missing_item_labels=["服务范围", "报价结构要求", "业务范围"],
-        description="仓储/配送/增值服务具体项目清单",
-        expected_type="list",
-        validation_rules="at least 1 item",
+        description="入库/存储/出库/增值服务/支持服务结构化矩阵",
+        expected_type="dict",
+        validation_rules="每个category至少包含1项服务",
     ),
     "kpi_targets": FieldDef(
         key="kpi_targets",
@@ -334,8 +399,11 @@ FIELD_MAP: dict = {
         "total_warehouse_area": {"keys": ["area_sqm"], "op": "sum", "unit": "sqm"},
         "warehouse_area":        {"keys": ["area_sqm"], "op": "sum", "unit": "sqm"},
     },
+    # v0.6.4: preserve full structure instead of flattening
+    # Legacy format: {warehousing: [], distribution: [], value_added: []}
+    # New format:    {inbound: [], storage: [], outbound: [], value_added: [], support: []}
     "s2_service_scope": {
-        "service_scope": {"keys": ["warehousing", "distribution", "value_added"], "op": "merge_unique"},
+        "service_scope": {"keys": [], "op": "preserve"},
     },
     "s9_contract": {
         "contract_years": {"keys": ["contract_years"], "type": int, "range": (1, 20)},
