@@ -392,6 +392,9 @@ QA Agent → Quality Gate
 - [x] 修复: complexity score封顶20分（temperature_control双重计数bug）
 - [x] 样板案例#1: 保时捷PDC（仓配一体化 / high complexity）
 - [x] 样板案例#2: 医药冷链仓配中心（cold_chain / 20/20）
+- [x] Clarification Workspace: UTC→CST时间戳转换（统一北京时间）
+- [x] Clarification Workspace: 历史任务列表改为最新优先排序
+- [x] Clarification Workspace: task editor渲染增强（st.warning显示阻塞影响 / 文字输入任务增加填写说明）
 
 ## v0.8 — Automation & Optimization Solutions（规划中）
 
