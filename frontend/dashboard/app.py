@@ -2833,6 +2833,46 @@ elif app_mode == "💬 Clarification Workspace":
                 if operation_narrative:
                     st.markdown("**📄 运营描述：**")
                     st.info(operation_narrative)
+
+                # v0.6.6: Process Modules
+                process_modules = operation_profile.get("process_modules", {})
+                if process_modules:
+                    st.markdown("---")
+                    st.markdown("##### 📋 作业流程模型")
+                    st.caption("基于服务范围自动生成的标准化作业流程（每流程含角色分工）")
+
+                    PROCESS_LABELS = {
+                        "receiving_process": "📥 入库作业流程",
+                        "outbound_process": "📤 出库作业流程",
+                        "storage_management": "📦 存储管理流程",
+                        "return_process": "↩️ 退货处理流程",
+                        "va_process": "🔧 增值服务流程",
+                        "temperature_control": "❄️ 温控管理流程",
+                        "support_process": "⚙️ 支持服务流程",
+                    }
+
+                    proc_expanders = st.columns(min(len(process_modules), 2))
+                    for idx, (proc_key, proc_info) in enumerate(process_modules.items()):
+                        with proc_expanders[idx % 2]:
+                            label = PROCESS_LABELS.get(proc_key, proc_key)
+                            with st.expander(f"**{label}** ({proc_info.get('step_count', 0)}步)", expanded=False):
+                                st.caption(proc_info.get("description", ""))
+                                # Steps
+                                for step in proc_info.get("steps", []):
+                                    st.markdown(
+                                        f"  `{step.get('step_id', '')}` **{step.get('label', '')}**"
+                                        f"  → 角色:{step.get('role', '—')}"
+                                    )
+                                # KPIs
+                                kpis = proc_info.get("kpis", [])
+                                if kpis:
+                                    st.markdown("**📊 流程KPI：**")
+                                    for kpi in kpis:
+                                        st.markdown(f"  • {kpi}")
+
+                    # Process summary metric
+                    total_steps = sum(v.get("step_count", 0) for v in process_modules.values())
+                    st.metric("流程总步骤数", f"{total_steps}步 / {len(process_modules)}个流程")
             elif new_mode in ("partial_ready", "range_estimate"):
                 # Show placeholder when service_scope not yet resolved
                 st.divider()

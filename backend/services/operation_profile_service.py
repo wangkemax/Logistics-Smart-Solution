@@ -15,6 +15,7 @@ PROJECT_ROOT = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from backend.schemas.schemas import OperationProfile, LaborModules
+from backend.services.process_templates import build_process_modules
 
 
 # =============================================================================
@@ -334,6 +335,7 @@ def derive_operation_profile(service_scope: dict) -> OperationProfile:
             service_complexity_level="low",
             labor_modules=LaborModules(),
             operation_narrative="服务范围未提供，无法生成运营模型。",
+            process_modules={},
             derived_from_fields=["service_scope"],
         )
 
@@ -361,6 +363,15 @@ def derive_operation_profile(service_scope: dict) -> OperationProfile:
         service_scope, operation_type, complexity_level, complexity_score
     )
 
+    # v0.6.6: Derive process_modules from active labor modules
+    labor_modules_dict = labor_modules.model_dump()
+    process_modules = build_process_modules(
+        labor_modules=labor_modules_dict,
+        value_added_required=value_added_required,
+        temperature_control_required=temperature_control_required,
+        support_required=support_required,
+    )
+
     return OperationProfile(
         operation_type=operation_type,
         inbound_required=inbound_required,
@@ -374,5 +385,6 @@ def derive_operation_profile(service_scope: dict) -> OperationProfile:
         service_complexity_level=complexity_level,
         labor_modules=labor_modules,
         operation_narrative=operation_narrative,
+        process_modules=process_modules,
         derived_from_fields=["service_scope"],
     )
