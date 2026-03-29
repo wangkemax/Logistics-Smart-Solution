@@ -116,6 +116,7 @@ class PipelineRun(Base):
     resolved_fields_json = Column(Text, nullable=True)     # JSON: {field_key: ResolvedField.to_dict()}
     clarification_tasks_json = Column(Text, nullable=True)  # JSON: ClarificationTaskList.to_dict()
     operation_profile_json = Column(Text, nullable=True)    # v0.6.5: OperationProfile derived from service_scope
+    base_solution_json = Column(Text, nullable=True)       # v0.7: BaseSolution JSON
     created_at = Column(DateTime, default=datetime.utcnow)
     completed_at = Column(DateTime, nullable=True)
     cancelled_at = Column(DateTime, nullable=True)
