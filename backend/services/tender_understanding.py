@@ -192,36 +192,284 @@ def _build_metadata(s):
     return {"confidence": filled/len(sects), "missing_p0": m0, "missing_p1": m1,
             "analysis_timestamp": datetime.now().isoformat()}
 
+# =============================================================================
+# Schema Contract — defines expected types/ranges for each s-key in LLM JSON output
+# =============================================================================
+_SCHEMA_CONTRACT = {
+    "s1_project_overview":    {"type": dict, "required_keys": ["client_name","contract_period"]},
+    "s2_service_scope":     {"type": dict, "required_keys": []},
+    "s3_warehouse_dc_list": {"type": list, "item_type": dict, "allow_empty": True},
+    "s4_business_process":   {"type": dict, "required_keys": []},
+    "s5_systems":           {"type": dict, "required_keys": []},
+    "s6_operations":        {"type": dict, "required_keys": []},
+    "s7_kpi_sla":           {"type": list, "item_type": dict, "allow_empty": True},
+    "s8_commercial":         {"type": dict, "required_keys": []},
+    "s9_contract":          {"type": dict, "required_keys": []},
+    "s10_mandatory_clauses": {"type": list, "item_type": dict, "allow_empty": True},
+    "s11_risks":            {"type": dict, "required_keys": []},
+    "s12_missing":          {"type": dict, "required_keys": []},
+    "s13_downstream_inputs": {"type": dict, "required_keys": []},
+}
+
+# =============================================================================
+# Field Name Mapping — s-key → normalized field extraction rules
+# =============================================================================
+_FIELD_MAP = {
+    # s-key: {target_field: {extract_from_key, transform, unit, range_check}}
+    "s3_warehouse_dc_list": {
+        "dc_count":            {"keys": [], "count": True},
+        "total_warehouse_area": {"keys": ["area_sqm"], "op": "sum", "unit": "sqm"},
+        "warehouse_area":       {"keys": ["area_sqm"], "op": "sum", "unit": "sqm"},
+    },
+    "s2_service_scope": {
+        "service_scope": {"keys": ["warehousing","distribution","value_added"], "op": "merge_unique"},
+    },
+    "s9_contract": {
+        "contract_years": {"keys": ["contract_years"], "type": int, "range": (1, 20)},
+    },
+    "s7_kpi_sla": {
+        "kpi_targets": {"keys": [], "kpi_list": True},
+        "daily_orders": {"keys": ["indicator","target"], "op": "extract_orders"},
+    },
+    "s10_mandatory_clauses": {
+        "penalty_rules": {"keys": ["clause"], "op": "collect"},
+    },
+    "s6_operations": {
+        "peak_factor": {"keys": ["peak_season_notes"], "op": "extract_factor"},
+    },
+    "s12_missing": {
+        "_assumptions": {"keys": ["assumptions"], "op": "store"},
+    },
+}
+
+# =============================================================================
+# Cross-field consistency rules — checked during normalization
+# =============================================================================
+_CONSISTENCY_RULES = [
+    {
+        "rule": "dc_area_sum",
+        "check": "total_warehouse_area",
+        "fields": ["dc_count", "total_warehouse_area"],
+        "condition": "dc_count > 0 AND total_warehouse_area == 0",
+        "action": "mark_partial",
+    },
+    {
+        "rule": "orders_vs_kpi",
+        "check": "daily_orders",
+        "fields": ["daily_orders", "kpi_targets"],
+        "condition": "daily_orders has value but kpi_targets missing",
+        "action": "flag_inconsistency",
+    },
+]
+
+
+def _validate_structured_json(structured: dict) -> list[dict]:
+    """
+    Validate LLM output against schema contract before normalization.
+    Returns list of validation errors (empty = valid).
+    Each error: {section, expected, actual, severity}
+    """
+    errors = []
+    if not isinstance(structured, dict):
+        return [{"section": "root", "expected": "dict", "actual": type(structured).__name__,
+                 "severity": "ERROR", "message": "LLM output is not a JSON object"}]
+
+    for s_key, contract in _SCHEMA_CONTRACT.items():
+        value = structured.get(s_key)
+        expected_type = contract["type"]
+
+        # Type check
+        if value is None:
+            # Accept None if allow_empty is set (for list fields)
+            if contract.get("allow_empty") and expected_type == list:
+                continue
+            errors.append({
+                "section": s_key, "expected": expected_type.__name__,
+                "actual": "null", "severity": "WARN",
+                "message": f"{s_key} is missing or null"
+            })
+            continue
+
+        if not isinstance(value, expected_type):
+            errors.append({
+                "section": s_key, "expected": expected_type.__name__,
+                "actual": type(value).__name__, "severity": "ERROR",
+                "message": f"{s_key} should be {expected_type.__name__}, got {type(value).__name__}"
+            })
+            continue
+
+        # Item type check for lists
+        if expected_type == list:
+            item_type = contract.get("item_type")
+            if item_type and item_type == dict:
+                for i, item in enumerate(value):
+                    if not isinstance(item, dict):
+                        errors.append({
+                            "section": s_key, "expected": f"list[dict], item[{i}]",
+                            "actual": type(item).__name__, "severity": "ERROR",
+                            "message": f"{s_key}[{i}] should be dict"
+                        })
+
+        # Required keys for dicts
+        required_keys = contract.get("required_keys", [])
+        for rk in required_keys:
+            if not isinstance(value, dict) or rk not in value:
+                errors.append({
+                    "section": s_key, "expected": f"key '{rk}' present",
+                    "actual": "missing", "severity": "WARN",
+                    "message": f"{s_key} missing required key '{rk}'"
+                })
+
+    # Check for unexpected keys
+    expected_keys = set(_SCHEMA_CONTRACT.keys())
+    actual_keys = set(structured.keys())
+    extra = actual_keys - expected_keys
+    for k in extra:
+        errors.append({
+            "section": k, "expected": "not in schema",
+            "actual": "present", "severity": "INFO",
+            "message": f"Unexpected key '{k}' in LLM output (ignored)"
+        })
+
+    return errors
+
+
+# =============================================================================
+# Schema Validation + Field Map
+# =============================================================================
+_SCHEMA_CONTRACT = {
+    "s1_project_overview":    {"type": "dict"},
+    "s2_service_scope":     {"type": "dict"},
+    "s3_warehouse_dc_list": {"type": "list"},
+    "s4_business_process":   {"type": "dict"},
+    "s5_systems":           {"type": "dict"},
+    "s6_operations":        {"type": "dict"},
+    "s7_kpi_sla":           {"type": "list"},
+    "s8_commercial":         {"type": "dict"},
+    "s9_contract":          {"type": "dict"},
+    "s10_mandatory_clauses": {"type": "list"},
+    "s11_risks":           {"type": "dict"},
+    "s12_missing":          {"type": "dict"},
+    "s13_downstream_inputs": {"type": "dict"},
+}
+
+def _validate_structured_json(structured):
+    errors = []
+    if not isinstance(structured, dict):
+        return [{"section": "root", "error": "LLM output is not a JSON object", "severity": "ERROR"}]
+    for key, spec in _SCHEMA_CONTRACT.items():
+        value = structured.get(key)
+        expected = spec["type"]
+        if value is None:
+            continue
+        if expected == "list" and not isinstance(value, list):
+            errors.append({"section": key, "error": "should be list, got " + type(value).__name__, "severity": "ERROR"})
+        elif expected == "dict" and not isinstance(value, dict):
+            errors.append({"section": key, "error": "should be dict, got " + type(value).__name__, "severity": "ERROR"})
+    return errors
+
+
+# New normalize_extracted_fields with schema validation + field priority/impact
+
+_SCHEMA_CONTRACT = {
+    "s1_project_overview":    {"type": "dict"},
+    "s2_service_scope":     {"type": "dict"},
+    "s3_warehouse_dc_list": {"type": "list"},
+    "s4_business_process":   {"type": "dict"},
+    "s5_systems":           {"type": "dict"},
+    "s6_operations":        {"type": "dict"},
+    "s7_kpi_sla":           {"type": "list"},
+    "s8_commercial":         {"type": "dict"},
+    "s9_contract":          {"type": "dict"},
+    "s10_mandatory_clauses": {"type": "list"},
+    "s11_risks":           {"type": "dict"},
+    "s12_missing":          {"type": "dict"},
+    "s13_downstream_inputs": {"type": "dict"},
+}
+
+def _validate_structured_json(structured):
+    errors = []
+    if not isinstance(structured, dict):
+        return [{"section": "root", "error": "LLM output is not a JSON object", "severity": "ERROR"}]
+    for key, spec in _SCHEMA_CONTRACT.items():
+        value = structured.get(key)
+        expected = spec["type"]
+        if value is None:
+            continue
+        if expected == "list" and not isinstance(value, list):
+            errors.append({"section": key, "error": "should be list, got " + type(value).__name__, "severity": "ERROR"})
+        elif expected == "dict" and not isinstance(value, dict):
+            errors.append({"section": key, "error": "should be dict, got " + type(value).__name__, "severity": "ERROR"})
+    return errors
+
+
+# New normalize_extracted_fields with schema validation + field priority/impact
+
+_SCHEMA_CONTRACT = {
+    "s1_project_overview":    {"type": "dict"},
+    "s2_service_scope":     {"type": "dict"},
+    "s3_warehouse_dc_list": {"type": "list"},
+    "s4_business_process":   {"type": "dict"},
+    "s5_systems":           {"type": "dict"},
+    "s6_operations":        {"type": "dict"},
+    "s7_kpi_sla":           {"type": "list"},
+    "s8_commercial":         {"type": "dict"},
+    "s9_contract":          {"type": "dict"},
+    "s10_mandatory_clauses": {"type": "list"},
+    "s11_risks":           {"type": "dict"},
+    "s12_missing":          {"type": "dict"},
+    "s13_downstream_inputs": {"type": "dict"},
+}
+
+def _validate_structured_json(structured):
+    errors = []
+    if not isinstance(structured, dict):
+        return [{"section": "root", "error": "LLM output is not a JSON object", "severity": "ERROR"}]
+    for key, spec in _SCHEMA_CONTRACT.items():
+        value = structured.get(key)
+        expected = spec["type"]
+        if value is None:
+            continue
+        if expected == "list" and not isinstance(value, list):
+            errors.append({"section": key, "error": "should be list, got " + type(value).__name__, "severity": "ERROR"})
+        elif expected == "dict" and not isinstance(value, dict):
+            errors.append({"section": key, "error": "should be dict, got " + type(value).__name__, "severity": "ERROR"})
+    return errors
+
+
 def normalize_extracted_fields(analysis_result):
     s = analysis_result.get("structured", {})
     meta = analysis_result.get("extraction_metadata", {})
+
+    schema_errors = _validate_structured_json(s)
 
     def fld(value, status, basis, section="", priority="P2", impact=None):
         return {"value": value, "status": status, "source_basis": basis,
                 "section": section, "priority": priority, "impact": impact or []}
 
     p = {
-        "warehouse_area":          fld(None,"missing","文档未提供仓库面积",""),
-        "sku_count":             fld(None,"missing","文档未提供SKU数量",""),
-        "daily_orders":          fld(None,"missing","文档未提供日订单量",""),
-        "inventory":             fld(None,"missing","文档未提供库存量",""),
-        "labor_cost_level":      fld(None,"missing","文档未提供人工成本水平",""),
-        "budget_level":          fld(None,"missing","文档未提供预算水平",""),
-        "automation_expectation":fld(None,"missing","文档未提供自动化期望",""),
-        "contract_years":         fld(None,"missing","文档未提供合同年限",""),
-        "industry":             fld(None,"missing","文档未提供行业信息",""),
-        "region":              fld(None,"missing","文档未提供地区信息",""),
-        "go_live_date":         fld(None,"missing","文档未提供上线日期",""),
-        "dc_count":             fld(None,"missing","文档未提供DC数量",""),
-        "total_warehouse_area": fld(None,"missing","文档未提供总仓库面积",""),
-        "service_scope":         fld([],"missing","文档未提供服务范围明细",""),
-        "kpi_targets":          fld({},"missing","文档未提供KPI指标",""),
-        "penalty_rules":         fld([],"missing","文档未提供惩罚机制",""),
-        "peak_factor":           fld(None,"missing","文档未提供高峰系数",""),
+        "warehouse_area":          fld(None,"missing","文档未提供仓库面积","","P0",["cost_model","roi_analysis","layout_design","investment_plan"]),
+        "dc_count":             fld(None,"missing","文档未提供DC数量","","P0",["cost_model","layout_design","investment_plan"]),
+        "daily_orders":          fld(None,"missing","文档未提供日订单量","","P0",["cost_model","labor_plan","layout_design"]),
+        "sku_count":             fld(None,"missing","文档未提供SKU数量","","P0",["layout_design","automation_selection","labor_plan"]),
+        "inventory":             fld(None,"missing","文档未提供库存量","","P1",["layout_design","investment_plan","capacity_plan"]),
+        "automation_expectation": fld(None,"missing","文档未提供自动化期望","","P1",["automation_selection","solution_design"]),
+        "contract_years":        fld(None,"missing","文档未提供合同年限","","P1",["cost_model","roi_analysis","investment_plan"]),
+        "service_scope":          fld([],"missing","文档未提供服务范围明细","","P1",["solution_design","cost_model","automation_selection"]),
+        "kpi_targets":          fld({},"missing","文档未提供KPI指标","","P1",["solution_design","contract_review","risk_assessment"]),
+        "penalty_rules":          fld([],"missing","文档未提供惩罚机制","","P1",["contract_review","risk_assessment"]),
+        "peak_factor":            fld(None,"missing","文档未提供高峰系数","","P1",["layout_design","labor_plan","capacity_plan"]),
+        "labor_cost_level":      fld(None,"missing","文档未提供人工成本水平","","P2",["cost_model","labor_plan"]),
+        "budget_level":          fld(None,"missing","文档未提供预算水平","","P2",["cost_model","roi_analysis"]),
+        "industry":             fld(None,"missing","文档未提供行业信息","","P2",[]),
+        "region":              fld(None,"missing","文档未提供地区信息","","P2",[]),
+        "go_live_date":        fld(None,"missing","文档未提供上线日期","","P2",["project_plan"]),
+        "total_warehouse_area":  fld(None,"missing","文档未提供总仓库面积","","P0",["cost_model","layout_design","investment_plan"]),
         "extraction_confidence": meta.get("confidence", 0.0),
-        "missing_p0":            meta.get("missing_p0", []),
-        "missing_p1":            meta.get("missing_p1", []),
-        "analysis_report":        analysis_result.get("analysis_report", ""),
+        "missing_p0": meta.get("missing_p0", []),
+        "missing_p1": meta.get("missing_p1", []),
+        "analysis_report": analysis_result.get("analysis_report", ""),
+        "_schema_validation_errors": schema_errors,
     }
 
     dcs = s.get("s3_warehouse_dc_list", [])
@@ -229,118 +477,104 @@ def normalize_extracted_fields(analysis_result):
         areas = []
         for dc in dcs:
             if isinstance(dc, dict) and dc.get("area_sqm") is not None:
-                try: areas.append(int(float(dc["area_sqm"])))
-                except: pass
+                try:
+                    areas.append(int(float(dc["area_sqm"])))
+                except:
+                    pass
         if areas:
             total = sum(areas)
             all_have = all(
-                isinstance(dc.get("area_sqm"), (int, float)) and dc.get("area_sqm") is not None
-                for dc in dcs if isinstance(dc, dict)
+                (isinstance(dc.get("area_sqm"), (int, float)) and dc.get("area_sqm") is not None
+                 for dc in dcs if isinstance(dc, dict))
             )
             status = "explicit" if all_have else "partial"
-            basis = ("从s3_warehouse_dc_list提取，共" + str(len(dcs)) +
-                     "个仓库，总计" + str(total) + "平米")
-            p["total_warehouse_area"] = fld(total, status, basis, "仓库DC信息", "P0", ["cost_model", "layout_design", "investment_plan"])
-            p["warehouse_area"] = fld(total, status, basis, "仓库DC信息", "P0", ["cost_model", "roi_analysis", "layout_design", "investment_plan"])
-            dc_basis = ("从s3_warehouse_dc_list明确提取，共" +
-                        str(len(dcs)) + "个DC")
-            p["dc_count"] = fld(len(dcs), "explicit", dc_basis, "仓库DC信息", "P0", ["cost_model", "layout_design", "investment_plan"])
+            basis = "从s3_warehouse_dc_list提取，共" + str(len(dcs)) + "个仓库，" + str(len(areas)) + "个有面积，总计" + str(total) + "平米"
+            p["total_warehouse_area"] = fld(total, status, basis, "仓库DC信息", "P0", ["cost_model","layout_design","investment_plan"])
+            p["warehouse_area"] = fld(total, status, basis, "仓库DC信息", "P0", ["cost_model","roi_analysis","layout_design","investment_plan"])
+            p["dc_count"] = fld(len(dcs), "explicit", "从s3_warehouse_dc_list明确提取，共" + str(len(dcs)) + "个DC", "仓库DC信息", "P0", ["cost_model","layout_design","investment_plan"])
 
     svc = s.get("s2_service_scope", {})
     if isinstance(svc, dict):
         all_svc = []
         for key in ("warehousing", "distribution", "value_added"):
             items = svc.get(key, [])
-            if isinstance(items, list): all_svc.extend(items)
+            if isinstance(items, list):
+                all_svc.extend(items)
         if all_svc:
             uniq = list(set(all_svc))
-            svc_basis = ("从s2_service_scope提取，共" +
-                         str(len(uniq)) + "项服务")
-            p["service_scope"] = fld(uniq, "explicit", svc_basis, "服务范围", "P1", ["solution_design", "cost_model", "automation_selection"])
+            p["service_scope"] = fld(uniq, "explicit", "从s2_service_scope提取，共" + str(len(uniq)) + "项服务", "服务范围", "P1", ["solution_design","cost_model","automation_selection"])
 
     c9 = s.get("s9_contract", {})
     c11 = s.get("s11_risks", {})
     if isinstance(c9, dict) and c9.get("contract_years") is not None:
         cy = c9["contract_years"]
-        conflicts = [str(c) for c in c11.get("conflicting_clauses", [])
-                     if isinstance(c, dict) and any(x in str(c) for x in ("合同","年限","期"))]
+        conflicts = []
+        if isinstance(c11, dict):
+            for c in c11.get("conflicting_clauses", []):
+                if isinstance(c, dict) and any(x in str(c) for x in ("合同", "年限", "期")):
+                    conflicts.append(str(c))
         if conflicts:
-            p["contract_years"] = fld(None, "ambiguous",
-                "s9有值但s11发现冲突: " + conflicts[0], "合同周期与里程碑")
+            p["contract_years"] = fld(None, "ambiguous", "s9有值但s11发现冲突: " + conflicts[0], "合同周期与里程碑", "P1", ["cost_model","roi_analysis","investment_plan"])
         elif isinstance(cy, (int, float)) and 1 <= cy <= 20:
-            p["contract_years"] = fld(int(cy), "explicit",
-                "从s9_contract.contract_years明确提取，合同期" + str(int(cy)) + "年",
-                "合同周期与里程碑")
-        elif isinstance(cy, str) and cy not in ("未提供",""):
+            p["contract_years"] = fld(int(cy), "explicit", "从s9_contract.contract_years明确提取，合同期" + str(int(cy)) + "年", "合同周期与里程碑", "P1", ["cost_model","roi_analysis","investment_plan"])
+        elif isinstance(cy, str) and cy not in ("未提供", ""):
             m = re.search(r"(\d+)\s*年", cy)
             if m:
-                p["contract_years"] = fld(int(m.group(1)), "inferred",
-                    "从s9_contract.contract_years字符串解析: " + cy, "合同周期与里程碑")
+                p["contract_years"] = fld(int(m.group(1)), "inferred", "从s9_contract.contract_years字符串解析: " + cy, "合同周期与里程碑", "P1", ["cost_model","roi_analysis"])
 
     kpis = s.get("s7_kpi_sla", [])
     if isinstance(kpis, list) and kpis:
         kd = {}
         for kpi in kpis:
             if isinstance(kpi, dict) and kpi.get("indicator"):
-                kd[kpi["indicator"]] = {
-                    "target": kpi.get("target"),
-                    "penalty": kpi.get("penalty","无明确惩罚")
-                }
+                kd[kpi["indicator"]] = {"target": kpi.get("target"), "penalty": kpi.get("penalty", "无明确惩罚")}
         if kd:
-            kpi_basis = ("从s7_kpi_sla提取，共" + str(len(kd)) + "项KPI")
-            p["kpi_targets"] = fld(kd, "explicit", kpi_basis, "KPI/SLA要求", "P1", ["solution_design", "contract_review", "risk_assessment"])
+            p["kpi_targets"] = fld(kd, "explicit", "从s7_kpi_sla提取，共" + str(len(kd)) + "项KPI", "KPI/SLA要求", "P1", ["solution_design","contract_review","risk_assessment"])
             for kpi in kpis:
-                ind = kpi.get("indicator","")
-                if any(x in ind for x in ("日出库","日均","日订单","出库量","订单量")):
+                ind = kpi.get("indicator", "")
+                if any(x in ind for x in ("日出库", "日均", "日订单", "出库量", "订单量")):
                     tgt = kpi.get("target")
                     if tgt is not None:
                         try:
-                            num = int(float(re.sub(r"[^\d.]","",str(tgt))))
+                            cleaned = re.sub(r"[^\d.]", "", str(tgt))
+                            num = int(float(cleaned))
                             if num > 0:
-                                p["daily_orders"] = fld(num, "inferred",
-                                    "从s7_kpi_sla指标" + ind + "推断，目标值: " + str(tgt),
-                                    "KPI/SLA要求")
+                                p["daily_orders"] = fld(num, "inferred", "从s7_kpi_sla指标" + ind + "推断，目标值: " + str(tgt), "KPI/SLA要求", "P0", ["cost_model","labor_plan","layout_design"])
                                 break
-                        except: pass
+                        except:
+                            pass
 
     mc = s.get("s10_mandatory_clauses", [])
     if isinstance(mc, list) and mc:
-        clauses = [m.get("clause","") for m in mc if isinstance(m,dict) and m.get("clause")]
+        clauses = [m.get("clause", "") for m in mc if isinstance(m, dict) and m.get("clause")]
         if clauses:
-            mc_basis = ("从s10_mandatory_clauses提取，共" +
-                        str(len(clauses)) + "条强制条款")
-            p["penalty_rules"] = fld(clauses, "explicit", mc_basis, "强制条款否决项", "P1", ["contract_review", "risk_assessment"])
+            p["penalty_rules"] = fld(clauses, "explicit", "从s10_mandatory_clauses提取，共" + str(len(clauses)) + "条强制条款", "强制条款否决项", "P1", ["contract_review","risk_assessment"])
 
     ops = s.get("s6_operations", {})
     if isinstance(ops, dict) and ops.get("peak_season_notes"):
         notes = str(ops["peak_season_notes"])
-        if notes not in ("未提供",""):
+        if notes not in ("未提供", ""):
             m = re.search(r"(\d+(?:\.\d+)?)\s*[~-]?(?:(?:~|～)?(\d+(?:\.\d+)?))?\s*倍", notes)
             if m:
-                p["peak_factor"] = fld(float(m.group(1)), "inferred",
-                    "从s6_operations.peak_season_notes推断高峰系数: " + notes,
-                    "人员与运营要求")
+                p["peak_factor"] = fld(float(m.group(1)), "inferred", "从s6_operations.peak_season_notes推断高峰系数: " + notes, "人员与运营要求", "P1", ["layout_design","labor_plan","capacity_plan"])
 
     s12 = s.get("s12_missing", {})
     if isinstance(s12, dict):
         for ass in s12.get("assumptions", []):
             if isinstance(ass, dict):
-                item = ass.get("item","")
-                basis = ass.get("basis","")
-                conf = ass.get("confidence","低")
-                status = "inferred" if conf in ("高","中") else "partial"
-                if any(x in item for x in ("面积","area")):
+                item = ass.get("item", "")
+                basis = ass.get("basis", "")
+                conf = ass.get("confidence", "低")
+                status = "inferred" if conf in ("高", "中") else "partial"
+                if any(x in item for x in ("面积", "area")):
                     m2 = re.search(r"(\d+)", item)
                     if m2:
-                        p["warehouse_area"] = fld(int(m2.group(1)), status,
-                            "s12_missing假设: " + item + "，依据: " + basis + "，置信度: " + conf,
-                            "缺失信息与待确认项")
-                elif any(x in item for x in ("订单","日均","日出库")):
+                        p["warehouse_area"] = fld(int(m2.group(1)), status, "s12_missing假设: " + item + "，依据: " + basis + "，置信度: " + conf, "缺失信息与待确认项", "P0", ["cost_model","layout_design"])
+                elif any(x in item for x in ("订单", "日均", "日出库")):
                     m2 = re.search(r"(\d+)", item)
                     if m2:
-                        p["daily_orders"] = fld(int(m2.group(1)), status,
-                            "s12_missing假设: " + item + "，依据: " + basis + "，置信度: " + conf,
-                            "缺失信息与待确认项")
+                        p["daily_orders"] = fld(int(m2.group(1)), status, "s12_missing假设: " + item + "，依据: " + basis + "，置信度: " + conf, "缺失信息与待确认项", "P0", ["cost_model","labor_plan"])
+
     return p
 
 def compute_analysis_quality_score(profile):
