@@ -367,7 +367,7 @@ def validate_batch(inputs: dict) -> tuple[list[dict], list[dict]]:
                 "field_key": field_key,
                 "value": result.normalized_value,
                 "unit": result.normalized_unit,
-                "source_type": "manual_input",
+                "source_type": "manual_confirmed",
                 "status": "manual_confirmed",
                 "comment": input_data.get("comment", ""),
                 "updated_at": datetime.utcnow().isoformat(),

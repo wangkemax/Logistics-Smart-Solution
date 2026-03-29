@@ -380,6 +380,9 @@ def get_clarification_tasks(pipeline_id: str) -> dict:
         # Get readiness_score
         readiness_score = readiness.get("readiness_score", 0.0) if isinstance(readiness, dict) else 0.0
 
+        # Load resolved_fields for fallback task generation
+        resolved_fields = _parse_json(run.resolved_fields_json) or {}
+
         task_list = build_clarification_tasks(
             pipeline_id=pipeline_id,
             readiness={"level": readiness_level, "readiness_score": readiness_score},
@@ -387,6 +390,7 @@ def get_clarification_tasks(pipeline_id: str) -> dict:
             normalized_fields=normalized_fields,
             manual_inputs=manual_inputs,
             clarification_questions=clarification_questions,
+            resolved_fields=resolved_fields,
         )
 
         return {"success": True, "tasks": task_list.to_dict()}
