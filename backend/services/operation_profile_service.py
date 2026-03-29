@@ -82,6 +82,8 @@ def calculate_service_complexity(service_scope: dict) -> tuple[int, str]:
             level = name
             break
 
+    # Cap at 20 — complexity ceiling for display normalization
+    score = min(score, 20)
     return score, level
 
 

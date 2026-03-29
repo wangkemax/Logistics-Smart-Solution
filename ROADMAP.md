@@ -371,6 +371,11 @@ QA Agent → Quality Gate
 ---
 
 ## v0.7 — Base Solution Generator ✅
+
+> **Base Solution 是系统中的正式中间产物。**
+> 所有后续能力（Optimization / Automation / Proposal Studio）都应建立在 Base Solution 之上，
+> 而不是绕过它。Base Solution 是唯一可信的"当前项目状态"来源。
+
 ### v0.7.0 — Base Solution Core ✅
 - [x] solution_schema.py: BaseSolution + 8个section Pydantic模型
 - [x] solution_context_builder.py: 统一context构建器
@@ -381,17 +386,29 @@ QA Agent → Quality Gate
 - [x] Frontend: 🧩 Base Solution Studio页面（8大section完整展示）
 - [x] DB: PipelineRun.base_solution_json持久化
 
-### v0.7.1 — Integration Validation ✅
-- [x] 完整链路验证: API → DB → 前端渲染
-- [x] 保时捷PDC真实数据完整集成测试通过
-- [x] 12项服务 / 6个团队模块 / 5个流程 / 14项KPI / 3阶段实施
-- [x] Narrative边界质量验证（无凭空新增事实）
+### v0.7.1 — Base Solution Quality Patch ✅
+- [x] Markdown导出端点: GET /api/solution/base/{pipeline_id}/markdown
+- [x] Frontend: 📄导出Markdown按钮 + 空状态提示
+- [x] 修复: complexity score封顶20分（temperature_control双重计数bug）
+- [x] 样板案例#1: 保时捷PDC（仓配一体化 / high complexity）
+- [x] 样板案例#2: 医药冷链仓配中心（cold_chain / 20/20）
 
 ## v0.8 — Automation & Optimization Solutions（规划中）
-- [ ] Automation Solution Generator
-- [ ] Optimization Solution Generator
-- [ ] Solution comparison matrix
 
-## v0.9 — Tender Writer（规划中）
-- [ ] Automated proposal PDF generation
-- [ ] Multi-scenario tender document output
+> **建立在 Base Solution 之上。** Optimization 和 Automation 方案是对 Base Solution 的增强，不是独立生成。
+
+目标：
+- [ ] Optimization Solution Generator — 基于 Base Solution 的优化版本（效率/成本/人力优化）
+- [ ] Automation Fit Analyzer — 在 Base Solution 流程基础上评估自动化适配度
+- [ ] Solution Compare — Base / Optimization / Automation 三方案对比矩阵
+
+不做什么（v0.8边界）：
+- 不做正式投标书全文生成（→ v0.9）
+- 不做PPT自动生成（→ v0.9）
+- 不做多页报告（→ v0.9）
+
+## v0.9 — Proposal Studio（规划中）
+- [ ] 客户版方案文本生成（基于Base Solution + Optimization）
+- [ ] 正式报告结构（摘要 / 方案 / KPI / 风险 / 实施计划）
+- [ ] PPT大纲自动生成
+- [ ] DOCX/PDF导出
