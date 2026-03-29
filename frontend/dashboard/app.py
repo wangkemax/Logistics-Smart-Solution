@@ -2879,6 +2879,203 @@ elif app_mode == "💬 Clarification Workspace":
                 st.markdown("##### ⚙️ 运营模型（自动推导）")
                 st.info("📌 完成服务范围补录后，系统将自动推导运营模型。")
 
+    # =============================================================================
+    # v0.7: Base Solution Studio
+    # =============================================================================
+    if selected_pid:
+        st.divider()
+        st.markdown("### 🧩 基础方案（Base Solution Studio）")
+        st.caption("基于服务范围 · 运营模型 · 成本模式自动生成 | v0.7")
+
+        # Generate button
+        sol_col1, sol_col2 = st.columns([1, 4])
+        with sol_col1:
+            generate_solution_clicked = st.button("🧩 生成基础方案", type="primary", width="stretch")
+
+        solution_data = None
+        load_error = None
+
+        # Try to load existing solution first
+        try:
+            existing_resp = requests.get(f"{API}/api/solution/base/{selected_pid}", timeout=10)
+            if existing_resp.status_code == 200:
+                solution_data = existing_resp.json()
+        except Exception:
+            pass
+
+        # Generate new solution if button clicked
+        if generate_solution_clicked:
+            with st.spinner("正在生成基础方案..."):
+                try:
+                    gen_resp = requests.post(f"{API}/api/solution/base/{selected_pid}", json={}, timeout=30)
+                    if gen_resp.status_code == 200:
+                        solution_data = gen_resp.json()
+                        st.success("✅ 基础方案生成完成")
+                    else:
+                        load_error = f"生成失败: {gen_resp.status_code}"
+                except Exception as e:
+                    load_error = f"请求异常: {e}"
+
+        if load_error:
+            st.error(load_error)
+
+        # Display solution if available
+        if solution_data:
+            sol = solution_data.get("solution", {})
+            ns = sol.get("narrative_sections", {})
+            pf = sol.get("project_fit", {})
+            sd = sol.get("service_design", {})
+            od = sol.get("organization_design", {})
+            pd = sol.get("process_design", {})
+            kf = sol.get("kpi_framework", {})
+            impl = sol.get("implementation_focus", {})
+            rc = sol.get("risk_and_controls", {})
+            cml = sol.get("cost_model_linkage", {})
+
+            OP_TYPE_LABELS = {
+                "warehouse_distribution": "仓配一体化",
+                "cold_chain": "冷链仓储",
+                "bonded_warehouse_distribution": "保税仓配",
+                "distribution_only": "纯配送",
+                "warehouse_inbound_only": "仓储入库",
+                "warehouse_outbound_only": "仓储出库",
+                "value_added_services": "增值服务",
+                "custom": "综合物流",
+                "unknown": "待定",
+            }
+
+            st.divider()
+            # A1: Summary card
+            st.markdown("##### 📋 方案摘要")
+            s1, s2, s3, s4 = st.columns(4)
+            with s1:
+                st.metric("方案名称", sol.get("title", "基础仓配运营方案"))
+            with s2:
+                st.metric("运营类型", OP_TYPE_LABELS.get(pf.get("operation_type", ""), pf.get("operation_type", "—")))
+            with s3:
+                cl = pf.get("complexity_level", "—")
+                cs = pf.get("complexity_score", 0)
+                st.metric("复杂度", f"{cl.title() if cl else '—'} ({cs}/20)")
+            with s4:
+                cm = cml.get("current_mode", "unknown")
+                cm_labels = {"blocked": "🔴阻塞", "range_estimate": "🟡区间", "full_calc": "🟢完整"}
+                st.metric("测算模式", cm_labels.get(cm, cm))
+            st.info(ns.get("executive_summary", sol.get("summary", "正在生成..."))[:500])
+
+            # A2: Service Design
+            if sd.get("included_services"):
+                st.divider()
+                st.markdown("##### 📦 服务范围设计")
+                svc_by_cat = {}
+                for svc in sd.get("included_services", []):
+                    cat = svc.get("category", "")
+                    svc_by_cat.setdefault(cat, []).append(svc.get("label", ""))
+                CAT_EMOJI = {"inbound": "📥", "storage": "📦", "outbound": "📤", "value_added": "🔧", "support": "⚙️"}
+                for cat, svcs in svc_by_cat.items():
+                    emoji = CAT_EMOJI.get(cat, "📌")
+                    st.markdown(f"{emoji} **{cat.upper()}**: {', '.join(svcs)}")
+                if sd.get("excluded_or_unconfirmed"):
+                    with st.expander("⚠️ 未纳入/未确认服务", expanded=False):
+                        for s in sd.get("excluded_or_unconfirmed", [])[:10]:
+                            st.markdown(f"• {s}")
+                if sd.get("narrative"):
+                    st.caption(sd.get("narrative"))
+
+            # A3: Organization Design
+            if od.get("team_modules"):
+                st.divider()
+                st.markdown("##### 🧑‍🤝‍🧑 组织模块设计")
+                mod_cols = st.columns(min(len(od.get("team_modules", [])), 4))
+                for idx, tm in enumerate(od.get("team_modules", [])):
+                    with mod_cols[idx % 4]:
+                        st.markdown(f"✅ **{tm.get('label', tm.get('module_key', ''))}**")
+                        for resp in tm.get("primary_responsibilities", [])[:2]:
+                            st.caption(f"  • {resp}")
+                if od.get("staffing_logic"):
+                    st.caption(f"人员逻辑: {od.get('staffing_logic')}")
+
+            # A4: Process Design
+            if pd.get("processes"):
+                st.divider()
+                st.markdown("##### 🔄 核心流程设计")
+                proc_cols = st.columns(min(len(pd.get("processes", [])), 2))
+                PROC_EMOJI = {
+                    "receiving_process": "📥", "outbound_process": "📤",
+                    "storage_management": "📦", "return_process": "↩️",
+                    "va_process": "🔧", "temperature_control": "❄️",
+                    "support_process": "⚙️",
+                }
+                for idx, proc in enumerate(pd.get("processes", [])):
+                    with proc_cols[idx % 2]:
+                        emoji = PROC_EMOJI.get(proc.get("process_key", ""), "📌")
+                        with st.expander(f"{emoji} **{proc.get('label', proc.get('process_key', ''))}** — {proc.get('step_count', 0)}步", expanded=False):
+                            if proc.get("description"):
+                                st.caption(proc.get("description"))
+                            for step in proc.get("steps", [])[:6]:
+                                st.markdown(f"  `{step.get('step_id','')}` {step.get('label','—')} → {step.get('role','—')}")
+                            if len(proc.get("steps", [])) > 6:
+                                st.caption(f"  ...共{proc.get('step_count', 0)}步")
+                            if proc.get("kpis"):
+                                st.markdown(f"  **KPI**: {', '.join(proc.get('kpis', [])[:3])}")
+
+            # A5: KPI Framework
+            if kf.get("inbound_kpis") or kf.get("outbound_kpis") or kf.get("inventory_kpis"):
+                st.divider()
+                st.markdown("##### 📊 KPI 框架")
+                kpi_groups = [
+                    ("📥 入库KPI", kf.get("inbound_kpis", [])),
+                    ("📤 出库KPI", kf.get("outbound_kpis", [])),
+                    ("📦 库内KPI", kf.get("inventory_kpis", [])),
+                    ("⚙️ 支持KPI", kf.get("support_kpis", [])),
+                ]
+                for gname, kpis in kpi_groups:
+                    if kpis:
+                        st.markdown(f"**{gname}**")
+                        kpi_cols = st.columns(min(len(kpis), 3))
+                        for idx2, kpi in enumerate(kpis):
+                            with kpi_cols[idx2 % 3]:
+                                sla = "🏆" if kpi.get("is_sla_candidate") else ""
+                                st.markdown(f"• `{kpi.get('name','—')}` = {kpi.get('target','—')} {sla}")
+
+            # A6: Implementation Phases
+            if impl.get("phases"):
+                st.divider()
+                st.markdown("##### 🚀 实施阶段")
+                for ph in impl.get("phases", []):
+                    with st.expander(f"**{ph.get('phase','Phase')}** — {ph.get('name','—')} (~{ph.get('duration_months', 0)}个月)", expanded=False):
+                        st.markdown(f"*{ph.get('focus','—')}*")
+                        for action in ph.get("key_actions", []):
+                            st.markdown(f"  • {action}")
+
+            # A7: Risks
+            if rc.get("risks"):
+                st.divider()
+                st.markdown("##### ⚠️ 风险与控制")
+                sev_emoji = {"high": "🔴", "medium": "🟡", "low": "🟢"}
+                for rk in rc.get("risks", []):
+                    emoji = sev_emoji.get(rk.get("severity", ""), "⚪")
+                    with st.expander(f"{emoji} {rk.get('risk_id','R-?')} — {rk.get('description','—')[:40]}...", expanded=False):
+                        st.markdown(f"**类别:** {rk.get('category','—')}")
+                        st.markdown(f"**控制措施:** {rk.get('control_measure','—')}")
+                        st.markdown(f"**缓解动作:** {rk.get('mitigation_action','—')}")
+
+            # A8: Cost Model Linkage
+            if cml.get("current_mode"):
+                st.divider()
+                st.markdown("##### 💰 成本测算衔接")
+                cm = cml.get("current_mode", "unknown")
+                cm_style = {"blocked": "error", "range_estimate": "warning", "full_calc": "info"}
+                st_message = getattr(st, cm_style.get(cm, "info"))
+                st_message(f"**当前模式:** {cm} — {cml.get('mode_explanation', '')}")
+                if cml.get("missing_for_full_calc"):
+                    st.markdown("**进入完整测算还需:**")
+                    for m in cml.get("missing_for_full_calc", []):
+                        st.markdown(f"  • {m}")
+                if cml.get("assumptions_used"):
+                    st.markdown(f"**当前假设项:** {len(cml.get('assumptions_used', []))}项")
+                if cml.get("narrative"):
+                    st.caption(cml.get("narrative"))
+
 
 # =============================================================================
 # Clarification Task Editor Helper

@@ -361,14 +361,37 @@ QA Agent → Quality Gate
 - [x] 10 new tests (process_modules coverage)
 - [x] docs/architecture/logistics_smart_solution_architecture.md
 
+### v0.6.7 — Integration Validation Patch ✅
+- [x] DB migration: operation_profile_json + base_solution_json columns added
+- [x] Fix: manual_inputs字符串覆盖structured service_scope导致op推导失败
+- [x] Fix: narrative重复文字（服务范围覆盖、服务类型标签）
+- [x] Fix: full_calc模式下cost narrative错误提示"补录后可进入full_calc"
+- [x] Fix: KPI narrative结尾重复句子
+
 ---
 
-## v0.7 — Solution Studio（规划中）
-- [ ] Base Solution Generator
+## v0.7 — Base Solution Generator ✅
+### v0.7.0 — Base Solution Core ✅
+- [x] solution_schema.py: BaseSolution + 8个section Pydantic模型
+- [x] solution_context_builder.py: 统一context构建器
+- [x] solution_section_builders.py: 8个section结构化生成器
+- [x] solution_narrative_builder.py: 中文业务表述生成器
+- [x] base_solution_generator.py: 总orchestrator
+- [x] solution_api.py: POST/GET /api/solution/base/{pipeline_id}
+- [x] Frontend: 🧩 Base Solution Studio页面（8大section完整展示）
+- [x] DB: PipelineRun.base_solution_json持久化
+
+### v0.7.1 — Integration Validation ✅
+- [x] 完整链路验证: API → DB → 前端渲染
+- [x] 保时捷PDC真实数据完整集成测试通过
+- [x] 12项服务 / 6个团队模块 / 5个流程 / 14项KPI / 3阶段实施
+- [x] Narrative边界质量验证（无凭空新增事实）
+
+## v0.8 — Automation & Optimization Solutions（规划中）
 - [ ] Automation Solution Generator
 - [ ] Optimization Solution Generator
 - [ ] Solution comparison matrix
 
-## v0.8 — Tender Writer（规划中）
+## v0.9 — Tender Writer（规划中）
 - [ ] Automated proposal PDF generation
 - [ ] Multi-scenario tender document output
