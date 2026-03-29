@@ -244,6 +244,11 @@ def build_clarification_tasks(
                 continue
             fdef = FIELD_REGISTRY.get(fkey)
             display_name = fdef.display_name if fdef else fkey
+            # Attach SERVICE_MATRIX for service_scope so frontend can render the matrix
+            svc_matrix = None
+            if fkey == "service_scope":
+                from backend.services.tender_schema import SERVICE_MATRIX
+                svc_matrix = SERVICE_MATRIX
             task = ClarificationTask(
                 question_id=f"Q-AUTO-{fkey}",
                 field_key=fkey,
@@ -257,6 +262,7 @@ def build_clarification_tasks(
                 acceptable_units=_get_acceptable_units(fkey),
                 current_status="resolved" if fkey in manual_inputs else "open",
                 blocking_impact="P0关键字段，缺失将阻塞成本测算",
+                service_matrix=svc_matrix,
             )
             must_answer.append(task)
 
