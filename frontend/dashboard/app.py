@@ -483,7 +483,8 @@ def _safe_best_result(results: dict) -> dict:
     """Safely extract best result from pipeline results. Returns {} if empty."""
     if not results:
         return {}
-    comparison = results.get("financial_comparison") or []
+    # Backend returns "comparisons", not "financial_comparison"
+    comparison = results.get("comparisons") or results.get("financial_comparison") or []
     if comparison and isinstance(comparison, list):
         for item in comparison:
             if item.get("is_best") is True:
@@ -1366,21 +1367,25 @@ elif app_mode == "🚀 Pipeline Run":
                                 st.caption(f"{verdict or status}")
                             with cols_h[2]:
                                 if st.button("加载", key=f"load_{pid}", width='stretch'):
-                                    # Load this pipeline into session
                                     st.session_state._pipeline_id = pid
                                     st.session_state.pipeline_state = "done"
-                                    # Fetch full data
                                     try:
                                         full = requests.get(f"{API_BASE_URL}/api/pipeline/status/{pid}", timeout=10)
                                         if full.status_code == 200:
                                             fd = full.json()
+                                            st.session_state.pipeline_result = fd
                                             st.session_state.pipeline_profile = fd.get("profile", {})
                                             st.session_state.pipeline_recs = fd.get("recommendations", [])
                                             st.session_state.pipeline_comparisons = fd.get("comparisons", [])
+                                            st.session_state.pipeline_stages = fd.get("stages", [])
+                                            st.session_state.pipeline_qa_verdict = fd.get("qa_verdict", "UNKNOWN")
+                                            st.session_state.pipeline_qa_issues = fd.get("qa_issues", [])
                                             st.session_state.pipeline_pdf_url = fd.get("pdf_download_url")
+                                            st.session_state.pipeline_pdf_bytes = None
+                                            st.session_state.pipeline_retry_history = fd.get("retry_history", [])
                                             st.rerun()
                                     except Exception:
-                                        pass
+                                        st.error("无法加载任务详情，请检查后端是否运行")
                     else:
                         st.caption("暂无历史任务")
                 else:
