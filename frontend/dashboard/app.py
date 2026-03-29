@@ -269,7 +269,7 @@ def _submit_qa_correction(pipeline_id: str, overrides: dict) -> tuple[bool, str]
         if resp.status_code == 200:
             return True, "✅ 已提交修正，Pipeline 正在重新运行…"
         else:
-            return False, f"❌ 重试失败 [{resp.status_code}]: {resp.text[:120]}"
+            return False, f"❌ 重试失败 [{resp.status_code}]: {(resp.text or "")[:120]}"
     except Exception as e:
         return False, f"❌ 请求失败: {e}"
 
@@ -634,7 +634,7 @@ def _render_stage_retry_section(pipeline_id: str, stages: list, key_prefix: str 
             selected_stage = st.selectbox(
                 "选择阶段",
                 options=[sn for sn, _ in stage_options],
-                format_func=lambda sn: stage_labels.get(sn, sn) or str(sn),
+                format_func=lambda sn: (stage_labels.get(sn, sn) if sn else "未知阶段"),
                 index=default_idx,
                 key=f"from_stage_select_{key_prefix}{pipeline_id}",
                 label_visibility="collapsed",
@@ -642,7 +642,7 @@ def _render_stage_retry_section(pipeline_id: str, stages: list, key_prefix: str 
         with retry_from_c2:
             retry_from_key = f"retry_from_{key_prefix}{pipeline_id}"
             if st.button("🚀 执行重试", key=retry_from_key, type="primary", width='stretch'):
-                with st.spinner(f"正在从「{stage_labels.get(selected_stage, selected_stage) or selected_stage}」重试..."):
+                with st.spinner(f"正在从「{(stage_labels.get(selected_stage, selected_stage) if selected_stage else selected_stage or '该阶段')}」重试..."):
                     try:
                         resp = requests.post(
                             f"{API_BASE_URL}/api/pipeline/{pipeline_id}/retry",
@@ -1295,7 +1295,7 @@ elif app_mode == "🚀 Pipeline Run":
                             if created:
                                 created = created[11:16]  # HH:MM
                             dur_str = f"{dur:.1f}s" if dur else "—"
-                            icon = "✅" if status == "COMPLETE" else "❌" if status == "FAILED" else "⏳"
+                            icon = "✅" if status == "DONE" else "❌" if status == "FAILED" else "⏳"
                             cols_h = st.columns([3, 1, 1])
                             with cols_h[0]:
                                 st.caption(f"{icon} `{pid}`")
@@ -1441,7 +1441,7 @@ elif app_mode == "🚀 Pipeline Run":
 
                 st.session_state._skip_correction = False
 
-                if pipeline_status == "COMPLETE":
+                if pipeline_status == "DONE":
                     st.success("✅ Pipeline 执行完成！")
                     st.session_state.pipeline_profile = status_data.get("profile", {})
                     st.session_state.pipeline_recs = status_data.get("recommendations", [])
