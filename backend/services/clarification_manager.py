@@ -235,6 +235,31 @@ def build_clarification_tasks(
                     )
                     must_answer.append(task)
 
+    # ---- Fallback: if pipeline is blocked but no tasks were generated (e.g. old pipeline
+    #     with no structured extraction data), generate tasks for all missing P0 fields ----
+    if not must_answer and recommended_mode == "blocked":
+        from backend.services.tender_schema import get_p0_fields, FIELD_REGISTRY
+        for fkey in get_p0_fields():
+            if any(t.field_key == fkey for t in conflict_items):
+                continue
+            fdef = FIELD_REGISTRY.get(fkey)
+            display_name = fdef.display_name if fdef else fkey
+            task = ClarificationTask(
+                question_id=f"Q-AUTO-{fkey}",
+                field_key=fkey,
+                display_name=display_name,
+                priority="P0",
+                category="missing",
+                title=f"请补充「{display_name}」",
+                question_text=f"请提供「{display_name}」的具体数据，以便进入成本测算。",
+                guidance="该字段为P0关键字段，缺失将导致系统无法进入任何形式的成本测算。",
+                expected_input_type=_get_input_type(fkey),
+                acceptable_units=_get_acceptable_units(fkey),
+                current_status="resolved" if fkey in manual_inputs else "open",
+                blocking_impact="P0关键字段，缺失将阻塞成本测算",
+            )
+            must_answer.append(task)
+
     total_count = (len(must_answer) + len(should_answer) + len(nice_to_have)
                    + len(conflict_items) + len(assumption_review))
 
