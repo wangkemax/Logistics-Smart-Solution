@@ -93,10 +93,10 @@ MANUAL_INPUT_DEFINITIONS: dict[str, InputDefinition] = {
     ),
     "service_scope": InputDefinition(
         field_key="service_scope",
-        display_name="服务范围",
-        input_type="text",
+        display_name="服务范围矩阵",
+        input_type="service_scope_matrix",  # v0.6.4: structured matrix
         required_for_p0=True,
-        description="仓储、出库配送、增值服务各自的报价结构要求。",
+        description="入库/存储/出库/增值服务/支持服务的结构化矩阵。从Clarification Workspace勾选。",
     ),
     "sku_count": InputDefinition(
         field_key="sku_count",
@@ -304,6 +304,30 @@ def validate_manual_input(
         return ValidationResult(
             valid=True,
             normalized_value=str(value).strip(),
+            normalized_unit=None,
+        )
+
+    # v0.6.4: service_scope_matrix — structured dict {category: {service: bool}}
+    elif definition.input_type == "service_scope_matrix":
+        if not isinstance(value, dict):
+            return ValidationResult(
+                valid=False,
+                normalized_value=None,
+                normalized_unit=None,
+                errors=[f"service_scope 必须为结构化矩阵对象，实际类型: {type(value).__name__}"],
+            )
+        # Count selected services
+        total = sum(sum(v.values()) for v in value.values() if isinstance(v, dict))
+        if total == 0:
+            return ValidationResult(
+                valid=False,
+                normalized_value=None,
+                normalized_unit=None,
+                errors=["请至少选择一项服务"],
+            )
+        return ValidationResult(
+            valid=True,
+            normalized_value=value,
             normalized_unit=None,
         )
 

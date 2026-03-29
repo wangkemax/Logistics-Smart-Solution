@@ -123,7 +123,7 @@ _ANALYSIS_PROMPT = (
     "```json\n"
     '{\n'
     '  "s1_project_overview": {"client_name":"","contract_period":"","bid_scope":"","payment_days":null,"tax_note":""},\n'
-    '  "s2_service_scope": {"warehousing":[],"distribution":[],"value_added":[]},\n'
+    '  "s2_service_scope": {"inbound":{"receiving":false,"unloading":false,"quality_check":false,"putaway":false},"storage":{"pallet_storage":false,"bin_storage":false,"temperature_control":false,"bonded_storage":false},"outbound":{"picking":false,"packing":false,"labeling":false,"loading":false,"shipping":false},"value_added":{"kitting":false,"repack":false,"light_assembly":false,"return_handling":false,"cycle_count":false},"support":{"inventory_reporting":false,"system_integration":false,"data_reporting":false}},\n'
     '  "s3_warehouse_dc_list": [{"code":"","name":"","area_sqm":null,"daily_capacity":null,"notes":""}],\n'
     '  "s4_business_process": {"inbound":null,"outbound":null,"returns":null},\n'
     '  "s5_systems": {"required_systems":[],"integration_requirements":null},\n'
@@ -356,20 +356,42 @@ def normalize_extracted_fields(analysis_result: dict) -> dict:
                                   "仓库DC信息", "P0",
                                   ["cost_model", "layout_design", "investment_plan"])
 
-    # --- Extract from s2_service_scope ---
+    # --- Extract from s2_service_scope (v0.6.4 structured matrix) ---
     svc = s.get("s2_service_scope", {})
+    # Support both new structured format and legacy flat format for backward compat
     if isinstance(svc, dict):
-        all_svc = []
-        for key in ("warehousing", "distribution", "value_added"):
-            items = svc.get(key, [])
-            if isinstance(items, list):
-                all_svc.extend(items)
-        if all_svc:
-            uniq = list(set(all_svc))
-            p["service_scope"] = fld(uniq, "explicit",
-                                      f"从s2_service_scope提取，共{len(uniq)}项服务",
-                                      "服务范围", "P1",
-                                      ["solution_design", "cost_model", "automation_selection"])
+        # New structured format: {inbound: {svc: bool}, storage: {...}, ...}
+        if any(k in svc for k in ("inbound", "storage", "outbound", "value_added", "support")):
+            # Count selected services
+            total = 0
+            selected = {}
+            for category, services in svc.items():
+                if isinstance(services, dict):
+                    cat_selected = [k for k, v in services.items() if v]
+                    selected[category] = cat_selected
+                    total += len(cat_selected)
+            if total > 0:
+                p["service_scope"] = fld(
+                    selected, "explicit",
+                    f"从s2_service_scope提取，共{total}项服务被勾选",
+                    "服务范围", "P0",
+                    ["solution_design", "cost_model", "automation_selection", "labor_model"]
+                )
+        # Legacy flat format: {warehousing: [], distribution: [], value_added: []}
+        else:
+            all_svc = []
+            for key in ("warehousing", "distribution", "value_added"):
+                items = svc.get(key, [])
+                if isinstance(items, list):
+                    all_svc.extend(items)
+            if all_svc:
+                uniq = list(set(all_svc))
+                p["service_scope"] = fld(
+                    uniq, "explicit",
+                    f"从s2_service_scope提取（旧格式兼容），共{len(uniq)}项服务",
+                    "服务范围", "P0",
+                    ["solution_design", "cost_model", "automation_selection"]
+                )
 
     # --- Extract from s9_contract ---
     c9 = s.get("s9_contract", {})

@@ -44,6 +44,7 @@ class ClarificationTask:
     example_answer: str = ""
     current_value: Optional[str] = None   # what system currently has
     conflict_candidates: list = field(default_factory=list)  # for ambiguous fields
+    service_matrix: Optional[dict] = None  # v0.6.4: structured service scope matrix
 
     def to_dict(self) -> dict:
         return {
@@ -63,6 +64,7 @@ class ClarificationTask:
             "example_answer": self.example_answer,
             "current_value": self.current_value,
             "conflict_candidates": self.conflict_candidates,
+            "service_matrix": self.service_matrix,
         }
 
 
@@ -211,6 +213,11 @@ def build_clarification_tasks(
                 if not any(t.field_key == fkey for t in must_answer + conflict_items):
                     fdef = FIELD_REGISTRY.get(fkey)
                     display_name = fdef.display_name if fdef else fkey
+                    # v0.6.4: attach SERVICE_MATRIX for service_scope
+                    svc_matrix = None
+                    if fkey == "service_scope":
+                        from backend.services.tender_schema import SERVICE_MATRIX
+                        svc_matrix = SERVICE_MATRIX
                     task = ClarificationTask(
                         question_id=f"Q-AUTO-{fkey}",
                         field_key=fkey,
@@ -224,6 +231,7 @@ def build_clarification_tasks(
                         acceptable_units=_get_acceptable_units(fkey),
                         current_status="resolved" if fkey in manual_inputs else "open",
                         blocking_impact=req.get("impact", ""),
+                        service_matrix=svc_matrix,
                     )
                     must_answer.append(task)
 
@@ -288,8 +296,10 @@ def _get_current_value(field_key: str, normalized_fields: dict, manual_inputs: d
 
 def _get_input_type(field_key: str) -> str:
     """Map field_key to expected input type for frontend."""
-    text_fields = {"service_scope", "kpi_targets", "penalty_rules"}
     choice_fields = {"labor_cost_level", "automation_expectation", "region", "industry"}
+    text_fields = {"kpi_targets", "penalty_rules"}  # service_scope now uses matrix
+    if field_key == "service_scope":
+        return "service_scope_matrix"
     if field_key in text_fields:
         return "text"
     if field_key in choice_fields:
