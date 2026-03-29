@@ -7,6 +7,280 @@ from typing import Optional
 PROJECT_ROOT = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
+
+# =============================================================================
+# Field Registry — Canonical field metadata
+# =============================================================================
+"""
+Field Registry
+==============
+All extractable fields are defined here with their canonical metadata.
+This is the single source of truth for:
+  - Field display names and descriptions
+  - Priority (P0/P1/P2) and downstream impact
+  - Mapping between tender section labels and field keys
+  - Missing item label → field key resolution
+Usage:
+  from backend.services.tender_understanding import FIELD_REGISTRY
+  field = FIELD_REGISTRY.get("warehouse_area")
+  print(field.display_name)  # "仓库面积"
+  print(field.priority)       # "P0"
+  print(field.impact)         # ["cost_model", "roi_analysis", ...]
+"""
+from dataclasses import dataclass, field
+from typing import Optional
+
+
+@dataclass
+class FieldDef:
+    key: str                       # canonical field key, e.g. "warehouse_area"
+    display_name: str              # human-readable Chinese name
+    priority: str = "P2"           # P0 | P1 | P2
+    impact: list = field(default_factory=list)   # downstream modules
+    tender_sections: list = field(default_factory=list)  # which s1-s13 this maps to
+    missing_item_labels: list = field(default_factory=list)  # alternative labels used in missing_p0/missing_p1
+    description: str = ""          # what this field represents
+    expected_type: str = "any"     # int | float | str | list | dict | bool
+    validation_rules: str = ""     # e.g. "must be positive", "must be 1-20 years"
+
+
+FIELD_REGISTRY: dict[str, FieldDef] = {
+    # --- P0: blocking fields (required for cost model) ---
+    "warehouse_area": FieldDef(
+        key="warehouse_area",
+        display_name="仓库面积",
+        priority="P0",
+        impact=["cost_model", "roi_analysis", "layout_design", "investment_plan"],
+        tender_sections=["s3_warehouse_dc_list", "s12_missing"],
+        missing_item_labels=["仓库总面积", "仓库面积", "DC仓库明细", "仓储面积"],
+        description="投标仓库总建筑面积（平方米）",
+        expected_type="int",
+        validation_rules="must be positive integer, 1000-500000 sqm typical",
+    ),
+    "total_warehouse_area": FieldDef(
+        key="total_warehouse_area",
+        display_name="仓库总面积（含公摊）",
+        priority="P0",
+        impact=["cost_model", "layout_design", "investment_plan"],
+        tender_sections=["s3_warehouse_dc_list"],
+        missing_item_labels=["总面积", "总仓库面积"],
+        description="仓库总面积（含卸货区、公摊等）",
+        expected_type="int",
+        validation_rules="must be >= warehouse_area",
+    ),
+    "dc_count": FieldDef(
+        key="dc_count",
+        display_name="DC数量",
+        priority="P0",
+        impact=["cost_model", "layout_design", "investment_plan"],
+        tender_sections=["s3_warehouse_dc_list"],
+        missing_item_labels=["DC仓库明细", "仓库数量", "DC数量"],
+        description="投标覆盖的仓库/配送中心数量",
+        expected_type="int",
+        validation_rules="must be positive integer",
+    ),
+    "daily_orders": FieldDef(
+        key="daily_orders",
+        display_name="日均订单/出库量",
+        priority="P0",
+        impact=["cost_model", "labor_plan", "layout_design"],
+        tender_sections=["s7_kpi_sla", "s12_missing"],
+        missing_item_labels=["日出库量/订单量", "日出库量", "日均订单量", "订单量", "日均出库量"],
+        description="日均出库订单数或件数（按自然日）",
+        expected_type="int",
+        validation_rules="must be positive integer, typically 500-200000",
+    ),
+    "sku_count": FieldDef(
+        key="sku_count",
+        display_name="SKU总数",
+        priority="P0",
+        impact=["layout_design", "automation_selection", "labor_plan"],
+        tender_sections=["s1_project_overview", "s12_missing"],
+        missing_item_labels=["SKU总数", "SKU数量", "商品品类数"],
+        description="投标SKU总量",
+        expected_type="int",
+        validation_rules="must be positive integer",
+    ),
+    # --- P1: important fields ---
+    "inventory": FieldDef(
+        key="inventory",
+        display_name="库存量",
+        priority="P1",
+        impact=["layout_design", "investment_plan", "capacity_plan"],
+        tender_sections=["s4_business_process", "s12_missing"],
+        missing_item_labels=["库存量", "库存周转", "平均库存"],
+        description="平均库存量（件数或板数）",
+        expected_type="int",
+        validation_rules="must be positive integer",
+    ),
+    "contract_years": FieldDef(
+        key="contract_years",
+        display_name="合同年限",
+        priority="P1",
+        impact=["cost_model", "roi_analysis", "investment_plan"],
+        tender_sections=["s9_contract", "s11_risks"],
+        missing_item_labels=["合同期限", "合同期", "合作年限"],
+        description="合同期长度（年）",
+        expected_type="int",
+        validation_rules="must be 1-20",
+    ),
+    "service_scope": FieldDef(
+        key="service_scope",
+        display_name="服务范围明细",
+        priority="P1",
+        impact=["solution_design", "cost_model", "automation_selection"],
+        tender_sections=["s2_service_scope"],
+        missing_item_labels=["服务范围", "报价结构要求", "业务范围"],
+        description="仓储/配送/增值服务具体项目清单",
+        expected_type="list",
+        validation_rules="at least 1 item",
+    ),
+    "kpi_targets": FieldDef(
+        key="kpi_targets",
+        display_name="KPI指标",
+        priority="P1",
+        impact=["solution_design", "contract_review", "risk_assessment"],
+        tender_sections=["s7_kpi_sla"],
+        missing_item_labels=["KPI/SLA要求", "KPI指标", "考核指标"],
+        description="KPI指标清单（含目标值和惩罚机制）",
+        expected_type="dict",
+        validation_rules="dict of {indicator: {target, penalty}}",
+    ),
+    "penalty_rules": FieldDef(
+        key="penalty_rules",
+        display_name="强制条款/惩罚机制",
+        priority="P1",
+        impact=["contract_review", "risk_assessment"],
+        tender_sections=["s10_mandatory_clauses"],
+        missing_item_labels=["强制条款清单", "惩罚机制", "否决项", "强制条款"],
+        description="招标文件中的强制条款和惩罚规则",
+        expected_type="list",
+        validation_rules="list of clause strings",
+    ),
+    "peak_factor": FieldDef(
+        key="peak_factor",
+        display_name="高峰系数",
+        priority="P1",
+        impact=["layout_design", "labor_plan", "capacity_plan"],
+        tender_sections=["s6_operations"],
+        missing_item_labels=["高峰系数", "峰值倍数", "旺季系数"],
+        description="高峰期出库量相对于日均的倍数",
+        expected_type="float",
+        validation_rules="must be >= 1.0",
+    ),
+    "automation_expectation": FieldDef(
+        key="automation_expectation",
+        display_name="自动化期望",
+        priority="P1",
+        impact=["automation_selection", "solution_design"],
+        tender_sections=["s1_project_overview", "s5_systems"],
+        missing_item_labels=["自动化程度", "自动化期望", "自动化目标"],
+        description="客户对自动化水平的期望或要求",
+        expected_type="str",
+        validation_rules="e.g. '高位货架+AGV'",
+    ),
+    # --- P2: nice-to-have ---
+    "labor_cost_level": FieldDef(
+        key="labor_cost_level",
+        display_name="人工成本水平",
+        priority="P2",
+        impact=["cost_model", "labor_plan"],
+        tender_sections=["s8_commercial", "s6_operations"],
+        missing_item_labels=["人工成本", "薪资水平", "人力成本"],
+        description="当地人工/薪资水平参考",
+        expected_type="str",
+        validation_rules="e.g. '6000-8000元/月'",
+    ),
+    "budget_level": FieldDef(
+        key="budget_level",
+        display_name="预算水平",
+        priority="P2",
+        impact=["cost_model", "roi_analysis"],
+        tender_sections=["s8_commercial"],
+        missing_item_labels=["预算", "预算规模", "投资预算"],
+        description="客户预算范围（如果有）",
+        expected_type="str",
+        validation_rules="e.g. '500-800万'",
+    ),
+    "industry": FieldDef(
+        key="industry",
+        display_name="行业",
+        priority="P2",
+        impact=[],
+        tender_sections=["s1_project_overview"],
+        missing_item_labels=["行业", "客户行业"],
+        description="客户所在行业",
+        expected_type="str",
+    ),
+    "region": FieldDef(
+        key="region",
+        display_name="地区",
+        priority="P2",
+        impact=[],
+        tender_sections=["s1_project_overview", "s3_warehouse_dc_list"],
+        missing_item_labels=["地区", "项目地区", "城市"],
+        description="项目所在地区/城市",
+        expected_type="str",
+    ),
+    "go_live_date": FieldDef(
+        key="go_live_date",
+        display_name="上线日期",
+        priority="P2",
+        impact=["project_plan"],
+        tender_sections=["s9_contract"],
+        missing_item_labels=["上线日期", "启动日期", "Go-Live"],
+        description="合同约定的系统/仓库上线日期",
+        expected_type="str",
+        validation_rules="YYYY-MM-DD or 'YYYY年MM月'",
+    ),
+}
+
+
+def resolve_missing_label(label: str) -> Optional[str]:
+    """Map a missing item display label to its canonical field key, or None."""
+    for fdef in FIELD_REGISTRY.values():
+        if label in fdef.missing_item_labels:
+            return fdef.key
+    return None
+
+
+def get_p0_fields() -> list[str]:
+    return [k for k, f in FIELD_REGISTRY.items() if f.priority == "P0"]
+
+
+def get_field_def(key: str) -> Optional[FieldDef]:
+    return FIELD_REGISTRY.get(key)
+
+
+def validate_field_object(key: str, obj: dict) -> list[dict]:
+    """Validate a field object has all required keys + reasonable values. Returns errors."""
+    errors = []
+    required_keys = {"value", "status", "source_basis", "section", "priority", "impact"}
+    actual_keys = set(obj.keys())
+    missing = required_keys - actual_keys
+    if missing:
+        errors.append({"field": key, "severity": "ERROR", "message": "missing keys: " + ", ".join(missing)})
+    fdef = FIELD_REGISTRY.get(key)
+    if fdef and obj.get("value") is not None:
+        # Type check
+        expected = fdef.expected_type
+        val = obj["value"]
+        if expected == "int" and not isinstance(val, int):
+            if not (isinstance(val, float) and val.is_integer()):
+                errors.append({"field": key, "severity": "WARN", "message": f"expected int, got {type(val).__name__}"})
+        elif expected == "float" and not isinstance(val, (int, float)):
+            errors.append({"field": key, "severity": "WARN", "message": f"expected float, got {type(val).__name__}"})
+        # Range check
+        if key == "contract_years" and isinstance(val, (int, float)):
+            if not (1 <= val <= 20):
+                errors.append({"field": key, "severity": "WARN", "message": f"contract_years {val} outside [1,20] range"})
+        if key in ("daily_orders", "warehouse_area", "dc_count", "sku_count") and isinstance(val, (int, float)):
+            if val <= 0:
+                errors.append({"field": key, "severity": "WARN", "message": f"{key} must be positive, got {val}"})
+    return errors
+
+
+# =============================================================================
 _FIXED_SECTIONS = """
 ## 1. 项目概览
 - 招标方: [客户名称，未提供则写"未提供"]
@@ -633,107 +907,177 @@ def compute_analysis_quality_score(profile):
     }
 
 def build_downstream_input(profile, structured=None, quality_score=None):
+    """
+    Build the canonical downstream input from an extracted profile.
+
+    Adds:
+    - Field metadata from FIELD_REGISTRY (display_name, description, validation_rules)
+    - Per-field validation errors
+    - Resolved missing item → field key mapping
+    - Schema validation errors from normalization
+    """
     normalized = {}
+    field_errors = {}   # field_key → list of validation errors
+
     for k, v in profile.items():
-        if k.startswith("_") or k in ("extraction_confidence","missing_p0","missing_p1","analysis_report"):
+        if k.startswith("_") or k in ("extraction_confidence", "missing_p0", "missing_p1",
+                                         "analysis_report", "_field_traces"):
             continue
         if isinstance(v, dict) and "value" in v:
-            normalized[k] = v
+            # Enrich with registry metadata
+            fdef = FIELD_REGISTRY.get(k)
+            enriched = dict(v)  # copy
+            if fdef:
+                enriched["display_name"] = fdef.display_name
+                enriched["description"] = fdef.description
+                enriched["validation_rules"] = fdef.validation_rules
+                enriched["expected_type"] = fdef.expected_type
+            normalized[k] = enriched
+            # Validate this field
+            errs = validate_field_object(k, v)
+            if errs:
+                field_errors[k] = errs
+
     qs = quality_score or compute_analysis_quality_score(profile)
+
+    # Resolve missing_p0 / missing_p1 labels to field objects
+    def resolve_to_field_objs(label_list):
+        result = []
+        for label in label_list:
+            fkey = resolve_missing_label(label)
+            fdef = FIELD_REGISTRY.get(fkey) if fkey else None
+            result.append({
+                "original_label": label,
+                "field_key": fkey,
+                "display_name": fdef.display_name if fdef else label,
+                "priority": fdef.priority if fdef else "?",
+                "impact": fdef.impact if fdef else [],
+                "description": fdef.description if fdef else "",
+            })
+        return result
+
     return {
         "tender_analysis_markdown": profile.get("analysis_report", ""),
-        "normalized_fields": normalized,
-        "critical_missing_items": profile.get("missing_p0", []),
+        "normalized_fields": normalized,          # {field_key: field_object}
+        "field_validation_errors": field_errors,  # {field_key: [errors]}
+        "critical_missing_items": resolve_to_field_objs(profile.get("missing_p0", [])),
+        "secondary_missing_items": resolve_to_field_objs(profile.get("missing_p1", [])),
         "clarification_questions": profile.get("_clarification_questions", []),
         "document_metadata": {
             "extraction_confidence": profile.get("extraction_confidence", 0.0),
             "quality_score": qs,
+            "schema_validation_errors": profile.get("_schema_validation_errors", []),
             "analysis_timestamp": datetime.now().isoformat(),
             "structured_json": structured or profile.get("_structured", {}),
         }
     }
 
 def generate_clarification_questions(profile, structured=None):
-    qs = []
-    traces = profile.get("_field_traces", {})
-    if isinstance(profile, dict) and "_field_traces" not in profile:
-        traces = profile
+    """
+    Generate clarification questions for missing / ambiguous / partial fields.
 
-    def add(field, question, severity, reason, fmt):
-        qs.append({"field": field, "question": question, "severity": severity,
-                   "reason": reason, "suggested_answer_format": fmt})
+    Each question links to:
+    - field_key (canonical)
+    - display_name (from FIELD_REGISTRY)
+    - priority (P0/P1)
+    - field_object (the actual field trace)
+    """
+    qs = []
+    traces = profile.get("_field_traces", profile)  # fall back to profile itself
+
+    def add_q(field_key, question, severity, reason, fmt, field_obj=None):
+        fdef = FIELD_REGISTRY.get(field_key) if field_key else None
+        qs.append({
+            "field_key": field_key,
+            "display_name": fdef.display_name if fdef else field_key,
+            "question": question,
+            "severity": severity,
+            "reason": reason,
+            "suggested_answer_format": fmt,
+            "priority": severity,
+            "impact": fdef.impact if fdef else [],
+            "field_object": field_obj,  # full trace for UI drill-down
+        })
 
     m0 = profile.get("missing_p0", [])
     m1 = profile.get("missing_p1", [])
 
-    if "DC仓库明细" in m0:
-        add("dc_count/warehouse_area",
-            "请确认本项目实际覆盖的仓库DC数量及各仓库所在城市或地区。",
-            "P0", "下游成本测算和ROI模型需要准确的仓网规模",
-            "例：共5个DC，分别位于上海、广州、武汉、成都、北京，总面积约8万平方米")
-    if "日出库量/订单量" in m0:
-        add("daily_orders",
-            "请确认日出库量或日均订单量的统计口径：是否按自然日？峰值和均值分别是多少？",
-            "P0", "自动化方案选型和人力测算依赖订单量数据",
-            "例：日均出库约8000件，旺季峰值约20000件，按自然日统计")
-    if "SKU总数" in m0:
-        add("sku_count",
-            "请确认SKU总数及ABC分类占比（快速流转/中速/慢速）。",
-            "P0", "自动化设备选型依赖SKU周转特性",
-            "例：总计约30000个SKU，A类占80%出货量")
-    if "KPI/SLA要求" in m1:
-        add("kpi_targets",
-            "请提供完整的KPI指标清单（含目标值、考核维度、数据来源及惩罚机制）。",
-            "P1", "方案设计必须匹配客户KPI要求，惩罚机制影响风险测算",
-            "例：库存准确率不低于99.9%，每降低0.1%罚款X元")
-    if "强制条款清单" in m1:
-        add("penalty_rules",
-            "请提供完整的强制条款清单（含否决项），以便在方案设计阶段提前规避。",
-            "P1", "某些自动化方案可能在强制条款下不可行，需尽早识别",
-            "例：仓库必须为丙二类以上消防资质，叉车必须为电动")
-    if "报价结构要求" in m1:
-        add("service_scope",
-            "请确认报价结构：是按仓储面积报价，还是按订单量或件报价，或是混合报价？",
-            "P1", "成本模型和方案推荐依赖报价结构假设",
-            "例：仓租加力资分开报，仓租元每平米每月，力资元每件")
+    # Map missing item labels → field keys using registry
+    for label in m0:
+        fkey = resolve_missing_label(label)
+        fdef = FIELD_REGISTRY.get(fkey) if fkey else None
+        if fkey == "dc_count":
+            add_q(fkey, "请确认本项目实际覆盖的仓库DC数量及各仓库所在城市或地区。",
+                  "P0", "下游成本测算和ROI模型需要准确的仓网规模",
+                  "例：共5个DC，分别位于上海、广州、武汉、成都、北京，总面积约8万平方米")
+        elif fkey == "daily_orders":
+            add_q(fkey, "请确认日出库量或日均订单量的统计口径：是否按自然日？峰值和均值分别是多少？",
+                  "P0", "自动化方案选型和人力测算依赖订单量数据",
+                  "例：日均出库约8000件，旺季峰值约20000件，按自然日统计")
+        elif fkey == "sku_count":
+            add_q(fkey, "请确认SKU总数及ABC分类占比（快速流转/中速/慢速）。",
+                  "P0", "自动化设备选型依赖SKU周转特性",
+                  "例：总计约30000个SKU，A类占80%出货量")
+        elif not fkey:
+            # Unresolved label — add generic question
+            add_q(None, f"招标文件缺少「{label}」信息，请补充。",
+                  "P0", "下游方案设计依赖此数据",
+                  "请提供具体数值或说明")
 
+    for label in m1:
+        fkey = resolve_missing_label(label)
+        if fkey == "kpi_targets":
+            add_q(fkey, "请提供完整的KPI指标清单（含目标值、考核维度、数据来源及惩罚机制）。",
+                  "P1", "方案设计必须匹配客户KPI要求，惩罚机制影响风险测算",
+                  "例：库存准确率不低于99.9%，每降低0.1%罚款X元")
+        elif fkey == "penalty_rules":
+            add_q(fkey, "请提供完整的强制条款清单（含否决项），以便在方案设计阶段提前规避。",
+                  "P1", "某些自动化方案可能在强制条款下不可行，需尽早识别",
+                  "例：仓库必须为丙二类以上消防资质，叉车必须为电动")
+        elif fkey == "service_scope":
+            add_q(fkey, "请确认报价结构：是按仓储面积报价，还是按订单量或件报价，或是混合报价？",
+                  "P1", "成本模型和方案推荐依赖报价结构假设",
+                  "例：仓租加力资分开报，仓租元每平米每月，力资元每件")
+
+    # Iterate through field traces for ambiguous / partial fields
     for fname, entry in traces.items():
-        if not isinstance(entry, dict): continue
-        status = entry.get("status","")
-        basis = entry.get("source_basis","")
+        if not isinstance(entry, dict) or fname.startswith("_"): continue
+        status = entry.get("status", "")
+        basis = entry.get("source_basis", "")
+        fdef = FIELD_REGISTRY.get(fname)
         if status == "ambiguous":
-            add(fname,
-                "招标文件在" + fname + "上存在歧义或冲突：" + basis + "。请甲方明确实际要求。",
-                "P0", "歧义不澄清会导致方案设计方向错误",
-                "请给出唯一明确的要求")
+            add_q(fname,
+                  f"招标文件在「{fdef.display_name if fdef else fname}」上存在歧义或冲突：{basis}。请甲方明确实际要求。",
+                  "P0", "歧义不澄清会导致方案设计方向错误",
+                  "请给出唯一明确的要求", field_obj=entry)
         elif status == "partial":
-            add(fname,
-                "招标文件在" + fname + "上只提供了部分信息：" + basis + "。请补充完整数据。",
-                "P1", "部分数据不足以支撑准确的自动化方案设计",
-                "请提供完整明细数据（不仅是汇总数）")
+            add_q(fname,
+                  f"招标文件在「{fdef.display_name if fdef else fname}」上只提供了部分信息：{basis}。请补充完整数据。",
+                  "P1", "部分数据不足以支撑准确的自动化方案设计",
+                  "请提供完整明细数据（不仅是汇总数）", field_obj=entry)
 
     peak = traces.get("peak_factor", {})
-    if isinstance(peak, dict) and peak.get("status") in ("missing","partial"):
-        add("peak_factor",
-            "请确认旺季（如CNY/618/双11等）订单峰值是平时的多少倍？持续多长时间？",
-            "P1", "旺季扩产方案和临时仓需求依赖高峰系数",
-            "例：CNY期间约3到4倍，持续约30天")
+    if isinstance(peak, dict) and peak.get("status") in ("missing", "partial"):
+        add_q("peak_factor",
+              "请确认旺季（如CNY/618/双11等）订单峰值是平时的多少倍？持续多长时间？",
+              "P1", "旺季扩产方案和临时仓需求依赖高峰系数",
+              "例：CNY期间约3到4倍，持续约30天", field_obj=peak)
 
     svc = traces.get("service_scope", {})
-    if isinstance(svc, dict) and (svc.get("status") == "missing" or not svc.get("value")):
-        add("service_scope",
-            "请确认是否需要承接以下增值服务：VMI管理、退货处理、贴标组套、越库配送或温控存储？",
-            "P1", "增值服务直接影响方案设计和人力配置",
-            "例：需要退货处理和贴标服务，VMI不需要")
+    if isinstance(svc, dict) and svc.get("status") == "missing":
+        add_q("service_scope",
+              "请确认是否需要承接以下增值服务：VMI管理、退货处理、贴标组套、越库配送或温控存储？",
+              "P1", "增值服务直接影响方案设计和人力配置",
+              "例：需要退货处理和贴标服务，VMI不需要", field_obj=svc)
 
     inv = traces.get("inventory", {})
-    if isinstance(inv, dict) and inv.get("status") in ("missing","partial"):
-        add("inventory",
-            "请确认平均库存量和库存峰值分别是多少？是否涉及VMI仓？",
-            "P1", "库容规划和货架选型依赖库存数据",
-            "例：平均库存约50万件，峰值约80万件，含VMI 10万件")
+    if isinstance(inv, dict) and inv.get("status") in ("missing", "partial"):
+        add_q("inventory",
+              "请确认平均库存量和库存峰值分别是多少？是否涉及VMI仓？",
+              "P1", "库容规划和货架选型依赖库存数据",
+              "例：平均库存约50万件，峰值约80万件，含VMI 10万件", field_obj=inv)
 
-    qs.sort(key=lambda q: {"P0":0,"P1":1,"P2":2}.get(q["severity"], 9))
+    qs.sort(key=lambda q: {"P0": 0, "P1": 1, "P2": 2}.get(q["severity"], 9))
     return qs
 
 def analyze_and_extract(tender_text):
