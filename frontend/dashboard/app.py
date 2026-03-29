@@ -32,6 +32,110 @@ _sys.excepthook = _debug_excepthook
 
 
 
+
+
+def _render_clarification_task_editor(pipeline_id: str, tasks: list, api: str, key_prefix: str = ""):
+    """Render a list of clarification tasks with input forms."""
+    if not tasks:
+        return
+
+    for i, task in enumerate(tasks[:10]):  # Max 10 shown per tab
+        fkey = task.get("field_key", "")
+        display_name = task.get("display_name", fkey)
+        task_id = task.get("question_id", f"Q-{i}")
+        priority = task.get("priority", "P1")
+        category = task.get("category", "missing")
+        current_val = task.get("current_value")
+        status = task.get("current_status", "open")
+        input_type = task.get("expected_input_type", "text")
+        acceptable_units = task.get("acceptable_units", [])
+        blocking = task.get("blocking_impact", "")
+        guidance = task.get("guidance", "")
+        example = task.get("example_answer", "")
+
+        resolved = status == "resolved"
+
+        if resolved:
+            container = st.container()
+        else:
+            container = st.container()
+
+        with container:
+            pri_color = "🔴" if priority == "P0" else "🟡"
+            status_icon = "✅" if resolved else "⏳"
+            with st.expander(f"{pri_color} {status_icon} [{task_id}] **{display_name}**", expanded=(not resolved)):
+                st.markdown(f"**问题:** {task.get('question_text', '请补充该字段')}")
+                if blocking:
+                    st.caption(f"**影响:** {blocking}")
+                if guidance:
+                    st.caption(f"**说明:** {guidance}")
+                if example:
+                    st.caption(f"**示例:** {example}")
+
+                if current_val:
+                    st.info(f"当前值: **{current_val}**")
+
+                if not resolved:
+                    # Input fields
+                    inp_key = f"cw_{key_prefix}{fkey}"
+                    if input_type == "number_with_unit":
+                        val_col, unit_col = st.columns([2, 1])
+                        with val_col:
+                            num_val = st.number_input(
+                                "数值",
+                                min_value=0.0,
+                                format="%f",
+                                key=f"{inp_key}_val",
+                            )
+                        with unit_col:
+                            unit_opts = acceptable_units if acceptable_units else ["orders/day", "月订单量", "年订单量"]
+                            selected_unit = st.selectbox("单位", options=unit_opts, key=f"{inp_key}_unit")
+                        comment = st.text_input("备注（可选）", key=f"{inp_key}_comment", placeholder="来源说明...")
+
+                        # Store in session state
+                        if f"cw_input_{fkey}" not in st.session_state:
+                            st.session_state[f"cw_input_{fkey}"] = {}
+                        st.session_state[f"cw_input_{fkey}"].update({
+                            "value": num_val,
+                            "unit": selected_unit,
+                            "comment": comment,
+                        })
+
+                    elif input_type == "choice":
+                        choices = task.get("conflict_candidates", []) or ["低", "中", "高"]
+                        chosen = st.selectbox("选择值", options=choices, key=f"{inp_key}_choice")
+                        if f"cw_input_{fkey}" not in st.session_state:
+                            st.session_state[f"cw_input_{fkey}"] = {}
+                        st.session_state[f"cw_input_{fkey}"].update({"value": chosen})
+
+                    else:  # text or default
+                        text_val = st.text_input("输入值", key=f"{inp_key}_text", placeholder="请输入...")
+                        if f"cw_input_{fkey}" not in st.session_state:
+                            st.session_state[f"cw_input_{fkey}"] = {}
+                        st.session_state[f"cw_input_{fkey}"].update({"value": text_val})
+                else:
+                    st.success("✅ 已解决")
+
+
+def _collect_pending_inputs() -> dict:
+    """Collect all pending manual inputs from session state into a dict keyed by field_key."""
+    pending = {}
+    for key in list(st.session_state.keys()):
+        if key.startswith("cw_input_"):
+            fkey = key.replace("cw_input_", "")
+            data = st.session_state[key]
+            if isinstance(data, dict) and data.get("value") not in (None, "", 0):
+                pending[fkey] = {
+                    "value": data.get("value"),
+                    "unit": data.get("unit"),
+                    "comment": data.get("comment", ""),
+                }
+    return pending
+
+
+# =====================================================================
+# =====================================================================
+
 API_BASE_URL = os.getenv("API_BASE_URL", "http://localhost:8000")
 
 st.set_page_config(
@@ -2323,9 +2427,12 @@ elif app_mode == "💬 Clarification Workspace":
                     tasks = tasks_data.get("tasks", {})
                     summary = tasks.get("summary", {})
 
+                    must_total = summary.get('must_total', 0)
+                    resolved_count = summary.get('resolved', 0)
+                    unresolved_count = must_total - resolved_count
                     st.markdown(f"**任务总数:** {summary.get('total_count', 0)}  "
-                                f"**✅ 已解决:** {summary.get('resolved', 0)}  "
-                                f"**❌ 待解决:** {summary.get('must_total', 0)}")
+                                f"**✅ 已解决:** {resolved_count}  "
+                                f"**❌ 待解决:** {unresolved_count}")
 
                     # Tabs: Must Answer / Should Answer / Conflicts
                     tab1, tab2, tab3, tab4 = st.tabs(["🔴 必须澄清", "🟡 建议补充", "⚠️ 冲突字段", "⚠️ 假设复核"])
@@ -2374,181 +2481,123 @@ elif app_mode == "💬 Clarification Workspace":
                 st.error(f"❌ 请求失败: {e}")
 
     # =============================================================================
-    # Recompute Section (bottom)
+    # Recompute Section (bottom) — 变化摘要卡片
     # =============================================================================
     if selected_pid:
         st.divider()
-        col_a, col_b, col_c = st.columns([1, 1, 2])
+        st.markdown("### 📊 本次补录结果")
+
+        # Check if we have a cached recompute result in session state
+        cached = st.session_state.get("cw_recompute_result")
+        display_result = None
+
+        # Always show the recompute trigger button
+        col_a, col_b = st.columns([1, 3])
         with col_a:
             recompute_clicked = st.button("🔄 提交并重新计算", type="primary", width="stretch")
-        with col_b:
-            st.button("💾 仅保存草稿", width="stretch", disabled=True)  # placeholder
 
         if recompute_clicked:
             with st.spinner("重新计算中..."):
                 try:
-                    # Collect all pending inputs from session state
                     pending = _collect_pending_inputs()
-                    if pending:
-                        payload = {"inputs": pending}
-                        recompute_resp = requests.post(
-                            f"{API}/api/clarification/recompute/{selected_pid}",
-                            json=payload,
-                            timeout=30,
-                        )
-                    else:
-                        recompute_resp = requests.post(
-                            f"{API}/api/clarification/recompute/{selected_pid}",
-                            json={},
-                            timeout=30,
-                        )
+                    payload = {"inputs": pending} if pending else {}
+                    recompute_resp = requests.post(
+                        f"{API}/api/clarification/recompute/{selected_pid}",
+                        json=payload,
+                        timeout=30,
+                    )
 
                     if recompute_resp.status_code == 200:
                         result = recompute_resp.json()
                         st.session_state.cw_recompute_result = result
-
-                        changes = result.get("changes_summary", {})
-                        old_mode = changes.get("old_mode", "?")
-                        new_mode = changes.get("new_mode", "?")
-                        mode_changed = changes.get("mode_changed", False)
-                        resolved_p0 = changes.get("resolved_p0_count", 0)
-                        remaining_p0 = changes.get("remaining_p0_count", 0)
-                        fields_updated = changes.get("fields_updated", [])
-
-                        if mode_changed:
-                            st.success(
-                                f"✅ 状态已更新！模式从 **{old_mode}** → **{new_mode}**，"
-                                f"P0已解决 {resolved_p0} 项"
-                            )
-                        else:
-                            if remaining_p0 > 0:
-                                st.warning(
-                                    f"⚠️ 补录已保存，但仍有 **{remaining_p0}** 个P0字段阻塞。"
-                                    f"当前模式：**{new_mode}**"
-                                )
-                            else:
-                                st.success("✅ 补录已保存，当前状态无变化")
-
-                        if fields_updated:
-                            st.markdown(f"**本次补录字段:** {', '.join(fields_updated)}")
-
-                        # Show blocking reasons if still blocked
-                        downstream = result.get("downstream_input", {})
-                        blocking = downstream.get("blocking_reasons", [])
-                        if blocking:
-                            st.markdown("**仍阻塞原因:**")
-                            for reason in blocking[:3]:
-                                st.markdown(f"  • {reason}")
-
+                        display_result = result
                         st.rerun()
                     else:
-                        st.error(f"重新计算失败: {recompute_resp.status_code} — {recompute_resp.text}")
-
+                        st.error(f"重新计算失败: {recompute_resp.status_code}")
+                        st.session_state.cw_recompute_result = None
                 except Exception as e:
-                    st.error(f"❌ 重新计算请求异常: {e}")
+                    st.error(f"❌ 请求异常: {e}")
+                    st.session_state.cw_recompute_result = None
+        else:
+            display_result = cached
+
+        # ---- 变化摘要卡片（如果有任何结果）----
+        if display_result:
+            result = display_result
+            changes = result.get("changes_summary", {})
+            downstream = result.get("downstream_input", {})
+            readiness = result.get("readiness", {})
+
+            old_mode = changes.get("old_mode", "?")
+            new_mode = changes.get("new_mode", "?")
+            mode_changed = changes.get("mode_changed", False)
+            fields_updated = changes.get("fields_updated", [])
+            remaining_p0 = changes.get("remaining_p0_count", 0)
+            old_score = 0.0
+            new_score = readiness.get("readiness_score", 0.0)
+            blocking_reasons = downstream.get("blocking_reasons", [])
+
+            # Mode badge
+            mode_badge = {
+                "blocked": "🔴 阻塞（Blocked）",
+                "partial_ready": "🟡 区间估算（Range Estimate）",
+                "ready": "🟢 正式测算（Ready）",
+                "full_calc": "🟢 正式测算（Full Calc）",
+            }
+
+            # ---- 变化摘要4格卡片 ----
+            m1, m2, m3, m4 = st.columns(4)
+
+            with m1:
+                st.metric(
+                    "当前模式",
+                    mode_badge.get(new_mode, new_mode),
+                    delta=f"{old_mode} → {new_mode}" if mode_changed else None,
+                    delta_color="normal" if mode_changed else "off",
+                )
+
+            with m2:
+                st.metric(
+                    "本次新增确认字段",
+                    f"{len(fields_updated)}个" if fields_updated else "0个",
+                    delta=", ".join(fields_updated) if fields_updated else None,
+                )
+
+            with m3:
+                still_blocked = remaining_p0
+                st.metric(
+                    "剩余P0阻塞",
+                    f"{still_blocked}个" if still_blocked > 0 else "0个 ✅",
+                    delta="已解除" if still_blocked == 0 else None,
+                    delta_color="normal" if still_blocked == 0 else "off",
+                )
+
+            with m4:
+                st.metric(
+                    "Readiness",
+                    f"{new_score:.0%}",
+                    delta=f"+{(new_score - old_score)*100:.0f}%" if old_score and new_score > old_score else None,
+                )
+
+            # ---- 下一步提示 ----
+            if remaining_p0 > 0:
+                st.info(f"📌 仍有 **{remaining_p0}** 个P0字段阻塞，请继续补录。")
+                if blocking_reasons:
+                    with st.expander("🔍 查看阻塞原因", expanded=False):
+                        for r in blocking_reasons[:3]:
+                            st.markdown(f"• {r}")
+            elif new_mode == "partial_ready":
+                st.success("✅ 所有P0字段已解决！可进入**区间估算**模式。建议继续补充P1字段以提升精度。")
+            elif new_mode in ("ready", "full_calc"):
+                st.success("🎉 项目已就绪！可进入**正式成本测算**。")
+
+            # ---- 本次补录字段详情 ----
+            if fields_updated:
+                with st.expander("📋 本次补录字段详情", expanded=False):
+                    for f in fields_updated:
+                        st.markdown(f"  • `{f}` — ✅ 人工确认")
 
 
 # =============================================================================
 # Clarification Task Editor Helper
 # =============================================================================
-def _render_clarification_task_editor(pipeline_id: str, tasks: list, api: str, key_prefix: str = ""):
-    """Render a list of clarification tasks with input forms."""
-    if not tasks:
-        return
-
-    for i, task in enumerate(tasks[:10]):  # Max 10 shown per tab
-        fkey = task.get("field_key", "")
-        display_name = task.get("display_name", fkey)
-        task_id = task.get("question_id", f"Q-{i}")
-        priority = task.get("priority", "P1")
-        category = task.get("category", "missing")
-        current_val = task.get("current_value")
-        status = task.get("current_status", "open")
-        input_type = task.get("expected_input_type", "text")
-        acceptable_units = task.get("acceptable_units", [])
-        blocking = task.get("blocking_impact", "")
-        guidance = task.get("guidance", "")
-        example = task.get("example_answer", "")
-
-        resolved = status == "resolved"
-
-        if resolved:
-            container = st.container()
-        else:
-            container = st.container()
-
-        with container:
-            pri_color = "🔴" if priority == "P0" else "🟡"
-            status_icon = "✅" if resolved else "⏳"
-            with st.expander(f"{pri_color} {status_icon} [{task_id}] **{display_name}**", expanded=(not resolved)):
-                st.markdown(f"**问题:** {task.get('question_text', '请补充该字段')}")
-                if blocking:
-                    st.caption(f"**影响:** {blocking}")
-                if guidance:
-                    st.caption(f"**说明:** {guidance}")
-                if example:
-                    st.caption(f"**示例:** {example}")
-
-                if current_val:
-                    st.info(f"当前值: **{current_val}**")
-
-                if not resolved:
-                    # Input fields
-                    inp_key = f"cw_{key_prefix}{fkey}"
-                    if input_type == "number_with_unit":
-                        val_col, unit_col = st.columns([2, 1])
-                        with val_col:
-                            num_val = st.number_input(
-                                "数值",
-                                min_value=0.0,
-                                format="%f",
-                                key=f"{inp_key}_val",
-                            )
-                        with unit_col:
-                            unit_opts = acceptable_units if acceptable_units else ["orders/day", "月订单量", "年订单量"]
-                            selected_unit = st.selectbox("单位", options=unit_opts, key=f"{inp_key}_unit")
-                        comment = st.text_input("备注（可选）", key=f"{inp_key}_comment", placeholder="来源说明...")
-
-                        # Store in session state
-                        if f"cw_input_{fkey}" not in st.session_state:
-                            st.session_state[f"cw_input_{fkey}"] = {}
-                        st.session_state[f"cw_input_{fkey}"].update({
-                            "value": num_val,
-                            "unit": selected_unit,
-                            "comment": comment,
-                        })
-
-                    elif input_type == "choice":
-                        choices = task.get("conflict_candidates", []) or ["低", "中", "高"]
-                        chosen = st.selectbox("选择值", options=choices, key=f"{inp_key}_choice")
-                        if f"cw_input_{fkey}" not in st.session_state:
-                            st.session_state[f"cw_input_{fkey}"] = {}
-                        st.session_state[f"cw_input_{fkey}"].update({"value": chosen})
-
-                    else:  # text or default
-                        text_val = st.text_input("输入值", key=f"{inp_key}_text", placeholder="请输入...")
-                        if f"cw_input_{fkey}" not in st.session_state:
-                            st.session_state[f"cw_input_{fkey}"] = {}
-                        st.session_state[f"cw_input_{fkey}"].update({"value": text_val})
-                else:
-                    st.success("✅ 已解决")
-
-
-def _collect_pending_inputs() -> dict:
-    """Collect all pending manual inputs from session state into a dict keyed by field_key."""
-    pending = {}
-    for key in list(st.session_state.keys()):
-        if key.startswith("cw_input_"):
-            fkey = key.replace("cw_input_", "")
-            data = st.session_state[key]
-            if isinstance(data, dict) and data.get("value") not in (None, "", 0):
-                pending[fkey] = {
-                    "value": data.get("value"),
-                    "unit": data.get("unit"),
-                    "comment": data.get("comment", ""),
-                }
-    return pending
-
-
-# =====================================================================
-# =====================================================================

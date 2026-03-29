@@ -306,13 +306,8 @@ def get_clarification_tasks(pipeline_id: str) -> dict:
         if not run:
             return {"error": f"PipelineRun not found: {pipeline_id}"}
 
-        # Check if we have pre-computed tasks
-        tasks_json = run.clarification_tasks_json
-        if tasks_json:
-            try:
-                return {"success": True, "tasks": json.loads(tasks_json)}
-            except (json.JSONDecodeError, TypeError):
-                pass
+        # v0.6.2: Always rebuild tasks fresh (skip cache during validation phase)
+        pass  # removed: was returning cached tasks, now always rebuilds
 
         # Build from scratch
         normalized_fields = _parse_json(run.normalized_fields_json) or {}

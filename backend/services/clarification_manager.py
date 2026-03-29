@@ -152,7 +152,7 @@ def build_clarification_tasks(
             field_key in manual_inputs
             or status == "resolved"
         )
-        if is_resolved:
+        if is_resolved and severity == "P0":
             resolved_count += 1
 
         fdef = FIELD_REGISTRY.get(field_key) if field_key else None
