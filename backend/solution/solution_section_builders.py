@@ -101,7 +101,7 @@ def build_project_fit(context: dict) -> ProjectFit:
         operation_type=op_type,
         complexity_level=complexity_level,
         complexity_score=complexity_score,
-        service_scope_summary=f"服务范围覆盖{scope_summary}，当前成本测算模式：{cost_mode}",
+        service_scope_summary=scope_summary,
         fit_reason=fit_reason,
     )
 
@@ -156,10 +156,13 @@ def build_service_design(context: dict) -> ServiceDesign:
         if s.category not in seen_cats:
             unique_cats.append(cat_labels_map.get(s.category, s.category))
             seen_cats.add(s.category)
-    cat_labels_text = "、".join(unique_cats) if unique_cats else "未定义"
+    if unique_cats:
+        cat_labels_text = "、".join(unique_cats)
+        scope_part = f"覆盖{cat_labels_text}等类别。"
+    else:
+        scope_part = "暂无已确认服务。"
     narrative = (
-        f"本项目已确认包含 {svc_count} 项具体服务，"
-        f"覆盖{cat_labels_text}等类别。"
+        f"本项目已确认包含 {svc_count} 项具体服务，{scope_part}"
         f"{' '.join(notes) if notes else '服务边界清晰，可进入方案详细设计。'}"
     )
 
