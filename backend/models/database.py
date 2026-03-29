@@ -101,12 +101,15 @@ class PipelineRun(Base):
     result_summary = Column(Text, nullable=True)            # JSON summary for task list UI
     # Stage 1 — Tender Understanding fields
     analysis_markdown = Column(Text, nullable=True)        # Full 13-section Markdown report
+    analysis_sections_json = Column(Text, nullable=True)   # v0.2: 13-dimension section texts {section_name: text}
     normalized_fields_json = Column(Text, nullable=True)   # JSON: normalized fields with priority/impact
     missing_items_json = Column(Text, nullable=True)        # JSON: {p0: [...], p1: [...]}
     clarification_questions_json = Column(Text, nullable=True)  # JSON: list of clarification questions
     quality_score_json = Column(Text, nullable=True)       # JSON: completeness/evidence/readiness scores
-    analysis_version = Column(String(20), default="v1.0")   # Schema version for downstream comparison
-    prompt_version = Column(String(20), default="v1.0")    # Prompt template version
+    readiness_json = Column(Text, nullable=True)         # v0.2: readiness per downstream module
+    analysis_version = Column(String(20), default="v0.2")  # Schema version for benchmark comparison
+    prompt_version = Column(String(20), default="tender_understanding_v0.2")  # Prompt version
+    model_name = Column(String(80), nullable=True)         # v0.2: LLM model used (MiniMax-M2.7-highspeed etc.)
     pipeline_gate_json = Column(Text, nullable=True)     # JSON: {cost_model: BLOCK|PASS, ...}
     created_at = Column(DateTime, default=datetime.utcnow)
     completed_at = Column(DateTime, nullable=True)

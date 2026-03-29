@@ -141,13 +141,18 @@ def complete_pipeline(pipeline_id: str, status: str,
                       error: str = None,
                       total_duration_seconds: float = None,
                       result_summary: dict = None,
-                      # Stage 1: Tender Understanding fields
+                      # Stage 1: Tender Understanding v0.2 fields
                       analysis_markdown: str = None,
+                      analysis_sections_json: dict = None,
                       normalized_fields_json: dict = None,
                       missing_items_json: dict = None,
                       clarification_questions_json: list = None,
                       quality_score_json: dict = None,
-                      pipeline_gate_json: dict = None):
+                      readiness_json: dict = None,
+                      pipeline_gate_json: dict = None,
+                      analysis_version: str = "v0.2",
+                      prompt_version: str = "tender_understanding_v0.2",
+                      model_name: str = None):
     """Mark pipeline as complete or failed."""
     db = SessionLocal()
     try:
@@ -165,9 +170,11 @@ def complete_pipeline(pipeline_id: str, status: str,
             run.pdf_url = pdf_url
             run.error = error
             run.total_duration_seconds = total_duration_seconds
-            # Stage 1: Tender Understanding
+            # Stage 1: Tender Understanding v0.2
             if analysis_markdown is not None:
                 run.analysis_markdown = analysis_markdown
+            if analysis_sections_json is not None:
+                run.analysis_sections_json = json.dumps(analysis_sections_json, ensure_ascii=False)
             if normalized_fields_json is not None:
                 run.normalized_fields_json = json.dumps(normalized_fields_json, ensure_ascii=False)
             if missing_items_json is not None:
@@ -176,8 +183,16 @@ def complete_pipeline(pipeline_id: str, status: str,
                 run.clarification_questions_json = json.dumps(clarification_questions_json, ensure_ascii=False)
             if quality_score_json is not None:
                 run.quality_score_json = json.dumps(quality_score_json, ensure_ascii=False)
+            if readiness_json is not None:
+                run.readiness_json = json.dumps(readiness_json, ensure_ascii=False)
             if pipeline_gate_json is not None:
                 run.pipeline_gate_json = json.dumps(pipeline_gate_json, ensure_ascii=False)
+            if analysis_version is not None:
+                run.analysis_version = analysis_version
+            if prompt_version is not None:
+                run.prompt_version = prompt_version
+            if model_name is not None:
+                run.model_name = model_name
             if status in ("COMPLETE", "FAILED"):
                 run.completed_at = datetime.utcnow()
             # Build result_summary for task list UI if not provided
@@ -249,9 +264,11 @@ def get_pipeline_run(pipeline_id: str) -> Optional[dict]:
                 result["qa_issues"] = extra.get("qa_issues", [])
                 break
 
-        # Stage 1: Tender Understanding new fields
+        # Stage 1: Tender Understanding v0.2 new fields
         if run.analysis_markdown:
             result["analysis_markdown"] = run.analysis_markdown
+        if run.analysis_sections_json:
+            result["analysis_sections"] = json.loads(run.analysis_sections_json)
         if run.normalized_fields_json:
             result["normalized_fields"] = json.loads(run.normalized_fields_json)
         if run.missing_items_json:
@@ -260,8 +277,14 @@ def get_pipeline_run(pipeline_id: str) -> Optional[dict]:
             result["clarification_questions"] = json.loads(run.clarification_questions_json)
         if run.quality_score_json:
             result["quality_score"] = json.loads(run.quality_score_json)
+        if run.readiness_json:
+            result["readiness"] = json.loads(run.readiness_json)
         if run.pipeline_gate_json:
             result["pipeline_gate"] = json.loads(run.pipeline_gate_json)
+        # Meta fields
+        result["analysis_version"] = run.analysis_version
+        result["prompt_version"] = run.prompt_version
+        result["model_name"] = run.model_name
 
         return result
     finally:

@@ -387,10 +387,15 @@ def pipeline_task(tender_document: str, project_profile_overrides: dict = None, 
             result_summary=result_summary,
             # Stage 1: Tender Understanding v0.2 — store all analysis even if gate blocked
             analysis_markdown=analysis_report,
+            analysis_sections_json=analysis_sections,
             normalized_fields_json=field_traces,
             missing_items_json={"p0": missing_p0 or [], "p1": profile.get("missing_p1", []) if isinstance(profile, dict) else []},
             clarification_questions_json=clarification_questions or [],
             quality_score_json=quality_score or {},
+            readiness_json={},
+            analysis_version="v0.2",
+            prompt_version="tender_understanding_v0.2",
+            model_name="MiniMax-M2.7-highspeed",
         )
         return {
             "pipeline_id": pipeline_id,
@@ -563,10 +568,9 @@ def pipeline_task(tender_document: str, project_profile_overrides: dict = None, 
         pdf_url=pdf_url,
         total_duration_seconds=total_duration,
         result_summary=result_summary,
-        # Stage 1: Tender Understanding — normalized_fields_json stores the full
-        # field trace objects (status / source_basis / priority / impact) per Max's
-        # suggestion #2. analysis_version tracks the schema version for benchmarks.
+        # Stage 1: Tender Understanding v0.2
         analysis_markdown=analysis_report,
+        analysis_sections_json=analysis_sections,
         normalized_fields_json=field_traces,
         missing_items_json={
             "p0": missing_p0 or [],
@@ -574,7 +578,11 @@ def pipeline_task(tender_document: str, project_profile_overrides: dict = None, 
         },
         clarification_questions_json=clarification_questions or [],
         quality_score_json=quality_score or {},
+        readiness_json={},
         pipeline_gate_json=pipeline_gate,
+        analysis_version="v0.2",
+        prompt_version="tender_understanding_v0.2",
+        model_name="MiniMax-M2.7-highspeed",
     )
 
     return {

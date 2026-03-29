@@ -815,20 +815,30 @@ def _render_results_panel():
                 compl = quality_score.get("completeness", {})
                 p0_cov = compl.get("p0_coverage", 0)
                 p1_cov = compl.get("p1_coverage", 0)
-                total_score = compl.get("total_score", 0)
-                evidence = quality_score.get("evidence", {})
-                readiness_data = quality_score.get("readiness", {})
+                completeness_score = compl.get("total_score", 0)
+                evidence_vals = quality_score.get("evidence", {})
+                readiness_vals = results.get("readiness") or readiness_data or {}
+                readiness_score = readiness_vals.get("readiness_score", 0.0)
 
-                st.markdown("**📊 分析质量评分**")
-                q1, q2, q3 = st.columns(3)
-                with q1:
-                    st.metric("P0覆盖率", f"{p0_cov:.0%}",
-                              delta="阻塞项" if p0_cov < 1.0 else "全部就绪")
-                with q2:
-                    st.metric("P1覆盖率", f"{p1_cov:.0%}",
-                              delta="重要项" if p1_cov < 1.0 else "全部就绪")
-                with q3:
-                    st.metric("综合评分", f"{total_score:.0%}")
+                # v0.2: three separate quality scores (not just one "综合评分")
+                evidence_score = sum(v for v in evidence_vals.values()) / max(len(evidence_vals), 1)
+
+                st.markdown("**📊 分析质量评分（三项）**")
+                s1, s2, s3 = st.columns(3)
+                with s1:
+                    st.metric("**完整性评分**", f"{completeness_score:.0%}",
+                              delta="P0+P1覆盖率" if completeness_score >= 0.8 else "部分缺失")
+                with s2:
+                    st.metric("**证据评分**", f"{evidence_score:.0%}",
+                              delta="explicit来源" if evidence_score >= 0.6 else "含推断/缺失")
+                with s3:
+                    st.metric("**就绪评分**", f"{readiness_score:.0%}",
+                              delta="可进入下游" if readiness_score >= 0.8 else "需澄清后进入")
+
+                # P0/P1 coverage detail
+                cov1, cov2 = st.columns(2)
+                with cov1:
+                    st.caption(f"P0覆盖 {p0_cov:.0%}  |  P1覆盖 {p1_cov:.0%}")
 
                 # Evidence breakdown
                 if evidence:
