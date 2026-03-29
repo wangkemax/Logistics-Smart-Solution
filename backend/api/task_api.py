@@ -11,7 +11,7 @@ PROJECT_ROOT = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from fastapi import APIRouter, HTTPException, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 from backend.services.pipeline_service import (
     list_pipeline_runs,
@@ -40,8 +40,7 @@ class TaskListItem(BaseModel):
     completed_at: Optional[str]
     pdf_url: Optional[str]
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class TaskDetail(BaseModel):
@@ -67,8 +66,7 @@ class TaskDetail(BaseModel):
     max_retries: int
     stages: list
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 @router.get("", response_model=list[TaskListItem])
