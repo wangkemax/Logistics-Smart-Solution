@@ -262,7 +262,7 @@ def _submit_qa_correction(pipeline_id: str, overrides: dict) -> tuple[bool, str]
     """
     try:
         resp = requests.post(
-            f"{API_BASE_URL}/api/pipeline/{pipeline_id}/retry",
+            f"{API_BASE_URL}/api/pipeline/{pipeline_id}/retry/",
             json={"from_stage": "1_extraction", "profile_overrides": overrides},
             timeout=15,
         )
@@ -597,7 +597,7 @@ def _render_stage_retry_section(pipeline_id: str, stages: list, key_prefix: str 
                         with st.spinner(f"正在重试 {label}..."):
                             try:
                                 resp = requests.post(
-                                    f"{API_BASE_URL}/api/pipeline/{pipeline_id}/retry",
+                                    f"{API_BASE_URL}/api/pipeline/{pipeline_id}/retry/",
                                     json={"from_stage": stage_name},
                                     timeout=10,
                                 )
@@ -645,7 +645,7 @@ def _render_stage_retry_section(pipeline_id: str, stages: list, key_prefix: str 
                 with st.spinner(f"正在从「{(stage_labels.get(selected_stage, selected_stage) if selected_stage else selected_stage or '该阶段')}」重试..."):
                     try:
                         resp = requests.post(
-                            f"{API_BASE_URL}/api/pipeline/{pipeline_id}/retry",
+                            f"{API_BASE_URL}/api/pipeline/{pipeline_id}/retry/",
                             json={"from_stage": selected_stage},
                             timeout=10,
                         )
@@ -1308,7 +1308,7 @@ elif app_mode == "🚀 Pipeline Run":
                                     st.session_state.pipeline_state = "done"
                                     # Fetch full data
                                     try:
-                                        full = requests.get(f"{API_BASE_URL}/api/pipeline/status/{pid}", timeout=10)
+                                        full = requests.get(f"{API_BASE_URL}/api/pipeline/status/"{pid}", timeout=10)
                                         if full.status_code == 200:
                                             fd = full.json()
                                             st.session_state.pipeline_profile = fd.get("profile", {})
@@ -1347,7 +1347,7 @@ elif app_mode == "🚀 Pipeline Run":
                     st.rerun()
 
             try:
-                resp = requests.get(f"{API_BASE_URL}/api/pipeline/status/{pipeline_id}", timeout=10)
+                resp = requests.get(f"{API_BASE_URL}/api/pipeline/status/"{pipeline_id}", timeout=10)
                 if resp.status_code == 404:
                     st.error(f"Pipeline {pipeline_id} 未找到")
                     st.stop()
