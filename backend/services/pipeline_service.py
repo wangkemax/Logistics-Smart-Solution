@@ -197,7 +197,7 @@ def get_pipeline_run(pipeline_id: str) -> Optional[dict]:
 
         stages = db.query(PipelineStage).filter_by(pipeline_id=pipeline_id).order_by(PipelineStage.id).all()
 
-        return {
+        result = {
             "pipeline_id": pipeline_id,
             "status": run.status,
             "profile": json.loads(run.profile_json or "{}"),
@@ -222,6 +222,13 @@ def get_pipeline_run(pipeline_id: str) -> Optional[dict]:
                 for s in stages
             ],
         }
+        # Extract qa_issues from the QA stage's extra for convenience
+        for s in stages:
+            if s.stage_name == "4_qa_review":
+                extra = json.loads(s.extra_json or "{}")
+                result["qa_issues"] = extra.get("qa_issues", [])
+                break
+        return result
     finally:
         db.close()
 
