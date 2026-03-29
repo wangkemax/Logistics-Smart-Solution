@@ -18,6 +18,20 @@ import pandas as pd
 import plotly.graph_objects as go
 from datetime import datetime
 
+# ---- Global exception hook to debug NoneType format errors ----
+import sys as _sys
+import traceback as _tb
+_original_excepthook = _sys.excepthook
+def _debug_excepthook(exc_type, exc_val, exc_tb):
+    if exc_type is TypeError and "format" in str(exc_val):
+        _sys.stderr.write("!!! NoneType FORMAT ERROR !!!\n")
+        _tb.print_exception(exc_type, exc_val, exc_tb, file=_sys.stderr)
+        _sys.stderr.write("!!! END !!!\n")
+    _original_excepthook(exc_type, exc_val, exc_tb)
+_sys.excepthook = _debug_excepthook
+
+
+
 API_BASE_URL = os.getenv("API_BASE_URL", "http://localhost:8000")
 
 st.set_page_config(
@@ -63,6 +77,11 @@ def call_api(url, payload, timeout=60):
 
 
 def render_score_gauge(score, key=None):
+    # Guard against None/non-numeric score (Plotly Indicator crashes on None)
+    try:
+        score = float(score) if score is not None else 0
+    except (TypeError, ValueError):
+        score = 0
     fig = go.Figure(go.Indicator(
         mode="gauge+number", value=score,
         domain={"x": [0, 1], "y": [0, 1]},
@@ -363,7 +382,7 @@ def _render_qa_correction_panel(pipeline_id: str, qa_verdict: str, qa_issues: li
         st.divider()
 
         submit_label = "📝 修正并重试"
-        submitted = st.button(submit_label, type="primary", use_container_width=True)
+        submitted = st.button(submit_label, type="primary", width='stretch')
 
         if submitted:
             # Filter out None / empty overrides so we don't blast existing values
@@ -551,7 +570,7 @@ def _render_stage_retry_section(pipeline_id: str, stages: list, key_prefix: str 
         # ---- Per-stage rows ----
         for s in stages:
             stage_name = s.get("stage", "")
-            label = stage_labels.get(stage_name, stage_name)
+            label = stage_labels.get(stage_name) or str(stage_name) or "未知阶段"
             s_status = s.get("status", "PENDING")
             dur = s.get("duration_seconds")
             err = s.get("error")
@@ -565,7 +584,7 @@ def _render_stage_retry_section(pipeline_id: str, stages: list, key_prefix: str 
             with row_cols[1]:
                 st.markdown(f"**{label}**")
                 if err:
-                    st.caption(f"⚠️ {err[:80]}")
+                    st.caption(f"⚠️ {(err or "")[:80]}")
             with row_cols[2]:
                 if dur is not None:
                     st.caption(f"⏱️ {dur:.1f}s")
@@ -622,7 +641,7 @@ def _render_stage_retry_section(pipeline_id: str, stages: list, key_prefix: str 
             )
         with retry_from_c2:
             retry_from_key = f"retry_from_{key_prefix}{pipeline_id}"
-            if st.button("🚀 执行重试", key=retry_from_key, type="primary", use_container_width=True):
+            if st.button("🚀 执行重试", key=retry_from_key, type="primary", width='stretch'):
                 with st.spinner(f"正在从「{stage_labels.get(selected_stage, selected_stage) or selected_stage}」重试..."):
                     try:
                         resp = requests.post(
@@ -639,7 +658,7 @@ def _render_stage_retry_section(pipeline_id: str, stages: list, key_prefix: str 
                             st.success(f"✅ 已重置阶段: {', '.join(reset_list)}")
                             st.rerun()
                         else:
-                            st.error(f"重试失败 [{resp.status_code}]: {resp.text[:100]}")
+                            st.error(f"重试失败 [{resp.status_code}]: {(resp.text or "")[:100]}")
                     except Exception as ex:
                         st.error(f"重试请求失败: {ex}")
 
@@ -698,7 +717,7 @@ def _render_results_panel():
                         "字段": label, "提取值": val_str, "置信度": conf_str,
                         "来源": f"{src_icon} {src}"
                     })
-                st.dataframe(pd.DataFrame(rows), hide_index=True, use_container_width=True)
+                st.dataframe(pd.DataFrame(rows), hide_index=True, width='stretch')
 
             # Warnings
             if warnings:
@@ -827,7 +846,7 @@ def _render_results_panel():
                 "3年ROI": fmt_percent(c.get("roi_3y")),
                 "省人": fmt_count(c.get("headcount_saved"), "人"),
             })
-        st.dataframe(pd.DataFrame(rows), hide_index=True, use_container_width=True)
+        st.dataframe(pd.DataFrame(rows), hide_index=True, width='stretch')
 
         best = next((c for c in comparisons if c.get("is_best")), comparisons[0])
         k1, k2, k3 = st.columns(3)
@@ -839,11 +858,11 @@ def _render_results_panel():
 
         t1, t2, t3 = st.tabs(["📊 投资节省", "📈 ROI", "🕸️ 雷达图"])
         with t1:
-            st.plotly_chart(render_compare_bar_chart(ranked), use_container_width=True)
+            st.plotly_chart(render_compare_bar_chart(ranked), width='stretch')
         with t2:
-            st.plotly_chart(render_compare_roi_chart(ranked), use_container_width=True)
+            st.plotly_chart(render_compare_roi_chart(ranked), width='stretch')
         with t3:
-            st.plotly_chart(render_compare_radar(ranked), use_container_width=True)
+            st.plotly_chart(render_compare_radar(ranked), width='stretch')
 
     # ---- TOP5 Recommendations ----
     if recs:
@@ -851,7 +870,7 @@ def _render_results_panel():
         st.markdown("**🎯 TOP 5 自动化方案**")
         for i, rec in enumerate(recs[:5]):
             medal = "🥇" if i == 0 else "🥈" if i == 1 else "🥉" if i == 2 else "📌"
-            with st.expander(f"{medal} #{i+1} {rec.get('scenario_name', '—')} — {rec.get('score', 0):.0f}分", expanded=(i == 0)):
+            with st.expander(f"{medal} #{i+1} {rec.get('scenario_name', '—')} — {(rec.get('score') or 0):.0f}分", expanded=(i == 0)):
                 ca, cb = st.columns([2, 1])
                 with ca:
                     st.markdown(f"**类别:** {rec.get('category','—')} | **风险:** {rec.get('risk','—')}")
@@ -860,7 +879,7 @@ def _render_results_panel():
                               f"**效率提升:** {fmt_percent(rec.get('efficiency_gain'))} | "
                               f"**投资:** {rec.get('capex_range', '—')}")
                 with cb:
-                    st.plotly_chart(render_score_gauge(rec.get("score", 0)), use_container_width=True,
+                    st.plotly_chart(render_score_gauge(rec.get("score", 0)), width='stretch',
                                    key=f"res_gauge_{i}")
 
     # ---- PDF Download ----
@@ -878,7 +897,7 @@ def _render_results_panel():
         st.success("✅ PDF报告已生成")
         st.download_button("📄 下载完整PDF方案书", data=pdf_bytes,
                           file_name="solution_report.pdf", mime="application/pdf",
-                          type="primary", width='stretch', use_container_width=True)
+                          type="primary", width='stretch')
     else:
         st.warning("PDF未生成")
 
@@ -946,14 +965,14 @@ if app_mode == "📋 方案生成":
                     top = recommendations[0]
                     c1, c2, c3, c4 = st.columns(4)
                     c1.metric("首选方案", fmt_text(top.get("scenario_name"), "—"))
-                    c2.metric("匹配评分", f"{top.get('score', 0):.0f}/100")
+                    c2.metric("匹配评分", f"{(top.get('score') or 0):.0f}/100")
                     c3.metric("人工节省", f"{int((top.get('labor_saving') or 0)*100)}%")
                     c4.metric("效率提升", f"{int((top.get('efficiency_gain') or 0)*100)}%")
                     st.divider()
                     for i, rec in enumerate(recommendations):
                         with st.expander(
                             f"{'🥇' if i==0 else '🥈' if i==1 else '🥉' if i==2 else '📌'} "
-                            f"#{i+1} {rec.get('scenario_name', '—')} — 评分: {rec.get('score', 0):.0f}分",
+                            f"#{i+1} {rec.get('scenario_name', '—')} — 评分: {(rec.get('score') or 0):.0f}分",
                             expanded=(i == 0),
                         ):
                             col_a, col_b = st.columns([2, 1])
@@ -1283,7 +1302,7 @@ elif app_mode == "🚀 Pipeline Run":
                             with cols_h[1]:
                                 st.caption(f"{verdict or status}")
                             with cols_h[2]:
-                                if st.button("加载", key=f"load_{pid}", use_container_width=True):
+                                if st.button("加载", key=f"load_{pid}", width='stretch'):
                                     # Load this pipeline into session
                                     st.session_state._pipeline_id = pid
                                     st.session_state.pipeline_state = "done"
@@ -1319,10 +1338,10 @@ elif app_mode == "🚀 Pipeline Run":
             # Manual control buttons
             ctl1, ctl2 = st.columns([1, 1])
             with ctl1:
-                if st.button("🔄 手动刷新状态", use_container_width=True):
+                if st.button("🔄 手动刷新状态", width='stretch'):
                     st.rerun()
             with ctl2:
-                if st.button("⏸️ 暂停自动刷新", use_container_width=True):
+                if st.button("⏸️ 暂停自动刷新", width='stretch'):
                     st.session_state.pipeline_state = "done"
                     st.info("已暂停自动刷新，可点击「开始运行 Pipeline」继续。")
                     st.rerun()
