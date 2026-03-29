@@ -465,9 +465,9 @@ with st.sidebar:
 
     app_mode = st.radio(
         "选择功能模式",
-        options=["📋 方案生成", "⚖️ 多方案对比", "🚀 Pipeline Run"],
+        options=["📋 方案生成", "⚖️ 多方案对比", "🚀 Pipeline Run", "💬 Clarification Workspace"],
         index=0,
-        help="方案生成：单方案推荐+PDF\n多方案对比：横向对比ROI\nPipeline Run：端到端自动投标",
+        help="方案生成：单方案推荐+PDF\n多方案对比：横向对比ROI\nPipeline Run：端到端自动投标\nClarification：补录澄清推动项目继续",
     )
     st.divider()
 
@@ -2209,4 +2209,346 @@ elif app_mode == "🚀 Pipeline Run":
         st.rerun()
 
     # =====================================================================
+    # Mode 4: Clarification Workspace
     # =====================================================================
+elif app_mode == "💬 Clarification Workspace":
+    st.markdown('<div class="main-header">💬 Clarification Workspace — 澄清与补录</div>', unsafe_allow_html=True)
+
+    # Initialize session state for clarification
+    for key in ["cw_pipeline_id", "cw_tasks", "cw_manual_inputs", "cw_definitions", "cw_recompute_result"]:
+        if key not in st.session_state:
+            st.session_state[key] = None
+
+    API = API_BASE_URL
+
+    # ---- Left: Task Selection & Input ----
+    col_left, col_right = st.columns([1, 2])
+
+    with col_left:
+        st.markdown("### 📋 项目选择")
+
+        # Load list of completed pipelines
+        try:
+            hist_resp = requests.get(f"{API}/api/pipeline/history", timeout=5)
+            if hist_resp.status_code == 200:
+                hist_data = hist_resp.json().get("runs", [])
+                completed = [r for r in hist_data if r.get("status") == "COMPLETE"]
+                if completed:
+                    options = {r.get("pipeline_id", ""): r for r in completed}
+                    selected_pid = st.selectbox(
+                        "选择已完成的任务",
+                        options=list(options.keys()),
+                        format_func=lambda x: f"{x} — {options[x].get('created_at', '')[:16]}",
+                        index=0,
+                    )
+                    if selected_pid:
+                        st.session_state.cw_pipeline_id = selected_pid
+                else:
+                    st.info("暂无已完成的任务，请先运行 Pipeline")
+                    selected_pid = None
+            else:
+                st.error("无法加载历史任务列表")
+                selected_pid = None
+        except Exception:
+            st.error("❌ 无法连接到后端服务")
+            selected_pid = None
+
+        st.divider()
+        st.markdown("### 📊 当前状态")
+
+        if selected_pid:
+            try:
+                status_resp = requests.get(f"{API}/api/clarification/status/{selected_pid}", timeout=10)
+                if status_resp.status_code == 200:
+                    cw_status = status_resp.json()
+                    mode = cw_status.get("current_mode", "unknown")
+                    score = cw_status.get("readiness_score", 0.0)
+                    gate = cw_status.get("cost_model_gate", "UNKNOWN")
+                    manual_count = cw_status.get("manual_inputs_count", 0)
+                    manual_fields = cw_status.get("manual_inputs", [])
+
+                    mode_colors = {"blocked": "🔴", "partial_ready": "🟡", "ready": "🟢", "full_calc": "🟢"}
+                    mode_labels = {
+                        "blocked": "阻塞（Blocked）",
+                        "partial_ready": "区间估算（Range Estimate）",
+                        "ready": "正式测算（Ready）",
+                        "full_calc": "正式测算（Full Calc）",
+                    }
+                    st.markdown(f"**当前模式：** {mode_colors.get(mode, '⚪')} {mode_labels.get(mode, mode)}")
+                    st.progress(float(score), text=f"Readiness {score:.0%}")
+                    st.markdown(f"**成本测算闸门：** {'✅ PASS' if gate == 'PASS' else '🔒 BLOCK'}")
+                    st.markdown(f"**已补录字段：** {manual_count}个")
+                    if manual_fields:
+                        with st.expander("已补录字段列表", expanded=False):
+                            for f in manual_fields:
+                                st.caption(f"  • {f}")
+                else:
+                    st.caption("⚠️ 无法加载状态")
+            except Exception:
+                st.caption("⚠️ 后端未启动")
+
+        # ---- Input Definitions ----
+        st.divider()
+        st.markdown("### 📝 可补录字段说明")
+        try:
+            defs_resp = requests.get(f"{API}/api/clarification/definitions", timeout=5)
+            if defs_resp.status_code == 200:
+                defs = defs_resp.json()
+                for d in defs[:8]:  # Show top 8
+                    pri_tag = "🔴 P0" if d.get("required_for_p0") else "🟡 P1"
+                    with st.expander(f"{pri_tag} **{d.get('display_name', d.get('field_key'))}**", expanded=False):
+                        st.markdown(f"**字段名:** `{d.get('field_key')}`")
+                        st.markdown(f"**输入类型:** {d.get('input_type')}")
+                        st.markdown(f"**说明:** {d.get('description', '—')}")
+                        if d.get("acceptable_units"):
+                            st.markdown(f"**可接受单位:** {', '.join(d.get('acceptable_units', []))}")
+                        if d.get("unit_conversion_hint"):
+                            st.success(f"💡 {d.get('unit_conversion_hint')}")
+            else:
+                st.caption("无法加载字段定义")
+        except Exception:
+            st.caption("⚠️ 后端未启动")
+
+    with col_right:
+        st.markdown("### 💬 Clarification Tasks")
+
+        if not selected_pid:
+            st.info("⬅️ 请先在左侧选择一个已完成的任务")
+        else:
+            # Load tasks
+            try:
+                tasks_resp = requests.get(f"{API}/api/clarification/tasks/{selected_pid}", timeout=10)
+                if tasks_resp.status_code == 200:
+                    tasks_data = tasks_resp.json()
+                    tasks = tasks_data.get("tasks", {})
+                    summary = tasks.get("summary", {})
+
+                    st.markdown(f"**任务总数:** {summary.get('total_count', 0)}  "
+                                f"**✅ 已解决:** {summary.get('resolved', 0)}  "
+                                f"**❌ 待解决:** {summary.get('must_total', 0)}")
+
+                    # Tabs: Must Answer / Should Answer / Conflicts
+                    tab1, tab2, tab3, tab4 = st.tabs(["🔴 必须澄清", "🟡 建议补充", "⚠️ 冲突字段", "⚠️ 假设复核"])
+
+                    all_tasks = tasks.get("must_answer", []) + tasks.get("should_answer", []) + \
+                                tasks.get("conflict_items", []) + tasks.get("assumption_review", [])
+                    must_tasks = tasks.get("must_answer", [])
+                    should_tasks = tasks.get("should_answer", [])
+                    conflict_tasks = tasks.get("conflict_items", [])
+                    assumption_tasks = tasks.get("assumption_review", [])
+
+                    # ---- Must Answer ----
+                    with tab1:
+                        if not must_tasks:
+                            st.success("✅ 所有P0必填项已解决！")
+                        else:
+                            st.markdown(f"共 **{len(must_tasks)}** 项必须澄清")
+                            _render_clarification_task_editor(selected_pid, must_tasks, API, key_prefix="must_")
+
+                    # ---- Should Answer ----
+                    with tab2:
+                        if not should_tasks:
+                            st.info("暂无P1建议补充项")
+                        else:
+                            st.markdown(f"共 **{len(should_tasks)}** 项建议补充")
+                            _render_clarification_task_editor(selected_pid, should_tasks, API, key_prefix="should_")
+
+                    # ---- Conflicts ----
+                    with tab3:
+                        if not conflict_tasks:
+                            st.success("✅ 无冲突字段")
+                        else:
+                            st.markdown(f"共 **{len(conflict_tasks)}** 项冲突")
+                            _render_clarification_task_editor(selected_pid, conflict_tasks, API, key_prefix="conflict_")
+
+                    # ---- Assumption Review ----
+                    with tab4:
+                        if not assumption_tasks:
+                            st.info("暂无待复核的假设项")
+                        else:
+                            _render_clarification_task_editor(selected_pid, assumption_tasks, API, key_prefix="assume_")
+
+                else:
+                    st.error(f"无法加载任务列表: {tasks_resp.status_code}")
+            except Exception as e:
+                st.error(f"❌ 请求失败: {e}")
+
+    # =============================================================================
+    # Recompute Section (bottom)
+    # =============================================================================
+    if selected_pid:
+        st.divider()
+        col_a, col_b, col_c = st.columns([1, 1, 2])
+        with col_a:
+            recompute_clicked = st.button("🔄 提交并重新计算", type="primary", width="stretch")
+        with col_b:
+            st.button("💾 仅保存草稿", width="stretch", disabled=True)  # placeholder
+
+        if recompute_clicked:
+            with st.spinner("重新计算中..."):
+                try:
+                    # Collect all pending inputs from session state
+                    pending = _collect_pending_inputs()
+                    if pending:
+                        payload = {"inputs": pending}
+                        recompute_resp = requests.post(
+                            f"{API}/api/clarification/recompute/{selected_pid}",
+                            json=payload,
+                            timeout=30,
+                        )
+                    else:
+                        recompute_resp = requests.post(
+                            f"{API}/api/clarification/recompute/{selected_pid}",
+                            json={},
+                            timeout=30,
+                        )
+
+                    if recompute_resp.status_code == 200:
+                        result = recompute_resp.json()
+                        st.session_state.cw_recompute_result = result
+
+                        changes = result.get("changes_summary", {})
+                        old_mode = changes.get("old_mode", "?")
+                        new_mode = changes.get("new_mode", "?")
+                        mode_changed = changes.get("mode_changed", False)
+                        resolved_p0 = changes.get("resolved_p0_count", 0)
+                        remaining_p0 = changes.get("remaining_p0_count", 0)
+                        fields_updated = changes.get("fields_updated", [])
+
+                        if mode_changed:
+                            st.success(
+                                f"✅ 状态已更新！模式从 **{old_mode}** → **{new_mode}**，"
+                                f"P0已解决 {resolved_p0} 项"
+                            )
+                        else:
+                            if remaining_p0 > 0:
+                                st.warning(
+                                    f"⚠️ 补录已保存，但仍有 **{remaining_p0}** 个P0字段阻塞。"
+                                    f"当前模式：**{new_mode}**"
+                                )
+                            else:
+                                st.success("✅ 补录已保存，当前状态无变化")
+
+                        if fields_updated:
+                            st.markdown(f"**本次补录字段:** {', '.join(fields_updated)}")
+
+                        # Show blocking reasons if still blocked
+                        downstream = result.get("downstream_input", {})
+                        blocking = downstream.get("blocking_reasons", [])
+                        if blocking:
+                            st.markdown("**仍阻塞原因:**")
+                            for reason in blocking[:3]:
+                                st.markdown(f"  • {reason}")
+
+                        st.rerun()
+                    else:
+                        st.error(f"重新计算失败: {recompute_resp.status_code} — {recompute_resp.text}")
+
+                except Exception as e:
+                    st.error(f"❌ 重新计算请求异常: {e}")
+
+
+# =============================================================================
+# Clarification Task Editor Helper
+# =============================================================================
+def _render_clarification_task_editor(pipeline_id: str, tasks: list, api: str, key_prefix: str = ""):
+    """Render a list of clarification tasks with input forms."""
+    if not tasks:
+        return
+
+    for i, task in enumerate(tasks[:10]):  # Max 10 shown per tab
+        fkey = task.get("field_key", "")
+        display_name = task.get("display_name", fkey)
+        task_id = task.get("question_id", f"Q-{i}")
+        priority = task.get("priority", "P1")
+        category = task.get("category", "missing")
+        current_val = task.get("current_value")
+        status = task.get("current_status", "open")
+        input_type = task.get("expected_input_type", "text")
+        acceptable_units = task.get("acceptable_units", [])
+        blocking = task.get("blocking_impact", "")
+        guidance = task.get("guidance", "")
+        example = task.get("example_answer", "")
+
+        resolved = status == "resolved"
+
+        if resolved:
+            container = st.container()
+        else:
+            container = st.container()
+
+        with container:
+            pri_color = "🔴" if priority == "P0" else "🟡"
+            status_icon = "✅" if resolved else "⏳"
+            with st.expander(f"{pri_color} {status_icon} [{task_id}] **{display_name}**", expanded=(not resolved)):
+                st.markdown(f"**问题:** {task.get('question_text', '请补充该字段')}")
+                if blocking:
+                    st.caption(f"**影响:** {blocking}")
+                if guidance:
+                    st.caption(f"**说明:** {guidance}")
+                if example:
+                    st.caption(f"**示例:** {example}")
+
+                if current_val:
+                    st.info(f"当前值: **{current_val}**")
+
+                if not resolved:
+                    # Input fields
+                    inp_key = f"cw_{key_prefix}{fkey}"
+                    if input_type == "number_with_unit":
+                        val_col, unit_col = st.columns([2, 1])
+                        with val_col:
+                            num_val = st.number_input(
+                                "数值",
+                                min_value=0.0,
+                                format="%f",
+                                key=f"{inp_key}_val",
+                            )
+                        with unit_col:
+                            unit_opts = acceptable_units if acceptable_units else ["orders/day", "月订单量", "年订单量"]
+                            selected_unit = st.selectbox("单位", options=unit_opts, key=f"{inp_key}_unit")
+                        comment = st.text_input("备注（可选）", key=f"{inp_key}_comment", placeholder="来源说明...")
+
+                        # Store in session state
+                        if f"cw_input_{fkey}" not in st.session_state:
+                            st.session_state[f"cw_input_{fkey}"] = {}
+                        st.session_state[f"cw_input_{fkey}"].update({
+                            "value": num_val,
+                            "unit": selected_unit,
+                            "comment": comment,
+                        })
+
+                    elif input_type == "choice":
+                        choices = task.get("conflict_candidates", []) or ["低", "中", "高"]
+                        chosen = st.selectbox("选择值", options=choices, key=f"{inp_key}_choice")
+                        if f"cw_input_{fkey}" not in st.session_state:
+                            st.session_state[f"cw_input_{fkey}"] = {}
+                        st.session_state[f"cw_input_{fkey}"].update({"value": chosen})
+
+                    else:  # text or default
+                        text_val = st.text_input("输入值", key=f"{inp_key}_text", placeholder="请输入...")
+                        if f"cw_input_{fkey}" not in st.session_state:
+                            st.session_state[f"cw_input_{fkey}"] = {}
+                        st.session_state[f"cw_input_{fkey}"].update({"value": text_val})
+                else:
+                    st.success("✅ 已解决")
+
+
+def _collect_pending_inputs() -> dict:
+    """Collect all pending manual inputs from session state into a dict keyed by field_key."""
+    pending = {}
+    for key in list(st.session_state.keys()):
+        if key.startswith("cw_input_"):
+            fkey = key.replace("cw_input_", "")
+            data = st.session_state[key]
+            if isinstance(data, dict) and data.get("value") not in (None, "", 0):
+                pending[fkey] = {
+                    "value": data.get("value"),
+                    "unit": data.get("unit"),
+                    "comment": data.get("comment", ""),
+                }
+    return pending
+
+
+# =====================================================================
+# =====================================================================

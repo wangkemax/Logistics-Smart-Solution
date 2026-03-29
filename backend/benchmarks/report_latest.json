@@ -1,0 +1,259 @@
+{
+  "generated_at": "2026-03-29T16:41:05.282158",
+  "version": "v0.2",
+  "extractor_version": "tender_understanding_v0.2",
+  "results": [
+    {
+      "sample_id": "bench_001",
+      "sample_label": "汽车零部件DC投标",
+      "ground_truth": {
+        "client_name": "保时捷（上海）汽车国际贸易有限公司",
+        "dc_count": "AMBIGUOUS",
+        "warehouse_area": "AMBIGUOUS",
+        "daily_orders": "MISSING",
+        "sku_count": "PARTIAL",
+        "contract_years": 3,
+        "kpi_targets": [
+          "库存准确率≥99.5%",
+          "出库准时率≥99.0%"
+        ],
+        "penalty_rules": [
+          "AEO认证",
+          "危险品资质",
+          "连续3次KPI不达标可解约"
+        ]
+      },
+      "expected_issues": {
+        "missing_p0": [
+          "dc_count",
+          "daily_orders"
+        ],
+        "ambiguous": [
+          "dc_count (正文vs附件)",
+          "warehouse_area"
+        ],
+        "missing_p1": [
+          "sku_abc_classification",
+          "total_warehouse_area"
+        ]
+      },
+      "old": {
+        "p0_field_status": {
+          "missing": 3,
+          "partial": 0,
+          "ambiguous": 0,
+          "explicit": 0,
+          "inferred": 0,
+          "fabricated": 2,
+          "total": 5
+        },
+        "missing_exposure_rate": 0.5,
+        "false_value_rate": 0.0,
+        "readiness": {
+          "cost_model": "BLOCKED",
+          "solution_design": "WARN",
+          "contract_review": "BLOCKED"
+        },
+        "clarification_questions_count": 0,
+        "extraction_confidence": 0.35,
+        "dc_count": null,
+        "warehouse_area": 30000.0,
+        "daily_orders": 1200
+      },
+      "new": {
+        "p0_field_status": {
+          "missing": 5,
+          "partial": 0,
+          "ambiguous": 0,
+          "explicit": 0,
+          "inferred": 0,
+          "fabricated": 0,
+          "total": 5
+        },
+        "missing_exposure_rate": 1.0,
+        "false_value_rate": 0.0,
+        "readiness": {
+          "cost_model": "BLOCKED",
+          "solution_design": "WARN",
+          "contract_review": "BLOCKED"
+        },
+        "clarification_questions_count": 0,
+        "quality_scores": {
+          "completeness_score": 0.0,
+          "evidence_score": 0.0,
+          "readiness_score": 0.0
+        },
+        "readiness_score": 0.0,
+        "completeness_score": 0.0,
+        "evidence_score": 0.0,
+        "dc_count": null,
+        "warehouse_area": null,
+        "daily_orders": null
+      },
+      "delta": {
+        "missing_exposure_improvement": 0.5,
+        "false_value_improvement": 0.0,
+        "clarification_questions_delta": 0
+      }
+    },
+    {
+      "sample_id": "bench_002",
+      "sample_label": "快消品DC投标（数据完整）",
+      "ground_truth": {
+        "client_name": "百事饮料（上海）有限公司",
+        "dc_count": 6,
+        "warehouse_area": 48000,
+        "daily_orders": 45000,
+        "sku_count": 3200,
+        "contract_years": 5
+      },
+      "expected_issues": {},
+      "old": {
+        "p0_field_status": {
+          "missing": 4,
+          "partial": 0,
+          "ambiguous": 0,
+          "explicit": 0,
+          "inferred": 0,
+          "fabricated": 1,
+          "total": 5
+        },
+        "missing_exposure_rate": 1.0,
+        "false_value_rate": 0.0,
+        "readiness": {
+          "cost_model": "BLOCKED",
+          "solution_design": "WARN",
+          "contract_review": "BLOCKED"
+        },
+        "clarification_questions_count": 0,
+        "extraction_confidence": 0.35,
+        "dc_count": null,
+        "warehouse_area": 12000.0,
+        "daily_orders": null
+      },
+      "new": {
+        "p0_field_status": {
+          "missing": 5,
+          "partial": 0,
+          "ambiguous": 0,
+          "explicit": 0,
+          "inferred": 0,
+          "fabricated": 0,
+          "total": 5
+        },
+        "missing_exposure_rate": 1.0,
+        "false_value_rate": 0.0,
+        "readiness": {
+          "cost_model": "BLOCKED",
+          "solution_design": "WARN",
+          "contract_review": "BLOCKED"
+        },
+        "clarification_questions_count": 0,
+        "quality_scores": {
+          "completeness_score": 0.0,
+          "evidence_score": 0.0,
+          "readiness_score": 0.0
+        },
+        "readiness_score": 0.0,
+        "completeness_score": 0.0,
+        "evidence_score": 0.0,
+        "dc_count": null,
+        "warehouse_area": null,
+        "daily_orders": null
+      },
+      "delta": {
+        "missing_exposure_improvement": 0.0,
+        "false_value_improvement": 0.0,
+        "clarification_questions_delta": 0
+      }
+    },
+    {
+      "sample_id": "bench_003",
+      "sample_label": "医药冷链投标（边界模糊）",
+      "ground_truth": {
+        "client_name": "某大型医药集团",
+        "dc_count": "MISSING",
+        "warehouse_area": "MISSING",
+        "daily_orders": "MISSING",
+        "sku_count": "PARTIAL",
+        "contract_years": "AMBIGUOUS"
+      },
+      "expected_issues": {
+        "missing_p0": [
+          "dc_count",
+          "warehouse_area",
+          "daily_orders"
+        ],
+        "partial": [
+          "sku_count"
+        ],
+        "ambiguous": [
+          "contract_years"
+        ]
+      },
+      "old": {
+        "p0_field_status": {
+          "missing": 4,
+          "partial": 0,
+          "ambiguous": 0,
+          "explicit": 0,
+          "inferred": 0,
+          "fabricated": 1,
+          "total": 5
+        },
+        "missing_exposure_rate": 1.0,
+        "false_value_rate": 0.0,
+        "readiness": {
+          "cost_model": "BLOCKED",
+          "solution_design": "WARN",
+          "contract_review": "BLOCKED"
+        },
+        "clarification_questions_count": 0,
+        "extraction_confidence": 0.35,
+        "dc_count": null,
+        "warehouse_area": null,
+        "daily_orders": null
+      },
+      "new": {
+        "p0_field_status": {
+          "missing": 5,
+          "partial": 0,
+          "ambiguous": 0,
+          "explicit": 0,
+          "inferred": 0,
+          "fabricated": 0,
+          "total": 5
+        },
+        "missing_exposure_rate": 1.0,
+        "false_value_rate": 0.0,
+        "readiness": {
+          "cost_model": "BLOCKED",
+          "solution_design": "WARN",
+          "contract_review": "BLOCKED"
+        },
+        "clarification_questions_count": 0,
+        "quality_scores": {
+          "completeness_score": 0.0,
+          "evidence_score": 0.0,
+          "readiness_score": 0.0
+        },
+        "readiness_score": 0.0,
+        "completeness_score": 0.0,
+        "evidence_score": 0.0,
+        "dc_count": null,
+        "warehouse_area": null,
+        "daily_orders": null
+      },
+      "delta": {
+        "missing_exposure_improvement": 0.0,
+        "false_value_improvement": 0.0,
+        "clarification_questions_delta": 0
+      }
+    }
+  ],
+  "summary": {
+    "avg_missing_exposure_improvement": 0.1667,
+    "avg_false_value_improvement": 0.0,
+    "total_samples": 3
+  }
+}

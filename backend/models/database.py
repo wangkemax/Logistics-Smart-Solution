@@ -111,6 +111,10 @@ class PipelineRun(Base):
     prompt_version = Column(String(20), default="tender_understanding_v0.2")  # Prompt version
     model_name = Column(String(80), nullable=True)         # v0.2: LLM model used (MiniMax-M2.7-highspeed etc.)
     pipeline_gate_json = Column(Text, nullable=True)     # JSON: {cost_model: BLOCK|PASS, ...}
+    # v0.6.1 — Clarification Workflow fields
+    manual_inputs_json = Column(Text, nullable=True)       # JSON: {field_key: {value, unit, source_type, status, comment, updated_at}}
+    resolved_fields_json = Column(Text, nullable=True)     # JSON: {field_key: ResolvedField.to_dict()}
+    clarification_tasks_json = Column(Text, nullable=True)  # JSON: ClarificationTaskList.to_dict()
     created_at = Column(DateTime, default=datetime.utcnow)
     completed_at = Column(DateTime, nullable=True)
     cancelled_at = Column(DateTime, nullable=True)
