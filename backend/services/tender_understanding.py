@@ -427,6 +427,62 @@ def _parse_response(raw):
             pass
     return raw.strip(), {"_parse_error": "JSON extraction failed"}
 
+
+# Canonical 13-section names (must match markdown headers exactly)
+_SECTION_NAMES = [
+    "project_overview",        # 1. 项目概览
+    "scope_of_work",           # 2. 服务范围
+    "warehouse_network",       # 3. 仓库DC信息
+    "business_process",        # 4. 业务操作流程
+    "systems_and_interfaces",  # 5. 系统与接口
+    "staffing_and_operation", # 6. 人员与运营要求
+    "kpi_sla",                 # 7. KPI/SLA要求
+    "commercial_and_pricing",  # 8. 商务与报价
+    "contract_terms",          # 9. 合同周期与里程碑
+    "mandatory_terms",         # 10. 强制条款否决项
+    "risks_and_ambiguities",  # 11. 风险与歧义
+    "missing_information",     # 12. 缺失信息与待确认项
+    "downstream_guidance",     # 13. 下游指导说明
+]
+
+
+def _parse_sections_from_markdown(report_text: str) -> dict:
+    """
+    Parse a tender analysis markdown into per-section text blocks.
+
+    Returns:
+        {
+            "project_overview": "招标方: 保时捷（上海）\n合同期: 5年\n...",
+            "scope_of_work": "仓储服务：入库、存储、出库...\n...",
+            ...
+        }
+    """
+    if not report_text:
+        return {name: "" for name in _SECTION_NAMES}
+
+    sections = {}
+    # Pattern: ## N. Section Title  (with optional Chinese/English)
+    # The header is followed by content until the next ## or end of file
+    pattern = r"(?m)^##\s*(\d+)\.\s*(.+?)\s*\n([\s\S]*?)(?=\n##\s*\d+\.|\Z)"
+    matches = re.finditer(pattern, report_text)
+
+    for m in matches:
+        num = int(m.group(1))          # 1-13
+        title = m.group(2).strip()    # section title
+        body = m.group(3).strip()     # content
+
+        # Map to canonical name
+        if 1 <= num <= 13:
+            sections[_SECTION_NAMES[num - 1]] = body
+            sections[f"s{num}_title"] = title  # also store the actual title found
+
+    # Fill missing sections with empty strings
+    for name in _SECTION_NAMES:
+        if name not in sections:
+            sections[name] = ""
+
+    return sections
+
 def analyze_tender_document(text):
     if not text or len(text.strip()) < 20:
         return _empty_result()
@@ -436,15 +492,19 @@ def analyze_tender_document(text):
         return _empty_result()
     report, structured = _parse_response(result["raw"])
     meta = _build_metadata(structured)
+    sections = _parse_sections_from_markdown(report)
     return {"analysis_report": report, "structured": structured,
-            "extraction_metadata": meta, "raw_llm_response": result["raw"]}
+            "extraction_metadata": meta, "raw_llm_response": result["raw"],
+            "analysis_sections": sections}
 
 def _empty_result():
+    empty_sections = {name: "" for name in _SECTION_NAMES}
     return {
         "analysis_report": "**分析未能完成**：招标文件内容过短或解析失败。",
         "structured": {},
         "extraction_metadata": {"confidence": 0.0, "missing_p0": ["招标文件内容缺失"], "missing_p1": []},
-        "raw_llm_response": ""
+        "raw_llm_response": "",
+        "analysis_sections": empty_sections,
     }
 
 def _build_metadata(s):
@@ -609,108 +669,6 @@ def _validate_structured_json(structured: dict) -> list[dict]:
 
 
 # =============================================================================
-# Schema Validation + Field Map
-# =============================================================================
-_SCHEMA_CONTRACT = {
-    "s1_project_overview":    {"type": "dict"},
-    "s2_service_scope":     {"type": "dict"},
-    "s3_warehouse_dc_list": {"type": "list"},
-    "s4_business_process":   {"type": "dict"},
-    "s5_systems":           {"type": "dict"},
-    "s6_operations":        {"type": "dict"},
-    "s7_kpi_sla":           {"type": "list"},
-    "s8_commercial":         {"type": "dict"},
-    "s9_contract":          {"type": "dict"},
-    "s10_mandatory_clauses": {"type": "list"},
-    "s11_risks":           {"type": "dict"},
-    "s12_missing":          {"type": "dict"},
-    "s13_downstream_inputs": {"type": "dict"},
-}
-
-def _validate_structured_json(structured):
-    errors = []
-    if not isinstance(structured, dict):
-        return [{"section": "root", "error": "LLM output is not a JSON object", "severity": "ERROR"}]
-    for key, spec in _SCHEMA_CONTRACT.items():
-        value = structured.get(key)
-        expected = spec["type"]
-        if value is None:
-            continue
-        if expected == "list" and not isinstance(value, list):
-            errors.append({"section": key, "error": "should be list, got " + type(value).__name__, "severity": "ERROR"})
-        elif expected == "dict" and not isinstance(value, dict):
-            errors.append({"section": key, "error": "should be dict, got " + type(value).__name__, "severity": "ERROR"})
-    return errors
-
-
-# New normalize_extracted_fields with schema validation + field priority/impact
-
-_SCHEMA_CONTRACT = {
-    "s1_project_overview":    {"type": "dict"},
-    "s2_service_scope":     {"type": "dict"},
-    "s3_warehouse_dc_list": {"type": "list"},
-    "s4_business_process":   {"type": "dict"},
-    "s5_systems":           {"type": "dict"},
-    "s6_operations":        {"type": "dict"},
-    "s7_kpi_sla":           {"type": "list"},
-    "s8_commercial":         {"type": "dict"},
-    "s9_contract":          {"type": "dict"},
-    "s10_mandatory_clauses": {"type": "list"},
-    "s11_risks":           {"type": "dict"},
-    "s12_missing":          {"type": "dict"},
-    "s13_downstream_inputs": {"type": "dict"},
-}
-
-def _validate_structured_json(structured):
-    errors = []
-    if not isinstance(structured, dict):
-        return [{"section": "root", "error": "LLM output is not a JSON object", "severity": "ERROR"}]
-    for key, spec in _SCHEMA_CONTRACT.items():
-        value = structured.get(key)
-        expected = spec["type"]
-        if value is None:
-            continue
-        if expected == "list" and not isinstance(value, list):
-            errors.append({"section": key, "error": "should be list, got " + type(value).__name__, "severity": "ERROR"})
-        elif expected == "dict" and not isinstance(value, dict):
-            errors.append({"section": key, "error": "should be dict, got " + type(value).__name__, "severity": "ERROR"})
-    return errors
-
-
-# New normalize_extracted_fields with schema validation + field priority/impact
-
-_SCHEMA_CONTRACT = {
-    "s1_project_overview":    {"type": "dict"},
-    "s2_service_scope":     {"type": "dict"},
-    "s3_warehouse_dc_list": {"type": "list"},
-    "s4_business_process":   {"type": "dict"},
-    "s5_systems":           {"type": "dict"},
-    "s6_operations":        {"type": "dict"},
-    "s7_kpi_sla":           {"type": "list"},
-    "s8_commercial":         {"type": "dict"},
-    "s9_contract":          {"type": "dict"},
-    "s10_mandatory_clauses": {"type": "list"},
-    "s11_risks":           {"type": "dict"},
-    "s12_missing":          {"type": "dict"},
-    "s13_downstream_inputs": {"type": "dict"},
-}
-
-def _validate_structured_json(structured):
-    errors = []
-    if not isinstance(structured, dict):
-        return [{"section": "root", "error": "LLM output is not a JSON object", "severity": "ERROR"}]
-    for key, spec in _SCHEMA_CONTRACT.items():
-        value = structured.get(key)
-        expected = spec["type"]
-        if value is None:
-            continue
-        if expected == "list" and not isinstance(value, list):
-            errors.append({"section": key, "error": "should be list, got " + type(value).__name__, "severity": "ERROR"})
-        elif expected == "dict" and not isinstance(value, dict):
-            errors.append({"section": key, "error": "should be dict, got " + type(value).__name__, "severity": "ERROR"})
-    return errors
-
-
 def normalize_extracted_fields(analysis_result):
     s = analysis_result.get("structured", {})
     meta = analysis_result.get("extraction_metadata", {})
@@ -957,12 +915,14 @@ def build_downstream_input(profile, structured=None, quality_score=None):
         return result
 
     return {
+        "analysis_sections": profile.get("_analysis_sections", {}),  # {section_name: section_text}
         "tender_analysis_markdown": profile.get("analysis_report", ""),
         "normalized_fields": normalized,          # {field_key: field_object}
         "field_validation_errors": field_errors,  # {field_key: [errors]}
         "critical_missing_items": resolve_to_field_objs(profile.get("missing_p0", [])),
         "secondary_missing_items": resolve_to_field_objs(profile.get("missing_p1", [])),
         "clarification_questions": profile.get("_clarification_questions", []),
+        "readiness": compute_readiness(profile),
         "document_metadata": {
             "extraction_confidence": profile.get("extraction_confidence", 0.0),
             "quality_score": qs,
@@ -971,6 +931,81 @@ def build_downstream_input(profile, structured=None, quality_score=None):
             "structured_json": structured or profile.get("_structured", {}),
         }
     }
+
+
+def compute_readiness(profile) -> dict:
+    """
+    Determine downstream readiness based on P0/P1 field status.
+
+    Returns:
+        {
+            for_cost_model: bool,          # False if any P0 field is missing/blocking
+            for_solution_design: bool,     # False if service_scope or automation_expectation missing
+            for_contract_review: bool,    # False if penalty_rules missing
+            for_roi_analysis: bool,       # False if contract_years or budget_level missing
+            blocked_reasons: [str],       # human-readable list of blocking reasons
+            readiness_score: float,       # 0.0-1.0
+        }
+    """
+    # Collect P0 / P1 field statuses from profile
+    p0_status = {}
+    for fkey in get_p0_fields():
+        entry = profile.get(fkey)
+        if isinstance(entry, dict):
+            p0_status[fkey] = entry.get("status", "missing")
+        else:
+            p0_status[fkey] = "missing"
+
+    # P0 fields that block cost model
+    cost_model_blockers = []
+    for fkey, status in p0_status.items():
+        if status in ("missing", "ambiguous"):
+            fdef = get_field_def(fkey)
+            cost_model_blockers.append(f"{fdef.display_name if fdef else fkey} ({status})")
+
+    for_cost_model = len(cost_model_blockers) == 0
+
+    # Contract review requires penalty_rules
+    penalty = profile.get("penalty_rules", {})
+    penalty_status = penalty.get("status", "missing") if isinstance(penalty, dict) else "missing"
+    for_contract_review = penalty_status in ("explicit", "inferred", "partial")
+
+    # Solution design requires service_scope + automation_expectation
+    svc = profile.get("service_scope", {})
+    auto = profile.get("automation_expectation", {})
+    svc_status = svc.get("status", "missing") if isinstance(svc, dict) else "missing"
+    auto_status = auto.get("status", "missing") if isinstance(auto, dict) else "missing"
+    for_solution_design = svc_status not in ("missing",) or auto_status not in ("missing",)
+
+    # ROI analysis requires contract_years + budget_level
+    cy = profile.get("contract_years", {})
+    bl = profile.get("budget_level", {})
+    cy_status = cy.get("status", "missing") if isinstance(cy, dict) else "missing"
+    bl_status = bl.get("status", "missing") if isinstance(bl, dict) else "missing"
+    for_roi_analysis = cy_status not in ("missing",) and bl_status not in ("missing",)
+
+    blocked_reasons = cost_model_blockers[:]
+    if not for_contract_review:
+        fdef = get_field_def("penalty_rules")
+        blocked_reasons.append(f"{fdef.display_name if fdef else 'penalty_rules'} (missing)")
+
+    readiness_score = (
+        (1.0 if for_cost_model else 0.0) * 0.4 +
+        (1.0 if for_solution_design else 0.0) * 0.3 +
+        (1.0 if for_contract_review else 0.0) * 0.2 +
+        (1.0 if for_roi_analysis else 0.0) * 0.1
+    )
+
+    return {
+        "for_cost_model": for_cost_model,
+        "for_solution_design": for_solution_design,
+        "for_contract_review": for_contract_review,
+        "for_roi_analysis": for_roi_analysis,
+        "blocked_reasons": blocked_reasons,
+        "readiness_score": round(readiness_score, 2),
+        "p0_field_status": p0_status,
+    }
+
 
 def generate_clarification_questions(profile, structured=None):
     """
@@ -1085,6 +1120,7 @@ def analyze_and_extract(tender_text):
     profile  = normalize_extracted_fields(analysis)
 
     profile["_analysis_report"] = analysis["analysis_report"]
+    profile["_analysis_sections"] = analysis.get("analysis_sections", {})
     profile["_structured"]      = analysis["structured"]
     profile["_raw_llm_response"] = analysis["raw_llm_response"]
     profile["_clarification_questions"] = generate_clarification_questions(
@@ -1092,6 +1128,7 @@ def analyze_and_extract(tender_text):
 
     quality = compute_analysis_quality_score(profile)
     profile["_quality_score"] = quality
+    profile["_readiness"] = compute_readiness(profile)
     profile["_downstream_input"] = build_downstream_input(
         profile, analysis.get("structured", {}), quality)
 
