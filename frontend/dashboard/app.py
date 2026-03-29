@@ -673,6 +673,77 @@ def _render_results_panel():
     state = st.session_state.get("pipeline_state", "UNKNOWN")
     best = _safe_best_result(results)
 
+    # =============================================================================
+    # Max's Enhancement #5: Pipeline Gate Banner
+    # Show gate status for each downstream module before any results
+    # =============================================================================
+    pipeline_gate = results.get("pipeline_gate") or profile.get("_readiness") or {}
+    gate_cost     = pipeline_gate.get("cost_model", "UNKNOWN")
+    gate_sol      = pipeline_gate.get("solution_design", "UNKNOWN")
+    gate_ctr      = pipeline_gate.get("contract_review", "UNKNOWN")
+    gate_net      = pipeline_gate.get("network_estimation", "UNKNOWN")
+    gate_kpi      = pipeline_gate.get("kpi_gate", "UNKNOWN")
+    gate_score    = pipeline_gate.get("readiness_score")
+    blocked_items = pipeline_gate.get("blocking_items") or []
+    net_blocked   = pipeline_gate.get("network_blocking_fields") or []
+    gate_detail   = pipeline_gate.get("gate_detail", "")
+    kpi_warn      = pipeline_gate.get("kpi_warn_message", "")
+
+    gate_icon_map = {"PASS": "✅", "WARN": "⚠️", "BLOCK": "🚫", "UNKNOWN": "❓"}
+    gate_color_map = {"PASS": "green", "WARN": "yellow", "BLOCK": "red", "UNKNOWN": "gray"}
+
+    gate_blocks = [
+        ("成本测算", gate_cost, "cost_model"),
+        ("网络估算", gate_net, "network_estimation"),
+        ("方案设计", gate_sol, "solution_design"),
+        ("合同审核", gate_ctr, "contract_review"),
+        ("KPI/SLA", gate_kpi, "kpi_gate"),
+    ]
+    has_any_gate_warn_or_block = any(
+        g[1] in ("WARN", "BLOCK") for g in gate_blocks
+    )
+
+    if gate_cost != "UNKNOWN":
+        st.markdown("**🚦 阶段门禁状态**")
+        gc1, gc2, gc3, gc4, gc5 = st.columns(5)
+        gate_cols = [gc1, gc2, gc3, gc4, gc5]
+        for (label, status, key), col in zip(gate_blocks, gate_cols):
+            icon = gate_icon_map.get(status, "❓")
+            with col:
+                if status == "PASS":
+                    st.success(f"{icon} {label}")
+                elif status == "WARN":
+                    st.warning(f"{icon} {label}")
+                elif status == "BLOCK":
+                    st.error(f"{icon} {label}")
+                else:
+                    st.caption(f"{icon} {label}")
+        # Readiness score
+        if gate_score is not None:
+            score_pct = float(gate_score) * 100
+            sc1, sc2 = st.columns([3, 1])
+            with sc1:
+                st.progress(float(gate_score), text=f"就绪度 {score_pct:.0f}%")
+            with sc2:
+                if gate_score >= 0.8:
+                    st.success("高")
+                elif gate_score >= 0.5:
+                    st.warning("中")
+                else:
+                    st.error("低")
+        # Blocking items detail
+        if blocked_items:
+            with st.expander(f"🚫 阻塞项详情（{len(blocked_items)}项）", expanded=False):
+                for item in blocked_items:
+                    st.markdown(f"- `{item}`")
+        if net_blocked:
+            st.caption(f"⚠️ 网络估算被阻塞：缺少 {', '.join(net_blocked)}")
+        if kpi_warn:
+            st.info(f"ℹ️ {kpi_warn}")
+        if gate_detail:
+            st.caption(f"📌 {gate_detail[:120]}")
+        st.divider()
+
     # ---- Extraction Confidence Progress Bar ----
     extraction_confidence = profile.get("extraction_confidence")
     if extraction_confidence is not None:
@@ -705,20 +776,166 @@ def _render_results_panel():
     m4.metric("预算", profile.get("budget_level", "—"))
     m4.metric("人工", profile.get("labor_cost_level", "—"))
 
-    # ---- Extraction Review Panel ----
-    extraction_confidence = profile.get("extraction_confidence", 0)
+    # ---- Analysis Markdown Report (Max Enhancement #5) ----
+    # Full 13-section tender understanding report
+    analysis_markdown = results.get("analysis_markdown") or profile.get("_analysis_report") or ""
+    if analysis_markdown:
+        with st.expander("📄 招标解析报告（13维度分析）", expanded=False):
+            st.markdown(analysis_markdown)
 
+    # ---- Enhanced Extraction Panel ----
+    # Replaces the basic field_confidence table with:
+    # 1. Quality score (completeness, evidence, readiness)
+    # 2. P0/P1 missing items with why_blocking / why_matters
+    # 3. Clarification questions with suggested answer format
+    # 4. Field-level table with source/origin/priority trace
+    extraction_confidence = profile.get("extraction_confidence", 0)
     field_confidence = profile.get("field_confidence", {})
     source_trace = profile.get("source_trace", {})
     warnings = profile.get("warnings", [])
 
-    if field_confidence or warnings:
-        with st.expander("📋 提取结果确认", expanded=False):
-            conf_pct = f"{extraction_confidence * 100:.0%}" if extraction_confidence else "N/A"
-            st.markdown(f"**总体置信度:** {conf_pct}")
+    # Max Enhancement #5: Pull new structured data from pipeline_result
+    quality_score    = results.get("quality_score") or profile.get("_quality_score") or {}
+    missing_items    = results.get("missing_items") or {}
+    clar_questions   = results.get("clarification_questions") or profile.get("_clarification_questions") or []
+    normalized_fields = results.get("normalized_fields") or profile.get("_field_traces") or {}
 
-            # Field-level table
-            if field_confidence:
+    # Build the full extraction panel
+    # Only show if there's something to show
+    has_new_data = bool(quality_score or missing_items or clar_questions or normalized_fields)
+    has_old_data = bool(field_confidence or warnings)
+
+    if has_new_data or has_old_data:
+        with st.expander("🔍 提取结果确认", expanded=False):
+            tab_labels = []
+            tab_contents = []
+
+            # --- Tab 1: Quality Score ---
+            if quality_score:
+                compl = quality_score.get("completeness", {})
+                p0_cov = compl.get("p0_coverage", 0)
+                p1_cov = compl.get("p1_coverage", 0)
+                total_score = compl.get("total_score", 0)
+                evidence = quality_score.get("evidence", {})
+                readiness_data = quality_score.get("readiness", {})
+
+                st.markdown("**📊 分析质量评分**")
+                q1, q2, q3 = st.columns(3)
+                with q1:
+                    st.metric("P0覆盖率", f"{p0_cov:.0%}",
+                              delta="阻塞项" if p0_cov < 1.0 else "全部就绪")
+                with q2:
+                    st.metric("P1覆盖率", f"{p1_cov:.0%}",
+                              delta="重要项" if p1_cov < 1.0 else "全部就绪")
+                with q3:
+                    st.metric("综合评分", f"{total_score:.0%}")
+
+                # Evidence breakdown
+                if evidence:
+                    ev_rows = []
+                    for k, v in evidence.items():
+                        icon = {"explicit": "🔬", "inferred": "🔎", "partial": "🔶",
+                                "missing": "⬜", "ambiguous": "⚠️"}.get(k, "•")
+                        ev_rows.append({"状态": f"{icon} {k}", "占比": f"{v:.0%}"})
+                    st.markdown("**证据来源分布**")
+                    st.dataframe(pd.DataFrame(ev_rows), hide_index=True, width="stretch")
+
+                # Readiness per downstream module
+                if readiness_data:
+                    st.markdown("**🚦 下游就绪状态**")
+                    rd_rows = []
+                    for module, ready in [
+                        ("成本测算", readiness_data.get("cost_model_ready")),
+                        ("方案设计", readiness_data.get("solution_design_ready")),
+                        ("合同审核", readiness_data.get("contract_review_ready")),
+                        ("ROI分析", readiness_data.get("roi_analysis_ready")),
+                    ]:
+                        status = "✅ 就绪" if ready else "❌ 阻塞"
+                        rd_rows.append({"下游模块": module, "状态": status})
+                    st.dataframe(pd.DataFrame(rd_rows), hide_index=True, width="stretch")
+
+            # --- Tab 2: P0/P1 Missing Items (Max Enhancement #2) ---
+            m0_items = missing_items.get("p0") if isinstance(missing_items, dict) else (missing_items or [])
+            m1_items = missing_items.get("p1") if isinstance(missing_items, dict) else []
+
+            # Also check for rich missing items from new _build_metadata
+            critical_missing = quality_score.get("critical_missing_items") if quality_score else []
+            important_missing = quality_score.get("important_missing_items") if quality_score else []
+
+            if m0_items or critical_missing:
+                st.markdown(f"**🔴 P0 缺失项（阻塞）**")
+                if critical_missing:
+                    for item in critical_missing:
+                        why = item.get("why_blocking", "—")
+                        impact = ", ".join(item.get("downstream_impact", [])[:3])
+                        st.markdown(f"- **{item.get('display_name', item.get('field_key', '?'))}** — {why}")
+                        if impact:
+                            st.caption(f"  影响下游：{impact}")
+                else:
+                    for item in m0_items:
+                        st.markdown(f"- `{item}`")
+                st.divider()
+
+            if m1_items or important_missing:
+                st.markdown(f"**🟡 P1 缺失项（重要）**")
+                if important_missing:
+                    for item in important_missing:
+                        why = item.get("why_matters", "—")
+                        impact = ", ".join(item.get("downstream_impact", [])[:3])
+                        st.markdown(f"- **{item.get('display_name', item.get('field_key', '?'))}** — {why}")
+                        if impact:
+                            st.caption(f"  影响下游：{impact}")
+                else:
+                    for item in m1_items:
+                        st.markdown(f"- `{item}`")
+
+            # --- Tab 3: Clarification Questions (Max Enhancement #3) ---
+            if clar_questions:
+                st.markdown(f"**❓ 澄清问题清单（{len(clar_questions)}项）**")
+                # Sort: P0 first
+                sorted_qs = sorted(clar_questions,
+                                   key=lambda q: {"P0": 0, "P1": 1, "P2": 2}.get(q.get("severity", "P1"), 9))
+                for q in sorted_qs[:10]:  # Show first 10
+                    severity = q.get("severity", "P1")
+                    icon = "🔴" if severity == "P0" else "🟡"
+                    field = q.get("display_name") or q.get("field_key", "通用")
+                    question = q.get("question", "—")
+                    fmt = q.get("suggested_answer_format", "")
+                    st.markdown(f"{icon} **{field}**：{question}")
+                    if fmt:
+                        st.caption(f"建议回答格式：{fmt}")
+                    st.divider()
+                if len(clar_questions) > 10:
+                    st.caption(f"还有 {len(clar_questions) - 10} 项问题...")
+
+            # --- Tab 4: Field-level table with full trace (Max Enhancement #2) ---
+            if normalized_fields:
+                st.markdown("**📋 标准化字段详情**")
+                rows = []
+                for fname, fobj in normalized_fields.items():
+                    if not isinstance(fobj, dict):
+                        continue
+                    val = fobj.get("value")
+                    status = fobj.get("status", "—")
+                    basis = fobj.get("source_basis", "—")
+                    priority = fobj.get("priority", "P2")
+                    impact = fobj.get("impact", [])
+                    status_icon = {"explicit": "🔬", "inferred": "🔎", "partial": "🔶",
+                                   "missing": "⬜", "ambiguous": "⚠️"}.get(status, "•")
+                    rows.append({
+                        "字段": fname,
+                        "值": str(val) if val is not None else "—",
+                        "状态": f"{status_icon} {status}",
+                        "优先级": priority,
+                        "来源依据": basis[:60] + ("…" if len(basis) > 60 else ""),
+                        "影响域": ", ".join(impact[:2]) if impact else "—",
+                    })
+                if rows:
+                    st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
+
+            # --- Legacy field_confidence table (fallback) ---
+            if field_confidence and not normalized_fields:
+                st.markdown("**字段置信度（旧格式）**")
                 display_keys = [
                     ("industry", "行业"), ("region", "地区"),
                     ("warehouse_area", "仓库面积"), ("daily_orders", "日订单"),
@@ -737,11 +954,11 @@ def _render_results_panel():
                         "字段": label, "提取值": val_str, "置信度": conf_str,
                         "来源": f"{src_icon} {src}"
                     })
-                st.dataframe(pd.DataFrame(rows), hide_index=True, width='stretch')
+                st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
 
             # Warnings
             if warnings:
-                st.markdown("**⚠️ 警告信息:**")
+                st.markdown("**⚠️ 警告信息**")
                 for w in warnings:
                     st.warning(w)
 

@@ -248,6 +248,21 @@ def get_pipeline_run(pipeline_id: str) -> Optional[dict]:
                 extra = json.loads(s.extra_json or "{}")
                 result["qa_issues"] = extra.get("qa_issues", [])
                 break
+
+        # Stage 1: Tender Understanding new fields
+        if run.analysis_markdown:
+            result["analysis_markdown"] = run.analysis_markdown
+        if run.normalized_fields_json:
+            result["normalized_fields"] = json.loads(run.normalized_fields_json)
+        if run.missing_items_json:
+            result["missing_items"] = json.loads(run.missing_items_json)
+        if run.clarification_questions_json:
+            result["clarification_questions"] = json.loads(run.clarification_questions_json)
+        if run.quality_score_json:
+            result["quality_score"] = json.loads(run.quality_score_json)
+        if run.pipeline_gate_json:
+            result["pipeline_gate"] = json.loads(run.pipeline_gate_json)
+
         return result
     finally:
         db.close()
