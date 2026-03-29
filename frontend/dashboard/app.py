@@ -1295,7 +1295,7 @@ elif app_mode == "🚀 Pipeline Run":
                             if created:
                                 created = created[11:16]  # HH:MM
                             dur_str = f"{dur:.1f}s" if dur else "—"
-                            icon = "✅" if status == "DONE" else "❌" if status == "FAILED" else "⏳"
+                            icon = "✅" if status == "COMPLETE" else "❌" if status == "FAILED" else "⏳"
                             cols_h = st.columns([3, 1, 1])
                             with cols_h[0]:
                                 st.caption(f"{icon} `{pid}`")
@@ -1441,7 +1441,7 @@ elif app_mode == "🚀 Pipeline Run":
 
                 st.session_state._skip_correction = False
 
-                if pipeline_status == "DONE":
+                if pipeline_status == "COMPLETE":
                     st.success("✅ Pipeline 执行完成！")
                     st.session_state.pipeline_profile = status_data.get("profile", {})
                     st.session_state.pipeline_recs = status_data.get("recommendations", [])
