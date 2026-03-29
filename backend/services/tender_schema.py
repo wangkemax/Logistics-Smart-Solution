@@ -27,10 +27,10 @@ FIELD_PRIORITY = {
     "dc_count": "P0",
     "daily_orders": "P0",
     "sku_count": "P0",
+    "contract_years": "P0",  # 合同年限影响ROI分摊，属于P0
     # P1: important — needed for complete solution design
     "inventory": "P1",
-    "contract_years": "P1",
-    "service_scope": "P1",
+    "service_scope": "P0",  # 与 cost_model_requirements 同步
     "kpi_targets": "P1",
     "penalty_rules": "P1",
     "peak_factor": "P1",
@@ -147,7 +147,7 @@ FIELD_REGISTRY: dict[str, FieldDef] = {
     "contract_years": FieldDef(
         key="contract_years",
         display_name="合同年限",
-        priority="P1",
+        priority="P0",
         impact=["cost_model", "roi_analysis", "investment_plan"],
         tender_sections=["s9_contract", "s11_risks"],
         missing_item_labels=["合同期限", "合同期", "合作年限"],
@@ -158,7 +158,7 @@ FIELD_REGISTRY: dict[str, FieldDef] = {
     "service_scope": FieldDef(
         key="service_scope",
         display_name="服务范围明细",
-        priority="P1",
+        priority="P0",
         impact=["solution_design", "cost_model", "automation_selection"],
         tender_sections=["s2_service_scope"],
         missing_item_labels=["服务范围", "报价结构要求", "业务范围"],

@@ -71,6 +71,7 @@ class RecomputeResponse(BaseModel):
     changes_summary: Optional[dict] = None
     validation_errors: Optional[list[ValidationError]] = None
     clarification_tasks: Optional[dict] = None
+    downstream_input: Optional[dict] = None
 
 
 class InputDefinitionResponse(BaseModel):
@@ -284,6 +285,7 @@ def recompute_endpoint(
         changes_summary=result.get("changes_summary"),
         validation_errors=validation_errors_formatted,
         clarification_tasks=result.get("clarification_tasks"),
+        downstream_input=result.get("downstream_input"),
     )
 
 

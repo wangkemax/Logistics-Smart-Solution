@@ -49,6 +49,17 @@ MANUAL_INPUT_DEFINITIONS: dict[str, InputDefinition] = {
         description="订单量口径可按日、月或年填写，系统将自动换算为日均值。",
         unit_conversion_hint="月订单量÷30=日订单量；年订单量÷365=日订单量",
     ),
+    "total_warehouse_area": InputDefinition(
+        field_key="total_warehouse_area",
+        display_name="总仓库面积",
+        input_type="number_with_unit",
+        acceptable_units=["sqm", "sqmeters", "平方米", "万sqm", "万平米"],
+        required_for_p0=True,
+        min_value=100,
+        max_value=10_000_000,
+        description="请填写所有仓库面积之和（平方米），等同于warehouse_area。",
+        unit_conversion_hint="1万平米 = 10,000平方米",
+    ),
     "warehouse_area": InputDefinition(
         field_key="warehouse_area",
         display_name="仓库总面积",
