@@ -227,10 +227,16 @@ def pipeline_task(tender_document: str, project_profile_overrides: dict = None, 
                         recommendations = json.loads(text[json_start:])
                         compare_ids = [r["scenario_id"] for r in recommendations[:3]] if recommendations else []
                         best_id = compare_ids[0] if compare_ids else None
+                # Mark stage 2 DONE — recommendations loaded from original run's stage_2 file
+                _update_stage(pipeline_id, "2_recommendation", "DONE",
+                              output_file=str(rec_file),
+                              duration_seconds=0,
+                              extra={"recommendations": recommendations[:5] if recommendations else [],
+                                     "best_scenario_id": best_id,
+                                     "source": "loaded_from_original_stage2_file"})
             except Exception:
                 pass  # Fall back to empty
 
-            # Skip else-branch — go straight to stage 3 with our prepared data
             # Stages 1+2 are already DONE; stages 3+4+5 use corrected profile/downstream_input
             region = profile.get("region", "华东")
             cost_comparisons = []
