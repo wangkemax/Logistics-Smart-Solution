@@ -95,8 +95,8 @@ class TestComplexityScoring:
         score, level = calculate_service_complexity(scope)
         # base: 4+2+4+3+2 = 15
         # bonuses: tc+2, kitting+2, return+1, cycle_count+2, system_integration+1 = 8
-        # total = 23 → high
-        assert score == 23
+        # uncapped total = 23 → high (capped at 20 for display normalization)
+        assert score == 20
         assert level == "high"
 
     def test_null_scope_returns_low(self):
