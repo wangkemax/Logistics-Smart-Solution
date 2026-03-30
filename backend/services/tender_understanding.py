@@ -162,7 +162,8 @@ def _get_api_key():
     return None
 
 
-def _call_llm(prompt, timeout=45):
+def _call_llm(prompt, timeout=120, max_retries=3):
+    import time
     key = _get_api_key()
     if not key:
         return None
@@ -174,27 +175,34 @@ def _call_llm(prompt, timeout=45):
     import urllib.request
     req = urllib.request.Request(
         url,
-        data=json.dumps({"model": model, "max_tokens": 4096,
+        data=json.dumps({"model": model, "max_tokens": 8192,
                          "messages": [{"role": "user", "content": prompt}]}).encode(),
         headers={"Authorization": "Bearer " + key, "Content-Type": "application/json",
                  "anthropic-version": "2023-06-01"},
         method="POST"
     )
-    try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            result = json.loads(resp.read())
-            content = result.get("content", [])
-            if isinstance(content, list):
-                text = "\n".join(b.get("text", "") for b in content if b.get("type") == "text")
-            else:
-                text = str(content)
-            return {"raw": text.strip()}
-    except Exception as e:
-        print("[tender_understanding] LLM call failed: " + str(e))
-        return None
+    last_error = None
+    for attempt in range(max_retries):
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                result = json.loads(resp.read())
+                content = result.get("content", [])
+                if isinstance(content, list):
+                    text = "\n".join(b.get("text", "") for b in content if b.get("type") == "text")
+                else:
+                    text = str(content)
+                return {"raw": text.strip()}
+        except Exception as e:
+            last_error = e
+            if attempt < max_retries - 1:
+                time.sleep(2 ** attempt)  # exponential backoff: 1s, 2s
+                continue
+    print(f"[tender_understanding] LLM call failed after {max_retries} retries: {last_error}")
+    return None
 
 
 def _parse_response(raw):
+    # Strategy 1: JSON code block (preferred)
     m = re.search(r"```(?:json)?\s*([\s\S]*?)```", raw)
     if m:
         try:
@@ -203,14 +211,50 @@ def _parse_response(raw):
                 return raw[:m.start()].strip(), data
         except json.JSONDecodeError:
             pass
-    bare = re.search(r"\{[\s\S]*\}", raw)
-    if bare:
-        try:
-            data = json.loads(bare.group(0))
-            if isinstance(data, dict):
-                return raw[:bare.start()].strip(), data
-        except json.JSONDecodeError:
-            pass
+
+    # Strategy 2: balanced-brace JSON finder (handles trailing text after closing brace)
+    json_start = raw.find("{")
+    if json_start != -1:
+        candidate = raw[json_start:]
+        # Try to find the longest valid prefix that is valid JSON
+        for end in range(len(candidate), 0, -1):
+            try:
+                data = json.loads(candidate[:end].strip())
+                if isinstance(data, dict):
+                    report_text = raw[:json_start].strip()
+                    return report_text, data
+            except json.JSONDecodeError:
+                # Try ending at any } to find outermost complete object
+                pass
+        # Last resort: find first outermost } and try that
+        brace_count = 0
+        in_string = False
+        escape_next = False
+        for i, ch in enumerate(candidate):
+            if escape_next:
+                escape_next = False
+                continue
+            if ch == "\\":
+                escape_next = True
+                continue
+            if ch == '"' and not escape_next:
+                in_string = not in_string
+                continue
+            if in_string:
+                continue
+            if ch == "{":
+                brace_count += 1
+            elif ch == "}":
+                brace_count -= 1
+                if brace_count == 0:
+                    try:
+                        data = json.loads(candidate[:i+1].strip())
+                        if isinstance(data, dict):
+                            return raw[:json_start].strip(), data
+                    except json.JSONDecodeError:
+                        pass
+                    break
+
     return raw.strip(), {"_parse_error": "JSON extraction failed"}
 
 
