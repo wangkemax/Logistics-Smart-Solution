@@ -372,7 +372,10 @@ def pipeline_task(tender_document: str, project_profile_overrides: dict = None, 
             from backend.services.tender_service import extract_requirements
             extraction_mode = os.environ.get("EXTRACTION_MODE", "analysis")
             profile = extract_requirements(tender_document, mode=extraction_mode)
-            missing_p0 = profile.get("missing_p0", [])
+            missing_p0 = profile.get("missing_p0", []) or [
+                k for k, v in (profile.get("_field_traces") or {}).items()
+                if isinstance(v, dict) and v.get("priority") == "P0" and v.get("status") in ("missing", "ambiguous")
+            ]
 
             # Extract all new analysis outputs from the full result
             analysis_report = profile.pop("_analysis_report", "")
@@ -471,10 +474,10 @@ def pipeline_task(tender_document: str, project_profile_overrides: dict = None, 
             #   • P0 missing → BLOCK cost_model + network estimation
             #   • KPI/SLA missing → WARN solution_design (保守表述)
             #   • dc_count / warehouse_area missing → BLOCK network cost estimation
-            readiness = (quality_score or {}).get("readiness", {}) or {}
-            gate_cost_ok = readiness.get("cost_model_ready", False)
-            gate_solution_ok = readiness.get("solution_design_ready", False)
-            gate_contract_ok = readiness.get("contract_review_ready", False)
+            readiness = (quality_score or {}).get("readiness", {}) or profile.get("readiness") or profile.get("_readiness") or {}
+            gate_cost_ok = readiness.get("for_cost_model", False)
+            gate_solution_ok = readiness.get("for_solution_design", False)
+            gate_contract_ok = readiness.get("for_contract_review", False)
 
             # Deep-dive gate: check specific P0 fields for network cost estimation
             p0_blocking_network = []
@@ -633,10 +636,10 @@ def pipeline_task(tender_document: str, project_profile_overrides: dict = None, 
             analysis_markdown=analysis_report,
             analysis_sections_json=analysis_sections,
             normalized_fields_json=field_traces,
-            missing_items_json={"p0": missing_p0 or [], "p1": profile.get("missing_p1", []) if isinstance(profile, dict) else []},
+            missing_items_json={"p0": missing_p0 or [], "p1": [k for k, v in (field_traces or {}).items() if isinstance(v, dict) and v.get("priority") == "P1" and v.get("status") in ("missing", "ambiguous")]},
             clarification_questions_json=clarification_questions or [],
             quality_score_json=quality_score or {},
-            readiness_json={},
+            readiness_json=profile.get("readiness") or profile.get("_readiness") or {},
             analysis_version="v0.2",
             prompt_version="tender_understanding_v0.2",
             model_name="MiniMax-M2.7-highspeed",
@@ -849,11 +852,11 @@ def pipeline_task(tender_document: str, project_profile_overrides: dict = None, 
         normalized_fields_json=field_traces,
         missing_items_json={
             "p0": missing_p0 or [],
-            "p1": profile.get("missing_p1", []) if isinstance(profile, dict) else [],
+            "p1": [k for k, v in (field_traces or {}).items() if isinstance(v, dict) and v.get("priority") == "P1" and v.get("status") in ("missing", "ambiguous")],
         },
         clarification_questions_json=clarification_questions or [],
         quality_score_json=quality_score or {},
-        readiness_json={},
+        readiness_json=profile.get("readiness") or profile.get("_readiness") or {},
         pipeline_gate_json=pipeline_gate,
         analysis_version="v0.2",
         prompt_version="tender_understanding_v0.2",
