@@ -393,7 +393,7 @@ def _submit_qa_correction(pipeline_id: str, overrides: dict) -> tuple[bool, str]
     """
     try:
         resp = requests.post(
-            f"{API_BASE_URL}/api/pipeline/{pipeline_id}/retry/",
+            f"{API_BASE_URL}/api/pipeline/{pipeline_id}/retry",
             json={"from_stage": "1_extraction", "profile_overrides": overrides},
             timeout=15,
         )
@@ -729,7 +729,7 @@ def _render_stage_retry_section(pipeline_id: str, stages: list, key_prefix: str 
                         with st.spinner(f"正在重试 {label}..."):
                             try:
                                 resp = requests.post(
-                                    f"{API_BASE_URL}/api/pipeline/{pipeline_id}/retry/",
+                                    f"{API_BASE_URL}/api/pipeline/{pipeline_id}/retry",
                                     json={"from_stage": stage_name},
                                     timeout=10,
                                 )
@@ -777,7 +777,7 @@ def _render_stage_retry_section(pipeline_id: str, stages: list, key_prefix: str 
                 with st.spinner(f"正在从「{(stage_labels.get(selected_stage, selected_stage) if selected_stage else selected_stage or '该阶段')}」重试..."):
                     try:
                         resp = requests.post(
-                            f"{API_BASE_URL}/api/pipeline/{pipeline_id}/retry/",
+                            f"{API_BASE_URL}/api/pipeline/{pipeline_id}/retry",
                             json={"from_stage": selected_stage},
                             timeout=10,
                         )
@@ -2578,9 +2578,9 @@ elif app_mode == "💬 Clarification Workspace":
         # ---- 变化摘要卡片（如果有任何结果）----
         if display_result:
             result = display_result
-            changes = result.get("changes_summary", {})
-            downstream = result.get("downstream_input", {})
-            readiness = result.get("readiness", {})
+            changes = result.get("changes_summary") or {}
+            downstream = result.get("downstream_input") or {}
+            readiness = result.get("readiness") or {}
 
             old_mode = changes.get("old_mode", "?")
             new_mode = changes.get("new_mode", "?")

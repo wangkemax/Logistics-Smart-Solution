@@ -665,14 +665,42 @@ async def retry_pipeline_stage(pipeline_id: str, request: RetryStageRequest):
             if usable and rf.get("final_value") is not None:
                 base_overrides[fkey] = rf["final_value"]
 
-        # Restore readiness so gate checks pass after clarifications
+        # Restore readiness — compute from resolved_fields_raw directly (DB readiness_json may be empty
+        # due to recompute bugs; we must guarantee readiness is injected for gate to work correctly).
+        readiness_data = None
         if readiness_json_str:
             try:
-                readiness_data = json.loads(readiness_json_str)
-                if readiness_data:
-                    base_overrides["_readiness"] = readiness_data
+                readiness_data = json.loads(readiness_json_str) or None
             except Exception:
                 pass
+
+        if not readiness_data and resolved_fields_raw:
+            # Compute readiness directly from resolved_fields_raw: P0 must all be usable for cost_model gate
+            p0_keys = ["warehouse_area", "total_warehouse_area", "dc_count",
+                        "daily_orders", "sku_count", "contract_years", "service_scope"]
+            p0_usable = sum(
+                1 for fk in p0_keys
+                if resolved_fields_raw.get(fk, {}).get("usable", False) is True
+            )
+            readiness_data = {
+                "level": "ready" if p0_usable == len(p0_keys) else "blocked",
+                "readiness_score": p0_usable / len(p0_keys) if p0_keys else 0.0,
+                "for_cost_model": p0_usable == len(p0_keys),
+                "for_solution_design": p0_usable == len(p0_keys),
+                "for_contract_review": False,  # P1 not tracked here; recompute will give accurate value
+                "p0_field_status": {
+                    fk: ("provided" if resolved_fields_raw.get(fk, {}).get("usable") else "missing")
+                    for fk in p0_keys
+                },
+                "p0_summary": {
+                    "total": len(p0_keys),
+                    "usable": p0_usable,
+                    "missing": len(p0_keys) - p0_usable,
+                },
+            }
+
+        if readiness_data:
+            base_overrides["_readiness"] = readiness_data
     finally:
         db.close()
 
