@@ -12,7 +12,7 @@ import os
 app = FastAPI(
     title="Logistics Smart Solution API",
     description="AI-powered warehouse automation recommendation, cost analysis, and presale pipeline",
-    version="0.2.0",
+    version="0.7",
 )
 
 app.add_middleware(
@@ -42,7 +42,7 @@ async def startup_event():
 def root():
     return {
         "message": "Logistics Smart Solution API",
-        "version": "0.2.0",
+        "version": "0.7",
         "docs": "/docs",
         "health": "/api/health",
         "endpoints": {
