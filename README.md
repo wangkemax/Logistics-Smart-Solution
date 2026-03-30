@@ -243,13 +243,12 @@ pytest tests/ -v
 
 | 版本 | 目标 | 状态 |
 |------|------|------|
-| **v0.1** | MVP — 推荐 + 成本 + PDF | ✅ 完成 |
-| **v0.2** | 异步 Pipeline + 3 栏 UI | ✅ 完成 |
-| **v0.3** | 任务状态持久化（SQLite）+ v2 Pipeline | ✅ 完成 |
-| **v0.4** | 高级 UI（权重滑块实时刷新、雷达图、safe_div/safe_max）| ✅ 完成 |
-| **v0.5** | QA Gate 门禁 + P0 问题识别 | ✅ 完成 |
-| **v0.6** | ClawTeam 多 Agent 协作（需求→方案→成本→标书→QA）| 🔄 进行中 |
-| **v0.7** | 知识库 + 历史案例学习 | 待开始 |
+| **v0.1–v0.5** | MVP — 推荐 + 成本 + PDF + UI + QA Gate | ✅ 完成 |
+| **v0.6** | Quality-Gated Foundation + Clarification 闭环 | ✅ 完成 |
+| **v0.7** | 阶段一：唯一事实层打牢 + Clarification 标准化 | 🔄 进行中 |
+| **v0.8** | 阶段二：Base Solution 主轴化 + 三层方案生成 | 待开始 |
+| **v0.9** | 阶段三：Assumption Governance + 参数库 | 待开始 |
+| **v1.0** | 阶段四：Proposal Studio + Workspace | 待开始 |
 
 ---
 
