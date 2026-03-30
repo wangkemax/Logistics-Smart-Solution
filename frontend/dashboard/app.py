@@ -2281,14 +2281,31 @@ elif app_mode == "🚀 Pipeline Run":
         if st.session_state.get("pipeline_state") == "done":
             comparisons = st.session_state.get("pipeline_comparisons") or []
             if not comparisons:
-                # Guard: only auto-refresh once per pipeline completion
+                # Guard: if comparisons still empty, refetch from API (clarification may have updated the pipeline)
                 last_refresh = st.session_state.get("_results_refresh_ts", 0)
                 now_ts = int(time.time())
-                if now_ts - last_refresh > 5:
+                stored_pid = st.session_state.get("_pipeline_id") or ""
+                if stored_pid and now_ts - last_refresh > 3:
                     st.session_state._results_refresh_ts = now_ts
-                    st.rerun()
-                else:
-                    st.info("⏳ 等待 Pipeline 数据写入...")
+                    try:
+                        resp = requests.get(f"{API}/api/pipeline/status/{stored_pid}", timeout=10)
+                        if resp.ok:
+                            fresh = resp.json()
+                            st.session_state.pipeline_comparisons = fresh.get("comparisons", [])
+                            st.session_state.pipeline_profile = fresh.get("profile", {})
+                            st.session_state.pipeline_recs = fresh.get("recommendations", [])
+                            st.session_state.pipeline_pdf_url = fresh.get("pdf_download_url")
+                            st.session_state.pipeline_qa_verdict = fresh.get("qa_verdict", "UNKNOWN")
+                            st.session_state.pipeline_stages = fresh.get("stages", [])
+                            st.session_state.pipeline_result = fresh
+                            comparisons = st.session_state.pipeline_comparisons or []
+                    except Exception:
+                        pass
+                if not comparisons:
+                    if now_ts - last_refresh <= 3:
+                        st.info("⏳ 等待 Pipeline 数据写入...")
+                    else:
+                        st.info("⚠️ Pipeline 完成但无可用对比数据，请切换到「Clarification Workspace」补录字段后重新运行")
             else:
                 # Show stage breakdown in right column for FAILED pipelines
                 stored_stages = st.session_state.get("pipeline_stages", [])
@@ -2644,6 +2661,39 @@ elif app_mode == "💬 Clarification Workspace":
                 st.success("✅ 所有P0字段已解决！可进入**区间估算**模式。建议继续补充P1字段以提升精度。")
             elif new_mode in ("ready", "full_calc"):
                 st.success("🎉 项目已就绪！可进入**正式成本测算**。")
+
+            # ---- Run Pipeline with resolved fields ----
+            st.divider()
+            st.markdown("#### 🚀 用补录数据重新运行 Pipeline")
+            st.caption("将澄清后的字段注入 pipeline，跳过 extraction，直接运行推荐→成本→QA→PDF 阶段。")
+            if st.button("🚀 运行 Pipeline（使用补录数据）", type="primary", use_container_width=True):
+                with st.spinner("Pipeline 运行中，请稍候..."):
+                    try:
+                        # Get resolved fields from recompute result (usable ones)
+                        resolved_fields = {}
+                        for fkey, fval in (result.get("downstream_input", {}).get("required_inputs", {}) or {}).items():
+                            if isinstance(fval, dict) and fval.get("usable") and fval.get("value") is not None:
+                                resolved_fields[fkey] = fval["value"]
+                        run_payload = {
+                            "profile_overrides": resolved_fields,
+                            "from_stage": "2_recommendation",
+                        }
+                        retry_resp = requests.post(
+                            f"{API}/api/pipeline/{selected_pid}/retry",
+                            json=run_payload,
+                            timeout=10,
+                        )
+                        if retry_resp.ok:
+                            st.session_state._pipeline_id = selected_pid
+                            st.session_state.pipeline_state = "polling"
+                            st.session_state.pipeline_comparisons = None
+                            st.session_state.cw_recompute_result = None
+                            st.success("✅ Pipeline 已重新运行！请切换到「🚀 Pipeline Run」查看进度，完成后会显示最新结果。")
+                            st.rerun()
+                        else:
+                            st.error(f"启动失败: {retry_resp.status_code} — {retry_resp.text[:200]}")
+                    except Exception as e:
+                        st.error(f"❌ 启动异常: {e}")
 
             # ====================================================================
             # v0.6.3 New Panels — Downstream Explainability
