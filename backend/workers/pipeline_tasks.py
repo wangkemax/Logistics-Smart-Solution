@@ -479,24 +479,34 @@ def pipeline_task(tender_document: str, project_profile_overrides: dict = None, 
             gate_solution_ok = readiness.get("for_solution_design", False)
             gate_contract_ok = readiness.get("for_contract_review", False)
 
-            # Deep-dive gate: check specific P0 fields for network cost estimation
-            p0_blocking_network = []
+            # Deep-dive gate: determine cost_model mode based on P0 field completeness
+            # PASS: all 4 core P0 fields are explicit/inferred
+            # RANGE: critical fields (dc_count, warehouse_area) present but secondary missing
+            # BLOCK: at least one critical field is missing/ambiguous
+            p0_core_blocking = []  # critical P0: dc_count, warehouse_area
+            p0_secondary_missing = []  # secondary P0: daily_orders, sku_count
+            # Use field_traces (normalized_fields with status) not profile (raw scalars)
+            _traces = field_traces or {}
             if isinstance(profile, dict):
-                dc_count_entry = profile.get("dc_count", {})
-                warehouse_area_entry = profile.get("warehouse_area", {})
-                daily_orders_entry = profile.get("daily_orders", {})
-                dc_status = dc_count_entry.get("status", "missing") if isinstance(dc_count_entry, dict) else "missing"
-                wh_status = warehouse_area_entry.get("status", "missing") if isinstance(warehouse_area_entry, dict) else "missing"
-                orders_status = daily_orders_entry.get("status", "missing") if isinstance(daily_orders_entry, dict) else "missing"
-                if dc_status in ("missing", "ambiguous"):
-                    p0_blocking_network.append("dc_count")
-                if wh_status in ("missing", "ambiguous"):
-                    p0_blocking_network.append("warehouse_area")
-                if orders_status in ("missing", "ambiguous"):
-                    p0_blocking_network.append("daily_orders")
+                for field, key in [("dc_count", "dc_count"), ("warehouse_area", "warehouse_area"),
+                                    ("daily_orders", "daily_orders"), ("sku_count", "sku_count")]:
+                    entry = _traces.get(key, {})
+                    status = entry.get("status", "missing") if isinstance(entry, dict) else "missing"
+                    if status in ("missing", "ambiguous"):
+                        if field in ("dc_count", "warehouse_area"):
+                            p0_core_blocking.append(key)
+                        else:
+                            p0_secondary_missing.append(key)
+
+            if p0_core_blocking:
+                cost_model_mode = "BLOCK"
+            elif p0_secondary_missing:
+                cost_model_mode = "RANGE"  # secondary missing → range estimate
+            else:
+                cost_model_mode = "PASS"   # all P0 present → full calculation
 
             # KPI gate: warn but allow progression
-            kpi_entry = profile.get("kpi_targets", {}) if isinstance(profile, dict) else {}
+            kpi_entry = _traces.get("kpi_targets", {})
             kpi_status = kpi_entry.get("status", "missing") if isinstance(kpi_entry, dict) else "missing"
             kpi_gate = "WARN" if kpi_status in ("missing",) else "PASS"
             kpi_warn_message = ""
@@ -505,13 +515,13 @@ def pipeline_task(tender_document: str, project_profile_overrides: dict = None, 
 
             # Store gate results for downstream reference
             pipeline_gate = {
-                "cost_model": "PASS" if gate_cost_ok else "BLOCK",
+                "cost_model": cost_model_mode,
                 "solution_design": "PASS" if gate_solution_ok else "WARN",
                 "contract_review": "PASS" if gate_contract_ok else "BLOCK",
-                "network_estimation": "BLOCK" if p0_blocking_network else "PASS",
                 "kpi_gate": kpi_gate,
-                "blocking_items": missing_p0 or [],
-                "network_blocking_fields": p0_blocking_network,
+                "blocking_items": p0_core_blocking or p0_secondary_missing or [],
+                "core_blocking_fields": p0_core_blocking,
+                "secondary_missing_fields": p0_secondary_missing,
                 "readiness_summary": readiness.get("summary", ""),
                 "kpi_warn_message": kpi_warn_message,
             }
@@ -571,22 +581,29 @@ def pipeline_task(tender_document: str, project_profile_overrides: dict = None, 
         complete_pipeline(pipeline_id, "CANCELLED")
         return {"pipeline_id": pipeline_id, "status": "CANCELLED"}
 
-    # ---- Cost Model Gate: Block if P0 fields are missing ----
-    if pipeline_gate.get("cost_model") == "BLOCK":
+    # ---- Cost Model Gate: Block/RANGE/PASS based on P0 field completeness ----
+    cost_mode = pipeline_gate.get("cost_model")
+    if cost_mode == "BLOCK":
         blocking_fields = pipeline_gate.get("blocking_items", missing_p0 or [])
-        network_blocked = pipeline_gate.get("network_blocking_fields", [])
-        gate_detail = (
-            f"无法进入成本测算，原因：{', '.join(blocking_fields) if blocking_fields else 'P0字段缺失'}。"
-            f"{'其中仓网成本估算被阻塞（缺：' + ', '.join(network_blocked) + '）' if network_blocked else ''}"
-            f"请在澄清后重新测算。"
-        )
+        core_blocking = pipeline_gate.get("core_blocking_fields", [])
+        secondary_missing = pipeline_gate.get("secondary_missing_fields", [])
+        if core_blocking:
+            gate_detail = (
+                f"无法进入成本测算，原因：关键P0字段缺失 {core_blocking}。"
+                f"请在澄清后补充。"
+            )
+        else:
+            gate_detail = (
+                f"可进入成本测算（区间估算模式），原因：{', '.join(secondary_missing)} 字段缺失。"
+                f"系统将输出best/base/worst三档估算。"
+            )
         _update_stage(pipeline_id, "3_cost_comparison", "BLOCKED",
                       error=gate_detail,
                       duration_seconds=0,
                       extra={
                           "gate": "cost_model",
-                          "blocking_fields": blocking_fields,
-                          "network_blocked_fields": network_blocked,
+                          "blocking_fields": core_blocking,
+                          "secondary_missing_fields": secondary_missing,
                           "kpi_warn": pipeline_gate.get("kpi_warn_message", ""),
                           "gate_detail": gate_detail,
                       })
@@ -598,6 +615,8 @@ def pipeline_task(tender_document: str, project_profile_overrides: dict = None, 
         _update_stage(pipeline_id, "5_pdf_report", "SKIPPED",
                       error="Skipped due to cost_model gate BLOCK")
         total_duration = (datetime.now() - start_time).total_seconds()
+        p0_summary = readiness.get("p0_field_status", {}) if isinstance(readiness, dict) else {}
+        p0_provided = sum(1 for v in p0_summary.values() if v in ("explicit", "inferred"))
         result_summary = {
             "industry": profile.get("industry") if isinstance(profile, dict) else "—",
             "region": profile.get("region") if isinstance(profile, dict) else "—",
@@ -609,16 +628,15 @@ def pipeline_task(tender_document: str, project_profile_overrides: dict = None, 
             "capex_estimate": None,
             "calculation_mode": "blocked",
             "gate_blocked_reason": gate_detail,
-            "blocking_items": blocking_fields,
-            "network_blocking_fields": network_blocked,
+            "blocking_items": core_blocking or blocking_fields,
             "kpi_warn": pipeline_gate.get("kpi_warn_message", ""),
             "downstream_input_meta": {
                 "recommended_mode": "blocked",
                 "mode_reason": gate_detail[:120],
                 "level": "blocked",
-                "p0_summary": {"total": 0, "provided": 0, "missing": len(blocking_fields), "ambiguous": 0},
-                "p1_summary": {"total": 0, "provided": 0, "missing": 0, "ambiguous": 0},
-                "blocking_reasons": pipeline_gate.get("blocking_items", []),
+                "p0_summary": {"total": len(p0_summary), "provided": p0_provided, "missing": len(core_blocking), "ambiguous": 0},
+                "p1_summary": {"total": 0, "provided": 0, "missing": len(secondary_missing), "ambiguous": 0},
+                "blocking_reasons": core_blocking,
                 "clarification_questions_count": 0,
             },
         }
@@ -656,6 +674,19 @@ def pipeline_task(tender_document: str, project_profile_overrides: dict = None, 
             "total_duration_seconds": total_duration,
         }
 
+    elif cost_mode == "RANGE":
+        # Proceed to stage 3 but flag downstream to use range_estimate mode
+        blocking_fields = pipeline_gate.get("secondary_missing_fields", [])
+        gate_detail = (
+            f"进入成本测算（区间估算模式）：{', '.join(blocking_fields)} 字段缺失。"
+            f"系统将输出best/base/worst三档估算，供决策参考。"
+        )
+        # Inject range_estimate mode into downstream_input so cost service knows
+        if isinstance(profile, dict):
+            profile["recommended_mode"] = "range_estimate"
+            profile["_range_blocked_fields"] = blocking_fields
+        print(f"[pipeline] cost_model gate RANGE — {gate_detail}")
+
     # ---- Stage 3: Cost Comparison ----
     stage_start = datetime.now()
     _update_stage(pipeline_id, "3_cost_comparison", "RUNNING")
@@ -666,6 +697,13 @@ def pipeline_task(tender_document: str, project_profile_overrides: dict = None, 
         try:
             from backend.downstream.downstream_input_builder import build_cost_model_input
             cost_model_input = build_cost_model_input(profile)
+            # Override mode if pipeline gate set RANGE (allow range_estimate even if builder says blocked)
+            if cost_mode == "RANGE" and cost_model_input:
+                cost_model_input["recommended_mode"] = "range_estimate"
+                cost_model_input["mode_reason"] = (
+                    f"Pipeline gate允许区间估算模式：{pipeline_gate.get('secondary_missing_fields', [])} 缺失。"
+                    f"系统将输出best/base/worst三档估算。"
+                )
         except Exception:
             pass  # Fall back to legacy calculation without downstream_input
 
