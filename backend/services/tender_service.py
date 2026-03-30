@@ -556,8 +556,8 @@ def extract_requirements(
             flat["_analysis_report"] = result.get("_analysis_report", "")
             flat["_structured"] = result.get("_structured", {})
             flat["_raw_llm_response"] = result.get("_raw_llm_response", "")
-            flat["_clarification_questions"] = result.get("_clarification_questions", [])
-            flat["_quality_score"] = result.get("_quality_score", {})
+            flat["_clarification_questions"] = result.get("clarification_questions", [])
+            flat["_quality_score"] = result.get("quality_scores", {})
             flat["_downstream_input"] = result.get("_downstream_input", {})
             flat["_readiness"] = readiness
             flat["_field_traces"] = normalized_fields

@@ -287,16 +287,80 @@ def pipeline_task(tender_document: str, project_profile_overrides: dict = None, 
                 complete_pipeline(pipeline_id, "FAILED", error=str(e))
                 return {"pipeline_id": pipeline_id, "status": "FAILED", "error": str(e)}
 
-            # Stage 5: PDF — skip for now (PDF generation has None*int bug to fix separately)
-            _update_stage(pipeline_id, "5_pdf_report", "SKIPPED",
-                          extra={"reason": "skipped in retry path — PDF bug pending fix"})
+            # Stage 5: PDF Report
+            stage_start = datetime.now()
+            _update_stage(pipeline_id, "5_pdf_report", "RUNNING")
+            try:
+                from report.generator import generate_pdf_bytes
+
+                best_cost = next(
+                    (c for c in cost_comparisons if c.get("is_best")),
+                    cost_comparisons[0] if cost_comparisons else {}
+                )
+                cost_summary = (f"推荐方案5年ROI {best_cost.get('roi_5y', 'N/A')}x，"
+                                f"回本周期 {(best_cost.get('payback_years') or 'N/A')}年")
+                cost_recommendations = [
+                    f"{c['scenario_name']}: ROI {(c.get('roi_5y') or 0):.1f}x"
+                    for c in cost_comparisons[:3]
+                ]
+                fake_recommendations = [
+                    {
+                        "scenario_id": c["scenario_id"],
+                        "scenario_name": c["scenario_name"],
+                        "category": c.get("category", ""),
+                        "score": (c.get("roi_5y") or 0) * 10,
+                        "reason": f"5年ROI {c.get('roi_5y', 0):.1f}x，回本 {c.get('payback_years', 0):.1f}年",
+                        "risk": "中",
+                        "capex_range": f"¥{int((c.get('capex_estimate') or 0)/10000)}万",
+                        "labor_saving": (c.get("headcount_saved") or 0) / max(c.get("headcount_required") or 1, 1),
+                        "efficiency_gain": 0.4,
+                    }
+                    for c in cost_comparisons
+                ]
+                cost_data = {
+                    "warehouse_cost": 0,
+                    "labor_cost_annual": 0,
+                    "automation_capex": best_cost.get("capex_estimate") or 0,
+                    "annual_maintenance": best_cost.get("annual_maintenance") or 0,
+                    "total_annual_cost": best_cost.get("total_annual_cost") or 0,
+                    "automation_savings_annual": best_cost.get("net_annual_benefit") or 0,
+                    "net_annual_benefit": best_cost.get("net_annual_benefit") or 0,
+                    "roi": best_cost.get("roi_5y") or 0,
+                    "payback_years": best_cost.get("payback_years") or 99,
+                    "headcount_required": best_cost.get("headcount_required") or 0,
+                    "headcount_saved": best_cost.get("headcount_saved") or 0,
+                }
+                pdf_bytes, pdf_filename = generate_pdf_bytes(
+                    project_name=profile.get("project_name", "投标项目"),
+                    profile=profile,
+                    recommendations=fake_recommendations,
+                    cost_data=cost_data,
+                    cost_summary=cost_summary,
+                    cost_recommendations=cost_recommendations,
+                    region=region,
+                )
+                pdf_path = pipeline_dir / pdf_filename
+                pdf_path.write_bytes(pdf_bytes)
+                pdf_url = f"/api/pipeline/{pipeline_id}/download"
+                _update_stage(pipeline_id, "5_pdf_report", "DONE",
+                              output_file=str(pdf_path),
+                              duration_seconds=(datetime.now() - stage_start).total_seconds(),
+                              extra={"pdf_path": str(pdf_path), "pdf_download_url": pdf_url})
+            except Exception as e:
+                _update_stage(pipeline_id, "5_pdf_report", "FAILED",
+                              error=str(e), duration_seconds=0)
+                pdf_path = None
+                pdf_url = None
+
             complete_pipeline(pipeline_id, "COMPLETE", qa_verdict=qa_verdict,
                              profile_json=dict(profile),
                              recommendations_json=recommendations[:5] if recommendations else [],
                              comparisons_json=cost_comparisons,
+                             pdf_path=str(pdf_path) if pdf_path else None,
+                             pdf_url=pdf_url,
                              pipeline_gate_json=pipeline_gate)
             return {"pipeline_id": pipeline_id, "status": "COMPLETE",
-                    "qa_verdict": qa_verdict, "pdf_url": None}
+                    "qa_verdict": qa_verdict, "pdf_url": pdf_url}
         else:
             # Use two-phase tender understanding (analysis + normalization)
             from backend.services.tender_service import extract_requirements
@@ -680,11 +744,11 @@ def pipeline_task(tender_document: str, project_profile_overrides: dict = None, 
                     "scenario_id": c["scenario_id"],
                     "scenario_name": c["scenario_name"],
                     "category": c.get("category", ""),
-                    "score": c.get("roi_5y", 0) * 10,
-                    "reason": f"5年ROI {c.get('roi_5y', 0):.1f}x，回本 {c.get('payback_years', 0):.1f}年",
+                    "score": (c.get("roi_5y") or 0) * 10,
+                    "reason": f"5年ROI {c.get('roi_5y') or 0:.1f}x，回本 {c.get('payback_years') or 0:.1f}年",
                     "risk": "中",
-                    "capex_range": f"¥{int(c.get('capex_estimate', 0)/10000)}万",
-                    "labor_saving": c.get("headcount_saved", 0) / max(c.get("headcount_required", 1), 1),
+                    "capex_range": f"¥{int((c.get('capex_estimate') or 0)/10000)}万",
+                    "labor_saving": (c.get("headcount_saved") or 0) / max(c.get("headcount_required") or 1, 1),
                     "efficiency_gain": 0.4,
                 }
                 for c in cost_comparisons
@@ -693,15 +757,15 @@ def pipeline_task(tender_document: str, project_profile_overrides: dict = None, 
             cost_data = {
                 "warehouse_cost": 0,
                 "labor_cost_annual": 0,
-                "automation_capex": best_cost.get("capex_estimate", 0),
-                "annual_maintenance": best_cost.get("annual_maintenance", 0),
-                "total_annual_cost": best_cost.get("total_annual_cost", 0),
-                "automation_savings_annual": best_cost.get("net_annual_benefit", 0),
-                "net_annual_benefit": best_cost.get("net_annual_benefit", 0),
-                "roi": best_cost.get("roi_5y", 0),
-                "payback_years": best_cost.get("payback_years", 99),
-                "headcount_required": best_cost.get("headcount_required", 0),
-                "headcount_saved": best_cost.get("headcount_saved", 0),
+                "automation_capex": best_cost.get("capex_estimate") or 0,
+                "annual_maintenance": best_cost.get("annual_maintenance") or 0,
+                "total_annual_cost": best_cost.get("total_annual_cost") or 0,
+                "automation_savings_annual": best_cost.get("net_annual_benefit") or 0,
+                "net_annual_benefit": best_cost.get("net_annual_benefit") or 0,
+                "roi": best_cost.get("roi_5y") or 0,
+                "payback_years": best_cost.get("payback_years") or 99,
+                "headcount_required": best_cost.get("headcount_required") or 0,
+                "headcount_saved": best_cost.get("headcount_saved") or 0,
             }
 
             pdf_bytes, pdf_filename = generate_pdf_bytes(

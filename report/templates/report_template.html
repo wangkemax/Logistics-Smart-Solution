@@ -29,11 +29,11 @@
     </div>
     <div class="cover-meta-item">
       <div class="cover-meta-label">仓库面积</div>
-      <div class="cover-meta-value">{{ data.profile.warehouse_area | int | round(0) }}㎡</div>
+      <div class="cover-meta-value">{{ (data.profile.warehouse_area or 0) | int | round(0) }}㎡</div>
     </div>
     <div class="cover-meta-item">
       <div class="cover-meta-label">日均订单</div>
-      <div class="cover-meta-value">{{ data.profile.daily_orders | int | round(0) }} 单/天</div>
+      <div class="cover-meta-value">{{ (data.profile.daily_orders or 0) | int | round(0) }} 单/天</div>
     </div>
     <div class="cover-meta-item">
       <div class="cover-meta-label">报告版本</div>
@@ -74,13 +74,13 @@
         <tr><th>参数项</th><th>数值</th><th>说明</th></tr>
         <tr><td>项目名称</td><td>{{ data.project_name }}</td><td>—</td></tr>
         <tr><td>所属行业</td><td>{{ data.profile.industry }}</td><td>—</td></tr>
-        <tr><td>仓库面积</td><td>{{ data.profile.warehouse_area | int | round(0) }} ㎡</td><td>—</td></tr>
-        <tr><td>SKU数量</td><td>{{ data.profile.sku_count | int | round(0) }}</td><td>—</td></tr>
-        <tr><td>日均订单量</td><td>{{ data.profile.daily_orders | int | round(0) }} 单/天</td><td>—</td></tr>
-        <tr><td>库存量</td><td>{{ data.profile.inventory | int | round(0) }} 件</td><td>—</td></tr>
-        <tr><td>人工成本水平</td><td>{{ data.profile.labor_cost_level }}</td><td>—</td></tr>
-        <tr><td>自动化预算</td><td>{{ data.profile.budget_level }}</td><td>—</td></tr>
-        <tr><td>自动化期望</td><td>{{ data.profile.automation_expectation }}</td><td>—</td></tr>
+        <tr><td>仓库面积</td><td>{{ (data.profile.warehouse_area or 0) | int | round(0) }} ㎡</td><td>—</td></tr>
+        <tr><td>SKU数量</td><td>{{ (data.profile.sku_count or 0) | int | round(0) }}</td><td>—</td></tr>
+        <tr><td>日均订单量</td><td>{{ (data.profile.daily_orders or 0) | int | round(0) }} 单/天</td><td>—</td></tr>
+        <tr><td>库存量</td><td>{{ (data.profile.inventory or 0) | int | round(0) }} 件</td><td>—</td></tr>
+        <tr><td>人工成本水平</td><td>{{ data.profile.labor_cost_level or "未填写" }}</td><td>—</td></tr>
+        <tr><td>自动化预算</td><td>{{ data.profile.budget_level or "未填写" }}</td><td>—</td></tr>
+        <tr><td>自动化期望</td><td>{{ data.profile.automation_expectation or "未填写" }}</td><td>—</td></tr>
         <tr><td>所在区域</td><td>{{ data.profile.region | default('华东') }}</td><td>成本参数参考区域</td></tr>
       </table>
     </div>
@@ -105,13 +105,13 @@
       <div class="metrics-grid">
         <div class="metric-card">
           <div class="metric-label">SKU规模</div>
-          <div class="metric-value">{{ data.profile.sku_count | int | round(0) }}</div>
-          <div class="metric-unit">{% if data.profile.sku_count >= 10000 %}大型仓库{% else %}中型仓库{% endif %}</div>
+          <div class="metric-value">{{ (data.profile.sku_count or 0) | int | round(0) }}</div>
+          <div class="metric-unit">{% if (data.profile.sku_count or 0) >= 10000 %}大型仓库{% else %}中型仓库{% endif %}</div>
         </div>
         <div class="metric-card">
           <div class="metric-label">日均订单</div>
-          <div class="metric-value">{{ data.profile.daily_orders | int | round(0) }}</div>
-          <div class="metric-unit">{% if data.profile.daily_orders >= 5000 %}高吞吐量{% elif data.profile.daily_orders >= 1000 %}中等吞吐量{% else %}低吞吐量{% endif %}</div>
+          <div class="metric-value">{{ (data.profile.daily_orders or 0) | int | round(0) }}</div>
+          <div class="metric-unit">{% if (data.profile.daily_orders or 0) >= 5000 %}高吞吐量{% elif (data.profile.daily_orders or 0) >= 1000 %}中等吞吐量{% else %}低吞吐量{% endif %}</div>
         </div>
         <div class="metric-card">
           <div class="metric-label">库存量</div>
@@ -137,22 +137,22 @@
         <tr><th>痛点领域</th><th>现状描述</th><th>自动化解决方向</th></tr>
         <tr>
           <td>人工效率</td>
-          <td>{% if data.profile.daily_orders >= 5000 %}订单量大，人工拣选效率瓶颈明显{% elif data.profile.daily_orders >= 1000 %}中等订单量，存在效率提升空间{% else %}订单量较小，但长期人工成本压力持续{% endif %}</td>
+          <td>{% if (data.profile.daily_orders or 0) >= 5000 %}订单量大，人工拣选效率瓶颈明显{% elif (data.profile.daily_orders or 0) >= 1000 %}中等订单量，存在效率提升空间{% else %}订单量较小，但长期人工成本压力持续{% endif %}</td>
           <td>引入自动化拣选/货到人系统</td>
         </tr>
         <tr>
           <td>库存管理</td>
-          <td>{% if data.profile.sku_count >= 10000 %}SKU繁多，库存管理复杂度高{% else %}SKU数量适中{% endif %}</td>
+          <td>{% if (data.profile.sku_count or 0) >= 10000 %}SKU繁多，库存管理复杂度高{% else %}SKU数量适中{% endif %}</td>
           <td>部署WMS系统</td>
         </tr>
         <tr>
           <td>成本压力</td>
-          <td>人工成本{{ data.profile.labor_cost_level }}水平，长期呈上涨趋势</td>
+          <td>人工成本{{ data.profile.labor_cost_level or "未填写" }}水平，长期呈上涨趋势</td>
           <td>以自动化替代高重复性人工</td>
         </tr>
         <tr>
           <td>空间利用</td>
-          <td>仓库面积 {{ data.profile.warehouse_area | int | round(0) }}㎡，需合理规划</td>
+          <td>仓库面积 {{ (data.profile.warehouse_area or 0) | int | round(0) }}㎡，需合理规划</td>
           <td>密集存储方案</td>
         </tr>
       </table>
@@ -187,8 +187,8 @@
         <div class="rec-card-body">
           <div>
             <div class="rec-info-item"><span class="rec-info-label">方案类别：</span>{{ rec.category }}</div>
-            <div class="rec-info-item"><span class="rec-info-label">人工节省：</span>{{ (rec.labor_saving * 100) | round(0) | int }}%</div>
-            <div class="rec-info-item"><span class="rec-info-label">效率提升：</span>{{ (rec.efficiency_gain * 100) | round(0) | int }}%</div>
+            <div class="rec-info-item"><span class="rec-info-label">人工节省：</span>{{ ((rec.labor_saving or 0) * 100) | round(0) | int }}%</div>
+            <div class="rec-info-item"><span class="rec-info-label">效率提升：</span>{{ ((rec.efficiency_gain or 0) * 100) | round(0) | int }}%</div>
           </div>
           <div>
             <div class="rec-info-item"><span class="rec-info-label">投资范围：</span>{{ rec.capex_range }}</div>
@@ -543,8 +543,8 @@
           <td>{{ rec.scenario_name }}</td>
           <td>{{ rec.category }}</td>
           <td>{{ data.profile.industry }}</td>
-          <td>{{ (rec.labor_saving * 100) | round(0) | int }}%</td>
-          <td>{{ (rec.efficiency_gain * 100) | round(0) | int }}%</td>
+          <td>{{ ((rec.labor_saving or 0) * 100) | round(0) | int }}%</td>
+          <td>{{ ((rec.efficiency_gain or 0) * 100) | round(0) | int }}%</td>
         </tr>
         {% endfor %}
       </table>
