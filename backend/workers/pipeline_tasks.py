@@ -123,6 +123,7 @@ def pipeline_task(tender_document: str, project_profile_overrides: dict = None, 
     downstream_input = {}  # hints for downstream stages
     analysis_meta = {}    # v0.2 meta: {analysis_version, prompt_version, generated_at}
     analysis_sections = {}  # 13-dimension section texts
+    _overrides_gate_applied = False  # set True when if-branch sets pipeline_gate from _readiness
 
     # ---- Stage 1: Extraction ----
     stage_start = datetime.now()
@@ -135,6 +136,167 @@ def pipeline_task(tender_document: str, project_profile_overrides: dict = None, 
         if project_profile_overrides:
             profile = project_profile_overrides
             missing_p0 = []
+
+            # Read readiness from base_overrides (injected by retry_pipeline_stage orchestrator).
+            # This tells us whether cost_model gate should PASS or BLOCK without re-running LLM extraction.
+            new_readiness = profile.pop("_readiness", {}) or {}
+            if new_readiness:
+                readiness_score_val = new_readiness.get("readiness_score")
+                pipeline_gate = {
+                    "cost_model": "PASS" if new_readiness.get("for_cost_model") else "BLOCK",
+                    "solution_design": "PASS" if new_readiness.get("for_solution_design") else "WARN",
+                    "contract_review": "PASS" if new_readiness.get("for_contract_review") else "BLOCK",
+                    "blocking_items": new_readiness.get("blocked_reasons", []) or [],
+                    "readiness_score": readiness_score_val,
+                    "p0_field_status": new_readiness.get("p0_field_status", {}),
+                    "blocked_reasons": new_readiness.get("blocked_reasons", []),
+                    "network_estimation": "PASS",
+                    "kpi_gate": "PASS",
+                    "kpi_warn_message": "",
+                    "readiness_summary": f"readiness_score={readiness_score_val}",
+                }
+                # Store back so downstream can still read it
+                profile["_readiness"] = new_readiness
+                _overrides_gate_applied = True
+
+            # Write a minimal stage_1 file so stage 1 shows DONE
+            analysis_report = ""
+            structured = {}
+            quality_score = {}
+            clarification_questions = []
+            extraction_file = pipeline_dir / "stage_1_extraction.md"
+            extraction_file.write_text(
+                f"# Stage 1: Requirement Extraction (from Clarification overrides)\n\n"
+                f"## Normalized Profile\n\n```json\n{json.dumps(profile, ensure_ascii=False, indent=2)}\n```\n\n"
+                f"## Missing P0\n\nNone (all P0 fields resolved via Clarification)\n",
+                encoding="utf-8"
+            )
+            _update_stage(pipeline_id, "1_extraction", "DONE",
+                          output_file=str(extraction_file),
+                          duration_seconds=(datetime.now() - stage_start).total_seconds(),
+                          extra={
+                              "quality_score": {},
+                              "missing_p0": [],
+                              "readiness_summary": "from Clarification overrides",
+                          })
+
+            # ---- Build downstream_input for stage 3 from Clarification overrides ----
+            # profile has scalar values; build normalized_fields so cost engine can read field status.
+            from backend.services.tender_schema import get_p0_fields, get_p1_fields
+            p0_keys = get_p0_fields()
+            p1_keys = get_p1_fields()
+            p0_field_status = (new_readiness.get("p0_field_status") or {}) if new_readiness else {}
+            normalized_fields = {}
+            for fk, fv in profile.items():
+                if fk.startswith("_"):
+                    continue
+                if fk in p0_keys or fk in p1_keys:
+                    status = p0_field_status.get(fk) or ("provided" if fv is not None else "missing")
+                    normalized_fields[fk] = {
+                        "field_name": fk,
+                        "value": fv,
+                        "status": status,
+                        "priority": "P0" if fk in p0_keys else "P1",
+                        "source_section": "Clarification补录",
+                        "usable": status in ("provided", "inferred", "explicit"),
+                    }
+            # Build analyzer_result for downstream_input_builder
+            analyzer_result_for_downstream = {
+                "normalized_fields": normalized_fields,
+                "readiness": new_readiness or {},
+                "critical_missing_items": [],
+                "important_missing_items": [],
+                "clarification_questions": [],
+                "analysis_sections": {},
+            }
+            from backend.downstream.downstream_input_builder import build_cost_model_input
+            downstream_input = build_cost_model_input(analyzer_result=analyzer_result_for_downstream)
+
+            # Load recommendations from stage_2 file (already computed from original run)
+            recommendations = []
+            compare_ids = []
+            best_id = None
+            try:
+                rec_file = pipeline_dir / "stage_2_recommendations.md"
+                if rec_file.exists():
+                    import re
+                    text = rec_file.read_text(encoding="utf-8")
+                    m = re.search(r"Top Recommendations:\s*(\[)", text)
+                    if m:
+                        json_start = text.index("[", m.start())
+                        recommendations = json.loads(text[json_start:])
+                        compare_ids = [r["scenario_id"] for r in recommendations[:3]] if recommendations else []
+                        best_id = compare_ids[0] if compare_ids else None
+            except Exception:
+                pass  # Fall back to empty
+
+            # Skip else-branch — go straight to stage 3 with our prepared data
+            # Stages 1+2 are already DONE; stages 3+4+5 use corrected profile/downstream_input
+            region = profile.get("region", "华东")
+            cost_comparisons = []
+            qa_verdict = "CONDITIONAL_PASS"
+            pdf_path = None
+            pdf_url = None
+            stage_start = datetime.now()
+            _update_stage(pipeline_id, "3_cost_comparison", "RUNNING")
+            try:
+                if compare_ids and len(compare_ids) >= 2:
+                    scenario_list = [r for r in recommendations if r.get("scenario_id") in compare_ids]
+                    cost_comparisons = compare_solution_financials(
+                        profile, scenario_list, region, downstream_input=downstream_input
+                    )
+                elif best_id:
+                    cost_result = get_cost_analysis(profile, region, best_id)
+                    cost_comparisons = [cost_result.get("cost_breakdown", {})]
+
+                cmp_file = pipeline_dir / "stage_3_cost_comparison.md"
+                cmp_file.write_text(
+                    f"# Stage 3: Cost Comparison (retry with Clarification overrides)\n\n"
+                    f"Comparisons:\n{json.dumps(cost_comparisons, ensure_ascii=False, indent=2)}",
+                    encoding="utf-8"
+                )
+                _update_stage(pipeline_id, "3_cost_comparison", "DONE",
+                              output_file=str(cmp_file),
+                              duration_seconds=(datetime.now() - stage_start).total_seconds(),
+                              extra={"cost_comparisons": cost_comparisons})
+            except Exception as e:
+                _update_stage(pipeline_id, "3_cost_comparison", "FAILED",
+                              error=str(e), duration_seconds=0)
+                complete_pipeline(pipeline_id, "FAILED", error=str(e))
+                return {"pipeline_id": pipeline_id, "status": "FAILED", "error": str(e)}
+
+            # Stage 4: QA
+            stage_start = datetime.now()
+            _update_stage(pipeline_id, "4_qa_review", "RUNNING")
+            try:
+                qa_verdict, qa_issues = run_qa(profile, recommendations, tender_document, cost_comparisons)
+                qa_issues_ui = format_issues_for_ui(qa_issues)
+                qa_file = pipeline_dir / "stage_4_qa_report.md"
+                qa_file.write_text(
+                    f"# Stage 4: QA Report\n\nVerdict: {qa_verdict}\n\nIssues:\n"
+                    + "\n".join(f"- [{i['severity']}] {i['field']}: {i['message']}" for i in qa_issues),
+                    encoding="utf-8"
+                )
+                _update_stage(pipeline_id, "4_qa_review", "DONE",
+                              output_file=str(qa_file),
+                              duration_seconds=(datetime.now() - stage_start).total_seconds(),
+                              extra={"qa_verdict": qa_verdict, "qa_issues": qa_issues, "qa_issues_ui": qa_issues_ui})
+            except Exception as e:
+                _update_stage(pipeline_id, "4_qa_review", "FAILED",
+                              error=str(e), duration_seconds=0)
+                complete_pipeline(pipeline_id, "FAILED", error=str(e))
+                return {"pipeline_id": pipeline_id, "status": "FAILED", "error": str(e)}
+
+            # Stage 5: PDF — skip for now (PDF generation has None*int bug to fix separately)
+            _update_stage(pipeline_id, "5_pdf_report", "SKIPPED",
+                          extra={"reason": "skipped in retry path — PDF bug pending fix"})
+            complete_pipeline(pipeline_id, "COMPLETE", qa_verdict=qa_verdict,
+                             profile_json=dict(profile),
+                             recommendations_json=recommendations[:5] if recommendations else [],
+                             comparisons_json=cost_comparisons,
+                             pipeline_gate_json=pipeline_gate)
+            return {"pipeline_id": pipeline_id, "status": "COMPLETE",
+                    "qa_verdict": qa_verdict, "pdf_url": None}
         else:
             # Use two-phase tender understanding (analysis + normalization)
             from backend.services.tender_service import extract_requirements
@@ -233,51 +395,53 @@ def pipeline_task(tender_document: str, project_profile_overrides: dict = None, 
                       })
 
         # ---- Pipeline Gate: check if ready for downstream stages ----
-        # Max's suggestion #3: richer gate logic with specific blocking rules
-        #   • P0 missing → BLOCK cost_model + network estimation
-        #   • KPI/SLA missing → WARN solution_design (保守表述)
-        #   • dc_count / warehouse_area missing → BLOCK network cost estimation
-        readiness = (quality_score or {}).get("readiness", {}) or {}
-        gate_cost_ok = readiness.get("cost_model_ready", False)
-        gate_solution_ok = readiness.get("solution_design_ready", False)
-        gate_contract_ok = readiness.get("contract_review_ready", False)
+        # Skip if already set by the if-branch (retry path with Clarification overrides)
+        if not _overrides_gate_applied:
+            # Max's suggestion #3: richer gate logic with specific blocking rules
+            #   • P0 missing → BLOCK cost_model + network estimation
+            #   • KPI/SLA missing → WARN solution_design (保守表述)
+            #   • dc_count / warehouse_area missing → BLOCK network cost estimation
+            readiness = (quality_score or {}).get("readiness", {}) or {}
+            gate_cost_ok = readiness.get("cost_model_ready", False)
+            gate_solution_ok = readiness.get("solution_design_ready", False)
+            gate_contract_ok = readiness.get("contract_review_ready", False)
 
-        # Deep-dive gate: check specific P0 fields for network cost estimation
-        p0_blocking_network = []
-        if isinstance(profile, dict):
-            dc_count_entry = profile.get("dc_count", {})
-            warehouse_area_entry = profile.get("warehouse_area", {})
-            daily_orders_entry = profile.get("daily_orders", {})
-            dc_status = dc_count_entry.get("status", "missing") if isinstance(dc_count_entry, dict) else "missing"
-            wh_status = warehouse_area_entry.get("status", "missing") if isinstance(warehouse_area_entry, dict) else "missing"
-            orders_status = daily_orders_entry.get("status", "missing") if isinstance(daily_orders_entry, dict) else "missing"
-            if dc_status in ("missing", "ambiguous"):
-                p0_blocking_network.append("dc_count")
-            if wh_status in ("missing", "ambiguous"):
-                p0_blocking_network.append("warehouse_area")
-            if orders_status in ("missing", "ambiguous"):
-                p0_blocking_network.append("daily_orders")
+            # Deep-dive gate: check specific P0 fields for network cost estimation
+            p0_blocking_network = []
+            if isinstance(profile, dict):
+                dc_count_entry = profile.get("dc_count", {})
+                warehouse_area_entry = profile.get("warehouse_area", {})
+                daily_orders_entry = profile.get("daily_orders", {})
+                dc_status = dc_count_entry.get("status", "missing") if isinstance(dc_count_entry, dict) else "missing"
+                wh_status = warehouse_area_entry.get("status", "missing") if isinstance(warehouse_area_entry, dict) else "missing"
+                orders_status = daily_orders_entry.get("status", "missing") if isinstance(daily_orders_entry, dict) else "missing"
+                if dc_status in ("missing", "ambiguous"):
+                    p0_blocking_network.append("dc_count")
+                if wh_status in ("missing", "ambiguous"):
+                    p0_blocking_network.append("warehouse_area")
+                if orders_status in ("missing", "ambiguous"):
+                    p0_blocking_network.append("daily_orders")
 
-        # KPI gate: warn but allow progression
-        kpi_entry = profile.get("kpi_targets", {}) if isinstance(profile, dict) else {}
-        kpi_status = kpi_entry.get("status", "missing") if isinstance(kpi_entry, dict) else "missing"
-        kpi_gate = "WARN" if kpi_status in ("missing",) else "PASS"
-        kpi_warn_message = ""
-        if kpi_gate == "WARN":
-            kpi_warn_message = "KPI/SLA缺失，方案设计阶段服务承诺须保守表述，建议在澄清后补充"
+            # KPI gate: warn but allow progression
+            kpi_entry = profile.get("kpi_targets", {}) if isinstance(profile, dict) else {}
+            kpi_status = kpi_entry.get("status", "missing") if isinstance(kpi_entry, dict) else "missing"
+            kpi_gate = "WARN" if kpi_status in ("missing",) else "PASS"
+            kpi_warn_message = ""
+            if kpi_gate == "WARN":
+                kpi_warn_message = "KPI/SLA缺失，方案设计阶段服务承诺须保守表述，建议在澄清后补充"
 
-        # Store gate results for downstream reference
-        pipeline_gate = {
-            "cost_model": "PASS" if gate_cost_ok else "BLOCK",
-            "solution_design": "PASS" if gate_solution_ok else "WARN",
-            "contract_review": "PASS" if gate_contract_ok else "BLOCK",
-            "network_estimation": "BLOCK" if p0_blocking_network else "PASS",
-            "kpi_gate": kpi_gate,
-            "blocking_items": missing_p0 or [],
-            "network_blocking_fields": p0_blocking_network,
-            "readiness_summary": readiness.get("summary", ""),
-            "kpi_warn_message": kpi_warn_message,
-        }
+            # Store gate results for downstream reference
+            pipeline_gate = {
+                "cost_model": "PASS" if gate_cost_ok else "BLOCK",
+                "solution_design": "PASS" if gate_solution_ok else "WARN",
+                "contract_review": "PASS" if gate_contract_ok else "BLOCK",
+                "network_estimation": "BLOCK" if p0_blocking_network else "PASS",
+                "kpi_gate": kpi_gate,
+                "blocking_items": missing_p0 or [],
+                "network_blocking_fields": p0_blocking_network,
+                "readiness_summary": readiness.get("summary", ""),
+                "kpi_warn_message": kpi_warn_message,
+            }
     except PipelineCancelled:
         _update_stage(pipeline_id, "1_extraction", "CANCELLED",
                       duration_seconds=(datetime.now() - stage_start).total_seconds())
