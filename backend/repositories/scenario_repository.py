@@ -289,6 +289,7 @@ def get_active_scenarios() -> list[dict]:
             for row in rows:
                 scenarios.append({
                     "scenario_id": row["id"],
+                    "scenario_code": row["scenario_code"],  # may be None for old SCNxx rows
                     "scenario_name": row["scenario_name"],
                     "category": row["category"] or "",
                     "applicable_industry": row["applicable_industry"] or "",
