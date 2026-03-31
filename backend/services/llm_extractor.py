@@ -249,8 +249,8 @@ Fields:
 - sku_count: number
 - daily_orders: number
 - inventory: number (units)
-- labor_cost_level: 低/中/高
-- budget_level: 低/中/高
+- labor_cost_level: 低/中/高（支持"中高"映射为中）
+- budget_level: 低/中/高（支持"中高"映射为中）
 - automation_expectation: 低/中/高
 - contract_years: number (e.g. 3 or 5)
 - go_live_date: YYYY-MM or "待确认"
@@ -524,11 +524,15 @@ def _infer_level_from_descriptions(field_name: str, descriptions: list) -> Optio
     if field_name == "labor_cost_level":
         if any("low" in d for d in descriptions):
             return "低"
+        if any("中高" in d or "mid-high" in d.lower() for d in descriptions):
+            return "中"   # "中高" → 按中高处理，映射为"中"
         if any("mid" in d for d in descriptions):
             return "中"
         if any("high" in d for d in descriptions):
             return "高"
     elif field_name == "budget_level":
+        if any("中高" in d or "mid-high" in d.lower() for d in descriptions):
+            return "中"
         if any("high" in d for d in descriptions):
             return "高"
         if any("mid" in d for d in descriptions):
