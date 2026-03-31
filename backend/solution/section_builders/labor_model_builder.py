@@ -173,8 +173,6 @@ def build_labor_model(
         headcount["it_support"] = headcount.get("it_support", 0) + 1
 
     # Automotive-specific roles
-    # industry comes from resolved fields, normalized above
-    industry = kwargs.get("industry", "GENERIC_3PL")
     if industry == "AUTOMOTIVE":
         # Automotive adds line-side feeding,器具 management, sequencing
         headcount["line_side_team"] = headcount.get("line_side_team", 0) + 4

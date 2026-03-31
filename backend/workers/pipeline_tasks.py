@@ -405,6 +405,8 @@ def pipeline_task(tender_document: str, project_profile_overrides: dict = None, 
             from backend.services.tender_service import extract_requirements
             extraction_mode = os.environ.get("EXTRACTION_MODE", "analysis")
             profile = extract_requirements(tender_document, mode=extraction_mode)
+            print(f"[DEBUG stage1] profile scalars: industry={profile.get('industry')}, region={profile.get('region')}, warehouse_area={profile.get('warehouse_area')}, sku_count={profile.get('sku_count')}, daily_orders={profile.get('daily_orders')}")
+            print(f"[DEBUG stage1] analysis_report present: {bool(profile.get('_analysis_report'))}, analysis_markdown present: {bool(profile.get('analysis_markdown'))}")
             missing_p0 = profile.get("missing_p0", []) or [
                 k for k, v in (profile.get("_field_traces") or {}).items()
                 if isinstance(v, dict) and v.get("priority") == "P0" and v.get("status") in ("missing", "ambiguous")
