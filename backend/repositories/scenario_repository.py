@@ -384,15 +384,27 @@ def seed_default_scenarios() -> int:
         # Check if already seeded
         count = conn.execute("SELECT COUNT(*) FROM automation_scenarios").fetchone()[0]
         if count > 0:
-            # Migrate: add scenario_code column if missing (old schema)
+            # Migrate: add missing columns for AUTO-01/AUTO-02 scenarios
             cols = [r[1] for r in conn.execute("PRAGMA table_info(automation_scenarios)").fetchall()]
-            if "scenario_code" not in cols:
-                conn.execute("ALTER TABLE automation_scenarios ADD COLUMN scenario_code TEXT")
-            # Reset and re-seed: ensures DB always matches current DEFAULT_SCENARIOS
-            # (including newly added AUTO-01/AUTO-02 scenarios)
+            for col_sql in [
+                "ALTER TABLE automation_scenarios ADD COLUMN scenario_code TEXT",
+                "ALTER TABLE automation_scenarios ADD COLUMN capital_cost_per_sqm REAL",
+                "ALTER TABLE automation_scenarios ADD COLUMN annual_maintenance_pct REAL",
+                "ALTER TABLE automation_scenarios ADD COLUMN annual_savings_per_sqm REAL",
+                "ALTER TABLE automation_scenarios ADD COLUMN labor_reduction_ratio REAL",
+                "ALTER TABLE automation_scenarios ADD COLUMN deployment_months INTEGER",
+                "ALTER TABLE automation_scenarios ADD COLUMN compatible_regions TEXT",
+            ]:
+                col_name = col_sql.split("ADD COLUMN ")[1].split(" ")[0]
+                if col_name not in cols:
+                    try:
+                        conn.execute(col_sql)
+                    except Exception:
+                        pass
             conn.execute("DELETE FROM automation_scenarios")
 
         for s in DEFAULT_SCENARIOS:
+            import json as _json
             conn.execute("""
                 INSERT INTO automation_scenarios (
                     scenario_code, scenario_name, category, applicable_industry,
@@ -401,14 +413,18 @@ def seed_default_scenarios() -> int:
                     opex_year, labor_saving, efficiency_gain,
                     risk_level, region, notes, priority,
                     weight_industry, weight_area, weight_sku,
-                    weight_orders, weight_budget, weight_region
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    weight_orders, weight_budget, weight_region,
+                    capital_cost_per_sqm, annual_maintenance_pct,
+                    annual_savings_per_sqm, labor_reduction_ratio,
+                    deployment_months, compatible_regions
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 s.get("scenario_code") or f"SCN{s.get('scenario_id', 99):02d}",
                 s["scenario_name"],
                 s["category"],
                 s["applicable_industry"],
-                0, 999999,
+                s.get("min_area") or 0,
+                s.get("max_area") or 999999,
                 s["sku_min"], s["sku_max"],
                 s["order_min"], s["order_max"],
                 s["capex_min"], s["capex_max"],
@@ -419,7 +435,13 @@ def seed_default_scenarios() -> int:
                 s["region"],
                 s["notes"],
                 s["priority"],
-                0.20, 0.15, 0.20, 0.20, 0.15, 0.10,  # default weights
+                0.20, 0.15, 0.20, 0.20, 0.15, 0.10,
+                s.get("capital_cost_per_sqm"),
+                s.get("annual_maintenance_pct"),
+                s.get("annual_savings_per_sqm"),
+                s.get("labor_reduction_ratio"),
+                s.get("deployment_months"),
+                _json.dumps(s.get("compatible_regions")) if s.get("compatible_regions") else None,
             ))
         conn.commit()
         return len(DEFAULT_SCENARIOS)
