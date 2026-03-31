@@ -270,8 +270,8 @@ def render_roi_chart(cost_data):
 def render_compare_bar_chart(comparisons):
     # comparisons is already sorted by weighted score
     names = [c.get("scenario_name", "—")[:8] for c in comparisons]
-    capex = [c.get("capex_estimate", 0) / 10000 for c in comparisons]
-    savings = [(c.get("annual_labor_saving", 0) + c.get("annual_efficiency_saving", 0)) / 10000 for c in comparisons]
+    capex = [(c.get("capex_estimate") or 0) / 10000 for c in comparisons]
+    savings = [((c.get("annual_labor_saving") or 0) + (c.get("annual_efficiency_saving") or 0)) / 10000 for c in comparisons]
     fig = go.Figure(data=[
         go.Bar(name="自动化投资 (万)", x=names, y=capex, marker_color="#ef5350"),
         go.Bar(name="年节省人工 (万)", x=names, y=savings, marker_color="#4caf50"),
