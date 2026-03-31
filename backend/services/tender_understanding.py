@@ -45,6 +45,7 @@ from backend.services.tender_quality import (
 )
 from backend.services.tender_readiness import compute_readiness
 from backend.services.tender_clarification import generate_clarification_questions
+from backend.services.llm_extractor import _INDUSTRY_PATTERNS, _normalize_industry, _infer_industry_from_descriptions
 
 # Import helpers directly from tender_schema for backward compat
 from backend.services.tender_schema import (
@@ -256,6 +257,109 @@ def _parse_response(raw):
                     break
 
     return raw.strip(), {"_parse_error": "JSON extraction failed"}
+
+
+def _extract_industry_from_report(report_text: str) -> Optional[str]:
+    """Extract and normalize industry from the analysis report text."""
+    if not report_text:
+        return None
+    matched_labels = []
+    for pattern, label in _INDUSTRY_PATTERNS:
+        if pattern.search(report_text):
+            matched_labels.append(label)
+    if matched_labels:
+        return _infer_industry_from_descriptions(matched_labels)
+    return None
+
+
+def _extract_scalar_fields_from_markdown(report_text: str) -> dict:
+    """
+    Fallback extraction of scalar fields from the markdown analysis report.
+    Used when structured JSON returned null values — parse report text directly.
+    Handles markdown tables where number and unit may be in separate cells.
+    """
+    import re as _re
+    result = {}
+
+    # Region: look for "华东（上海）" or region keyword in text
+    region_map = {"华东": "华东", "华南": "华南", "华北": "华北", "华中": "华中", "西部": "西部", "东北": "东北"}
+    for kw, val in region_map.items():
+        if kw in report_text:
+            result["region"] = val
+            break
+
+    # Strip markdown tables to raw text (remove cell separators and newlines)
+    # e.g. "| DC-01 | 上海DC | 35000 | 5000单/日 |" → "DC-01 上海DC 35000 5000单/日"
+    table_text = _re.sub(r"\|\s*", " ", report_text)
+    table_text = _re.sub(r"\s*\|", " ", table_text)
+    table_text = _re.sub(r"\n+", " ", table_text)
+
+    # Warehouse area: look for area-like numbers near "㎡" or "平方米"
+    # Also handle markdown table where "35000" appears near area-related header content
+    for pat in [
+        r"(\d[\d,\.]*)\s*㎡",
+        r"(\d[\d,\.]*)\s*平方米",
+        r"面积[是为约：:\s]*(\d[\d,\.]*)",
+        r"日均?处理?能力[:：\s]*(\d[\d,\.]*)",
+    ]:
+        m = _re.search(pat, table_text)
+        if m:
+            for g in m.groups():
+                if g:
+                    try:
+                        val = float(g.replace(",", ""))
+                        # Sanity check: warehouse area should be > 1000 sqm
+                        if val > 1000:
+                            result["warehouse_area"] = val
+                            break
+                    except ValueError:
+                        pass
+        if "warehouse_area" in result:
+            break
+
+    # Daily orders: look for order-like numbers near "单" or "日" markers
+    # Also find the largest number in a "单/日" context
+    for pat in [
+        r"(\d[\d,\.]*)\s*单[/日]",
+        r"日均\s*(\d[\d,\.]*)",
+        r"日[均]?[处理]?\s*(\d[\d,\.]*)",
+    ]:
+        m = _re.search(pat, table_text)
+        if m:
+            for g in m.groups():
+                if g:
+                    try:
+                        val = int(float(g.replace(",", "")))
+                        # Sanity check: daily orders should be > 10
+                        if val > 10:
+                            result["daily_orders"] = val
+                            break
+                    except ValueError:
+                        pass
+        if "daily_orders" in result:
+            break
+
+    # SKU count: look for "SKU" keyword or patterns like "8000 SKU" or "8000种"
+    for pat in [
+        r"(\d[\d,\.]*)\s*SKU",
+        r"(\d[\d,\.]*)\s*[种品类]",
+        r"SKU[是为约：:\s]*(\d[\d,\.]*)",
+    ]:
+        m = _re.search(pat, table_text)
+        if m:
+            for g in m.groups():
+                if g:
+                    try:
+                        val = int(float(g.replace(",", "")))
+                        if val > 10:
+                            result["sku_count"] = val
+                            break
+                    except ValueError:
+                        pass
+        if "sku_count" in result:
+            break
+
+    return result
 
 
 def _parse_sections_from_markdown(report_text: str) -> dict:
@@ -726,7 +830,49 @@ def analyze_and_extract(tender_text: str) -> dict:
     Version: v0.2
     """
     analysis = analyze_tender_document(tender_text)
+    print(f"[DEBUG analyze_and_extract] industry from report: {analysis.get('_extracted_industry', 'NONE')}")
+
+    # Extract industry from the analysis report text (LLM prompt doesn't include industry in structured JSON)
+    report_text = analysis.get("analysis_report", "") or ""
+    extracted_industry = _extract_industry_from_report(report_text)
+    if extracted_industry:
+        analysis["_extracted_industry"] = extracted_industry
+
     profile  = normalize_extracted_fields(analysis)
+    print(f"[DEBUG analyze_and_extract] profile['industry'] after normalize: {profile.get('industry')}")
+
+    # Override industry field with the extracted value (normalize_extracted_fields initializes it as None)
+    if extracted_industry and "industry" in profile:
+        profile["industry"] = {
+            "value": extracted_industry,
+            "status": "extracted",
+            "source_basis": "从分析报告关键词推断",
+            "section": "s1_project_overview",
+            "priority": "P2",
+            "impact": ["cost_model", "solution_design"],
+        }
+
+    # Fallback: if scalar fields are still None/empty, extract from markdown report text
+    # (handles cases where LLM structured JSON returned null but report text has the info)
+    # IMPORTANT: update field dict in-place, don't replace with plain value
+    # (flatten logic depends on field dict structure: {value, status, ...})
+    markdown_fallbacks = _extract_scalar_fields_from_markdown(analysis.get("analysis_report", "") or "")
+    print(f"[DEBUG analyze_and_extract] markdown_fallbacks: {markdown_fallbacks}")
+    for field, value in markdown_fallbacks.items():
+        entry = profile.get(field)
+        if entry is None or entry == "":
+            # Field missing — create new field dict
+            profile[field] = {"value": value, "status": "extracted",
+                              "source_basis": "从分析报告文本正则推断",
+                              "section": "s1_project_overview", "priority": "P2",
+                              "impact": ["cost_model", "solution_design"]}
+            print(f"[DEBUG analyze_and_extract] created {field}={value}")
+        elif isinstance(entry, dict) and entry.get("value") in (None, ""):
+            # Field dict exists but value is None — update in place
+            entry["value"] = value
+            entry["status"] = "extracted"
+            entry["source_basis"] = "从分析报告文本正则推断"
+            print(f"[DEBUG analyze_and_extract] updated {field}={value}")
 
     profile["_analysis_report"] = analysis["analysis_report"]
     profile["_analysis_sections"] = analysis.get("analysis_sections", {})
@@ -754,6 +900,19 @@ def analyze_and_extract(tender_text: str) -> dict:
         "evidence_score": _evidence_score(quality),
         "readiness_score": readiness.get("readiness_score", 0.0),
     }
+    # Fallback: if scalar fields are still None/empty, extract from markdown report text
+    # (handles cases where LLM structured JSON returned null but report text has the info)
+    markdown_fallbacks = _extract_scalar_fields_from_markdown(analysis.get("analysis_report", "") or "")
+    for field, value in markdown_fallbacks.items():
+        if profile.get(field) is None or profile.get(field) == "":
+            # Update field object in place (preserve status/basis/priority metadata)
+            if isinstance(profile.get(field), dict) and "value" in profile[field]:
+                profile[field]["value"] = value
+                profile[field]["status"] = "extracted"
+                profile[field]["source_basis"] = "从分析报告文本正则推断"
+            else:
+                profile[field] = value  # plain scalar override
+
     profile["meta"] = {
         "analysis_version": "v0.2",
         "prompt_version": "tender_understanding_v0.2",

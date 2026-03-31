@@ -31,15 +31,13 @@ from backend.services.tender_understanding import analyze_and_extract
 # Regex-based extraction (fallback / quick preview)
 # =============================================================================
 
+# New 5-level industry system (v0.8+)
 _INDUSTRY_MAP = {
-    "电商": ["电商", "电子商务", "天猫", "京东", "淘宝", "拼多多", "抖音电商"],
-    "3PL": ["3PL", "第三方物流", "物流外包", "货运代理"],
-    "零售": ["零售", "商超", "便利店", "百货", "购物中心"],
-    "制造": ["制造", "生产商", "工厂", "制造业"],
-    "快递": ["快递", "速运", "快运", "落地配"],
-    "医药": ["医药", "制药", "医疗", "医疗器械"],
-    "食品": ["食品", "饮料", "乳制品", "调味品"],
-    "生鲜": ["生鲜", "冷链", "农产品", "水产"],
+    "AUTOMOTIVE":    ["汽车", "汽车零部件", "汽车整车", "主机厂", "JIT", "JIS", "产线配套", "SKD", "CKD"],
+    "ELECTRONICS":   ["电子信息", "消费电子", "ICT", "EMS", "VMI", "电子元器件"],
+    "FMCG":          ["电商", "电子商务", "天猫", "京东", "淘宝", "拼多多", "抖音电商", "零售", "商超", "便利店", "快消", "高频周转"],
+    "MANUFACTURING": ["制造", "生产商", "工厂", "制造业", "工业制造", "工业品"],
+    "GENERIC_3PL":   ["3PL", "第三方物流", "物流外包", "货运代理", "快递", "速运", "快运"],
 }
 
 
@@ -57,7 +55,7 @@ def extract_with_regex(text: str) -> dict:
     profile = {
         "project_name": "待确认",
         "client_name": "待确认",
-        "industry": "电商",
+        "industry": "GENERIC_3PL",
         "region": "华东",
         "warehouse_area": None,
         "sku_count": None,
@@ -551,6 +549,7 @@ def extract_requirements(
                     flat[key] = val["value"]       # scalar for compat
                 else:
                     flat[key] = val
+            print(f"[DEBUG tender_service flatten] region={flat.get('region')}, warehouse_area={flat.get('warehouse_area')}, daily_orders={flat.get('daily_orders')}")
 
             # Attach the full analysis result + summary + meta (underscore-prefixed)
             flat["_analysis_report"] = result.get("_analysis_report", "")

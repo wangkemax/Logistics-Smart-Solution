@@ -243,7 +243,7 @@ Extract a complete project profile as JSON. Return ONLY the JSON object, no expl
 Fields:
 - project_name: 项目名称 or "待确认"
 - client_name: 客户名称 or "待确认"
-- industry: 电商/3PL/零售/制造/快递/医药/食品/生鲜
+- industry: AUTOMOTIVE/ELECTRONICS/FMCG/MANUFACTURING/GENERIC_3PL
 - region: 华东/华南/华北/华中/西部
 - warehouse_area: number (sqm)
 - sku_count: number
@@ -545,6 +545,56 @@ def _infer_level_from_descriptions(field_name: str, descriptions: list) -> Optio
     return None
 
 
+def _normalize_industry(raw: Optional[str]) -> Optional[str]:
+    """Normalize old 8-level industry values to new 5-level system (v0.8+)."""
+    if not raw:
+        return None
+    _OLD_TO_NEW = {
+        # Automotive (new in v0.8)
+        "汽车整车": "AUTOMOTIVE",
+        "汽车零部件": "AUTOMOTIVE",
+        "汽车": "AUTOMOTIVE",
+        "汽车配套": "AUTOMOTIVE",
+        "JIT": "AUTOMOTIVE",
+        "JIS": "AUTOMOTIVE",
+        # Electronics (new in v0.8)
+        "电子信息": "ELECTRONICS",
+        "消费电子": "ELECTRONICS",
+        "ICT": "ELECTRONICS",
+        "EMS": "ELECTRONICS",
+        "VMI": "ELECTRONICS",
+        # FMCG (new in v0.8)
+        "电商": "FMCG",
+        "电子商务": "FMCG",
+        "零售": "FMCG",
+        "快消": "FMCG",
+        "天猫": "FMCG",
+        "京东": "FMCG",
+        "拼多多": "FMCG",
+        # Manufacturing
+        "制造": "MANUFACTURING",
+        "生产商": "MANUFACTURING",
+        "工厂": "MANUFACTURING",
+        "制造业": "MANUFACTURING",
+        "工业制造": "MANUFACTURING",
+        # Generic 3PL (兜底)
+        "3PL": "GENERIC_3PL",
+        "第三方物流": "GENERIC_3PL",
+        "物流": "GENERIC_3PL",
+        "快递": "GENERIC_3PL",
+        "医药": "GENERIC_3PL",
+        "食品": "GENERIC_3PL",
+        "生鲜": "GENERIC_3PL",
+        # Already new values — pass through
+        "AUTOMOTIVE": "AUTOMOTIVE",
+        "ELECTRONICS": "ELECTRONICS",
+        "FMCG": "FMCG",
+        "MANUFACTURING": "MANUFACTURING",
+        "GENERIC_3PL": "GENERIC_3PL",
+    }
+    return _OLD_TO_NEW.get(raw, None)
+
+
 def _infer_industry_from_descriptions(descriptions: list) -> Optional[str]:
     """Infer industry from matched pattern descriptions."""
     name_map = {
@@ -771,10 +821,14 @@ def extract_requirements_llm(
             missing_p0 = llm_result.get('missing_data_P0') or []
             llm_field_conf = llm_result.get('field_confidence', {})
 
+            # Normalize industry from old system (制造/电商/3PL) → new 5-level system
+            raw_industry = llm_result.get('industry') or field_values.get('industry')
+            normalized_industry = _normalize_industry(raw_industry) if raw_industry else None
+
             profile = {
                 'project_name': llm_result.get('project_name') or '待确认',
                 'client_name': llm_result.get('client_name') or '待确认',
-                'industry': llm_result.get('industry') or field_values.get('industry') or '电商',
+                'industry': normalized_industry or 'GENERIC_3PL',
                 'region': llm_result.get('region') or field_values.get('region') or '华东',
                 'warehouse_area': llm_result.get('warehouse_area') or field_values.get('warehouse_area'),
                 'sku_count': llm_result.get('sku_count') or field_values.get('sku_count'),
@@ -990,9 +1044,16 @@ def _fill_missing_fields(text: str, profile: dict, field_values: dict):
                         pass
 
     # --- industry ---
-    if profile.get('industry') in (None, '电商'):
-        if field_values.get('industry') is not None:
-            profile['industry'] = field_values['industry']
+    # Apply normalization to convert LLM output (old system) → new 5-level system
+    raw_industry = field_values.get('industry')
+    if raw_industry is not None:
+        profile['industry'] = _normalize_industry(raw_industry)
+    # Also normalize if existing profile value is old/invalid
+    if profile.get('industry') in (None, '电商', '制造', '3PL', '零售', '医药', '食品', '生鲜', '快递'):
+        if raw_industry is not None:
+            profile['industry'] = _normalize_industry(raw_industry)
+        elif field_values.get('industry') is not None:
+            profile['industry'] = _normalize_industry(field_values['industry'])
 
     # --- region ---
     if profile.get('region') in (None, '华东'):
