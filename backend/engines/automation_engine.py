@@ -2,15 +2,18 @@ from typing import List, Dict, Any
 import os
 
 
+# New 5-level industry system (v0.8+)
 INDUSTRY_MAPPING = {
-    "电商": ["电商", "3PL", "快递"],
-    "3PL": ["3PL", "电商", "零售"],
-    "零售": ["零售", "电商", "3PL"],
-    "制造": ["制造", "3PL"],
-    "快递": ["快递", "电商"],
-    "医药": ["医药", "3PL"],
-    "食品": ["食品", "医药"],
-    "生鲜": ["生鲜", "食品"],
+    # AUTOMOTIVE: automotive supply chain logistics — distinct from generic manufacturing
+    "AUTOMOTIVE":   ["AUTOMOTIVE", "MANUFACTURING"],  # JIT/JIS patterns also exist in advanced manufacturing
+    # ELECTRONICS: VMI patterns for high-value SKU logistics
+    "ELECTRONICS":  ["ELECTRONICS", "GENERIC_3PL"],
+    # FMCG: retail/电商 are closest to fast-moving consumer goods logistics
+    "FMCG":         ["FMCG", "GENERIC_3PL"],
+    # MANUFACTURING: industrial 3PL overlaps with automotive supply chain
+    "MANUFACTURING": ["MANUFACTURING", "GENERIC_3PL"],
+    # GENERIC_3PL: catch-all fallback
+    "GENERIC_3PL":  ["GENERIC_3PL"],
 }
 
 BUDGET_THRESHOLDS = {

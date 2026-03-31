@@ -99,7 +99,12 @@ def build_cost_model_input(
             "blocking_reasons": list[str],
         }
     """
-    nf = normalized_fields or analyzer_result.get("normalized_fields", {})
+    # Use normalized_fields if available; otherwise fall back to top-level field dicts
+    # (flatten in tender_service.py now preserves field dicts at top level)
+    _nf_from_analyzer = {k: v for k, v in analyzer_result.items()
+                         if not k.startswith("_")
+                         and isinstance(v, dict) and "value" in v}
+    nf = normalized_fields or analyzer_result.get("normalized_fields", {}) or _nf_from_analyzer
     readiness_result = analyzer_result.get("readiness") or {}
     critical_missing = analyzer_result.get("critical_missing_items", [])
     important_missing = analyzer_result.get("important_missing_items", [])
@@ -177,6 +182,11 @@ def build_cost_model_input(
         }
 
     # ---- Compute P0/P1 summaries ----
+    # DEBUG: print key P0 field statuses before summarizing
+    for _fkey in ["labor_cost_level", "budget_level", "warehouse_area", "region", "dc_count", "contract_years", "service_scope"]:
+        _inp = required_inputs.get(_fkey, {})
+        print(f"[DEBUG stage3_input] {_fkey}: status={_inp.get('status')} value={_inp.get('value')} usable={_inp.get('usable')} clar_needed={_inp.get('clarification_needed')}")
+
     p0_summary = _summarize(P0_FIELDS, required_inputs)
     p1_summary = _summarize(P1_FIELDS, required_inputs)
 
@@ -400,6 +410,11 @@ def _summarize(field_keys: list, required_inputs: dict) -> dict:
                     if required_inputs.get(k, {}).get("status") == "ambiguous")
     inferred = sum(1 for k in field_keys
                     if required_inputs.get(k, {}).get("status") == "inferred")
+    print(f"[DEBUG _summarize] P0: total={total} provided={provided} missing={missing} ambiguous={ambiguous} inferred={inferred}")
+    # Print status of each P0 field
+    for k in field_keys:
+        inp = required_inputs.get(k, {})
+        print(f"  {k}: status={inp.get('status')} value={inp.get('value')} usable={inp.get('usable')} clar_needed={inp.get('clarification_needed')}")
     return {
         "total": total,
         "provided": provided,
@@ -422,6 +437,7 @@ def build_all_downstream_inputs(analyzer_result: dict) -> dict:
     Future: solution_design, contract_review, tender_writer
     """
     cost_model = build_cost_model_input(analyzer_result)
+    print(f"[DEBUG build_downstream_input] readiness={cost_model.get('readiness',{}).get('readiness_level')}  mode={cost_model.get('readiness',{}).get('recommended_mode')}  p0_total={cost_model.get('readiness',{}).get('p0_summary',{}).get('total')}  p0_missing={cost_model.get('readiness',{}).get('p0_summary',{}).get('missing')}  blocking={cost_model.get('readiness',{}).get('blocking_reasons',[])[:2]}")
     return {
         "cost_model": cost_model,
         "meta": {

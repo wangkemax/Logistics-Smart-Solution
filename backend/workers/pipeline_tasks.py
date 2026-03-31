@@ -405,6 +405,11 @@ def pipeline_task(tender_document: str, project_profile_overrides: dict = None, 
             from backend.services.tender_service import extract_requirements
             extraction_mode = os.environ.get("EXTRACTION_MODE", "analysis")
             profile = extract_requirements(tender_document, mode=extraction_mode)
+            _ft = profile.get("_field_traces", {})
+            print(f"[DEBUG field_traces] keys={list(_ft.keys())}")
+            for _k in ["dc_count","warehouse_area","daily_orders","region","labor_cost_level","budget_level"]:
+                _e = _ft.get(_k, {})
+                print(f"  {_k}: status={_e.get('status') if isinstance(_e,dict) else 'N/A'} value={_e.get('value') if isinstance(_e,dict) else _e}")
 
             missing_p0 = profile.get("missing_p0", []) or [
                 k for k, v in (profile.get("_field_traces") or {}).items()
