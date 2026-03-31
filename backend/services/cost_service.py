@@ -20,6 +20,8 @@ v0.2 CHANGE: Cost Model Agent must now consume downstream_input from
   It is the ONLY entry point — direct profile field access is deprecated.
 """
 
+import sys
+import traceback
 from typing import Optional, Any
 from backend.engines.cost_engine import (
     calculate_costs as engine_calculate_costs,
@@ -126,6 +128,9 @@ def calculate_solution_financials(
     region: str = "华东",
     downstream_input: dict = None,
 ) -> dict:
+    # Defensive: normalize region if passed as field dict ({"value": "华东", ...})
+    if isinstance(region, dict):
+        region = region.get("value") or region.get("region") or "华东"
     """
     Calculate detailed financials for a single automation scenario.
 
@@ -235,10 +240,17 @@ def calculate_solution_financials(
     capex_min = scenario.get("capex_min", 0) or 0
     capex_max = scenario.get("capex_max", 0) or 0
     capital_cost_per_sqm = scenario.get("capital_cost_per_sqm") or 0
-    warehouse_area_for_calc = warehouse_area or 10000  # default 10000sqm if not provided
     if capital_cost_per_sqm > 0 and (capex_min == 0 and capex_max == 0):
-        # AUTO-style scenarios: use capital_cost_per_sqm * warehouse_area
-        capex_estimate = capital_cost_per_sqm * warehouse_area_for_calc
+        # AUTO-style scenarios: compute from capital_cost_per_sqm * warehouse_area
+        # Extract warehouse_area from profile (may be field dict or plain value)
+        wa = profile.get("warehouse_area", 10000)
+        if isinstance(wa, dict):
+            wa = wa.get("value") or wa.get("fallback_value") or 10000
+        try:
+            warehouse_area_val = float(wa)
+        except (TypeError, ValueError):
+            warehouse_area_val = 10000.0
+        capex_estimate = capital_cost_per_sqm * warehouse_area_val
     elif capex_max > capex_min:
         capex_estimate = (capex_min + capex_max) / 2
     else:
@@ -415,8 +427,10 @@ def compare_solution_financials(
         try:
             result = calculate_solution_financials(profile, scenario, region, downstream_input)
             results.append(result)
-        except Exception:
+        except Exception as e:
             # Skip scenarios that fail financial calc — don't crash the whole batch
+            print(f"[cost_service] scenario {scenario.get('scenario_id')} calc failed: {e}", file=sys.stderr)
+            traceback.print_exc(file=sys.stderr)
             continue
 
     if not results:

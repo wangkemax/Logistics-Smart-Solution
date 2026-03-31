@@ -271,7 +271,12 @@ def pipeline_task(tender_document: str, project_profile_overrides: dict = None, 
                 pass  # Fall back to empty
 
             # Stages 1+2 are already DONE; stages 3+4+5 use corrected profile/downstream_input
-            region = profile.get("region", "华东")
+            # Extract region string from field-dict format if needed
+            raw_region = profile.get("region", "华东")
+            if isinstance(raw_region, dict):
+                region = raw_region.get("value") or raw_region.get("region") or "华东"
+            else:
+                region = raw_region or "华东"
             cost_comparisons = []
             qa_verdict = "CONDITIONAL_PASS"
             pdf_path = None
@@ -579,7 +584,11 @@ def pipeline_task(tender_document: str, project_profile_overrides: dict = None, 
     # Check SQLite for mid-pipeline profile overrides (after low-confidence correction)
     stored_overrides = None  # Keep for compatibility — PATCH writes to Redis for simplicity
 
-    region = profile.get("region", "华东")
+    raw_region = profile.get("region", "华东")
+    if isinstance(raw_region, dict):
+        region = raw_region.get("value") or raw_region.get("region") or "华东"
+    else:
+        region = raw_region or "华东"
 
     # ---- Stage 2: Recommendation ----
     stage_start = datetime.now()

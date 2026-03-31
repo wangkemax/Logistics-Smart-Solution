@@ -211,6 +211,7 @@ def recommend_solutions(
 
         item = {
             "scenario_id": scenario.get("scenario_id"),
+            "scenario_code": scenario.get("scenario_code"),  # may be None for legacy scenarios
             "scenario_name": scenario.get("scenario_name"),
             "category": scenario.get("category", ""),
             "score": round(score, 1),
@@ -220,6 +221,9 @@ def recommend_solutions(
             "capex_range": _format_capex_range(scenario),
             "capex_min": scenario.get("capex_min", 0) or 0,
             "capex_max": scenario.get("capex_max", 0) or 999999999,
+            # AUTO-style cost fields
+            "capital_cost_per_sqm": scenario.get("capital_cost_per_sqm") or 0,
+            "annual_savings_per_sqm": scenario.get("annual_savings_per_sqm") or 0,
             "labor_saving": scenario.get("labor_saving", 0),
             "efficiency_gain": scenario.get("efficiency_gain", 0),
             "risk_level": scenario.get("risk_level", "中"),
