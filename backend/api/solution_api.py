@@ -177,10 +177,11 @@ def get_base_solution_markdown(pipeline_id: str, db: Session = Depends(get_db)):
     """
     Export the base solution as formatted Markdown.
     Useful for sharing, printing, or further document generation.
+    Reads new BaseSolution schema (v0.8+).
     """
     run = db.query(PipelineRun).filter_by(pipeline_id=pipeline_id).first()
     if not run:
-        raise HTTPException(status_code=404, detail=f"Pipeline not found: {pipeline_id}")
+        raise HTTPException(status_code=404, detail="Pipeline not found")
     if not run.base_solution_json:
         raise HTTPException(status_code=404, detail="No base solution found for this pipeline")
 
@@ -189,147 +190,267 @@ def get_base_solution_markdown(pipeline_id: str, db: Session = Depends(get_db)):
     except (json.JSONDecodeError, TypeError):
         raise HTTPException(status_code=500, detail="Failed to parse stored solution")
 
-    ns = sol.get("narrative_sections", {})
-    pf = sol.get("project_fit", {})
-    sd = sol.get("service_design", {})
-    od = sol.get("organization_design", {})
-    pd = sol.get("process_design", {})
-    kf = sol.get("kpi_framework", {})
-    impl = sol.get("implementation_focus", {})
-    rc = sol.get("risk_and_controls", {})
-    cml = sol.get("cost_model_linkage", {})
+    lines: list[str] = []
+    gen_ver = sol.get("generator_version", "v0.8")
 
-    OP_TYPE_LABELS = {
-        "warehouse_distribution": "仓配一体化", "cold_chain": "冷链仓储",
-        "bonded_warehouse_distribution": "保税仓配", "distribution_only": "纯配送",
-        "warehouse_inbound_only": "仓储入库", "warehouse_outbound_only": "仓储出库",
-        "value_added_services": "增值服务", "custom": "综合物流", "unknown": "待定",
-    }
-    COST_MODE_LABELS = {"blocked": "🔴 阻塞", "range_estimate": "🟡 区间估算", "full_calc": "🟢 完整测算", "unknown": "❓ 未知"}
-    sev_emoji = {"high": "🔴", "medium": "🟡", "low": "🟢"}
-
-    lines = [
+    # ── Header ────────────────────────────────────────────────────────────────
+    lines += [
         f"# 🧩 基础仓配运营方案",
         f"",
-        f"**方案ID：** {sol.get('solution_id','')}",
-        f"**生成时间：** {sol.get('generated_at','')[:10]}",
-        f"**运营类型：** {OP_TYPE_LABELS.get(pf.get('operation_type',''), pf.get('operation_type',''))}",
-        f"**复杂度：** {pf.get('complexity_level','')} ({pf.get('complexity_score',0)}/20)",
-        f"**成本模式：** {COST_MODE_LABELS.get(cml.get('current_mode',''), cml.get('current_mode',''))}",
-        f"",
-        f"---",
-        f"",
-        f"## 📋 方案摘要",
-        f"",
-        f"{ns.get('executive_summary', sol.get('summary',''))}",
-        f"",
+        f"**方案ID：** {sol.get('solution_id', '')}",
+        f"**生成时间：** {sol.get('generated_at', '')[:10]}",
+        f"**生成器版本：** {gen_ver}",
+        "",
     ]
 
-    # Service Design
-    if sd.get("included_services"):
-        lines += ["---", "", "## 📦 服务范围设计", ""]
-        svc_by_cat = {}
-        for svc in sd.get("included_services", []):
-            svc_by_cat.setdefault(svc.get("category", ""), []).append(svc.get("label", ""))
-        CAT_EMOJI = {"inbound": "📥", "storage": "📦", "outbound": "📤", "value_added": "🔧", "support": "⚙️"}
-        for cat, svcs in svc_by_cat.items():
-            emoji = CAT_EMOJI.get(cat, "📌")
-            lines.append(f"### {emoji} {cat.upper()}")
-            for s in svcs:
-                lines.append(f"- {s}")
-            lines.append("")
-        if sd.get("excluded_or_unconfirmed"):
-            lines += ["**⚠️ 未纳入/未确认服务：**", ""]
-            for s in sd.get("excluded_or_unconfirmed", [])[:10]:
-                lines.append(f"- {s}")
-            lines.append("")
+    # ── §1 方案摘要 ──────────────────────────────────────────────────────────
+    narrative = sol.get("narrative", "")
+    exec_summary = _extract_md_section(narrative, "方案概述")
+    if exec_summary:
+        lines += ["---", "", "## 📋 方案摘要", "", exec_summary, ""]
 
-    # Organization Design
-    if od.get("team_modules"):
-        lines += ["---", "", "## 🧑‍🤝‍🧑 组织模块设计", ""]
-        for tm in od.get("team_modules", []):
-            lines.append(f"### ✅ {tm.get('label', tm.get('module_key',''))}")
-            for r in tm.get("primary_responsibilities", [])[:3]:
-                lines.append(f"- {r}")
-            lines.append("")
+    # ── §2 项目画像与运营模式 ────────────────────────────────────────────────
+    om = sol.get("operation_mode", {})
+    if om:
+        scale_tier = om.get("scale_tier", "m")
+        tier_display = {
+            "xs": "超小规模（<1,000㎡）", "s": "小规模（1,000-5,000㎡）",
+            "m": "中等规模（5,000-20,000㎡）", "l": "大规模（20,000-50,000㎡）",
+            "xl": "超大规模（>50,000㎡）"
+        }.get(scale_tier, f"规模等级 {scale_tier.upper()}")
 
-    # Process Design
-    if pd.get("processes"):
-        PROC_EMOJI = {
-            "receiving_process": "📥", "outbound_process": "📤",
-            "storage_management": "📦", "return_process": "↩️",
-            "va_process": "🔧", "temperature_control": "❄️",
-            "support_process": "⚙️",
+        lines += [
+            "---", "", "## 🏢 项目画像与运营模式", "",
+            f"### {om.get('label', om.get('mode_name', '基础运营模式'))}", "",
+            om.get("description", "") or "本项目采用该运营模式作为核心框架。",
+        ]
+        if om.get("applicable_conditions"):
+            lines.append("")
+            lines.append("**适用条件：**")
+            for c in om["applicable_conditions"]:
+                lines.append(f"- {c}")
+        if om.get("core_activities"):
+            lines.append("")
+            lines.append("**核心作业活动：**")
+            for a in om["core_activities"][:10]:
+                lines.append(f"- {a}")
+            if len(om["core_activities"]) > 10:
+                lines.append(f"- _...还有其他 {len(om['core_activities']) - 10} 项_")
+        lines += [
+            "",
+            f"**仓储规模：** {tier_display}",
+            f"**区域成本指数：** {om.get('region_cost_index', 1.0):.2f}（华东 = 1.00）",
+            f"**行业附加系数：** {om.get('industry_overhead_factor', 1.0):.2f}",
+        ]
+
+    # ── §3 服务范围 ─────────────────────────────────────────────────────────
+    pd = sol.get("process_design", {})
+    sb = sol.get("system_boundary", {})
+    if pd:
+        stages = pd.get("stages", [])
+        enabled_cats: dict[str, list] = {}
+        CAT_EMOJI = {
+            "inbound": "📥", "inbound_receiving": "📥", "inbound_quality_check": "📥",
+            "inbound_putaway": "📥", "outbound": "📤", "outbound_picking": "📤",
+            "outbound_packing": "📤", "outbound_labeling": "📤", "outbound_loading": "📤",
+            "storage": "📦", "storage_management": "📦",
+            "value_added": "🔧", "value_added_service": "🔧",
+            "support": "⚙️", "inventory_reporting": "⚙️",
         }
-        lines += ["---", "", "## 🔄 核心流程设计", ""]
-        for proc in pd.get("processes", []):
-            emoji = PROC_EMOJI.get(proc.get("process_key", ""), "📌")
-            lines.append(f"### {emoji} {proc.get('label', proc.get('process_key',''))} — {proc.get('step_count',0)}步")
-            if proc.get("description"):
-                lines.append(f"_{proc.get('description')}_")
-            for step in proc.get("steps", [])[:8]:
-                lines.append(f"- `{step.get('step_id','')}` {step.get('label','—')} → {step.get('role','—')}")
-            if len(proc.get("steps", [])) > 8:
-                lines.append(f"_...共{proc.get('step_count',0)}步_")
-            lines.append("")
+        for stage in stages:
+            if stage.get("enabled"):
+                key = stage.get("stage_key", "unknown")
+                cat = key.split("_")[0]
+                if cat not in enabled_cats:
+                    enabled_cats[cat] = []
+                label = stage.get("stage_name", key)
+                if label not in enabled_cats[cat]:
+                    enabled_cats[cat].append(label)
 
-    # KPI Framework
-    kpi_groups = [
-        ("📥 入库KPI", kf.get("inbound_kpis", [])),
-        ("📤 出库KPI", kf.get("outbound_kpis", [])),
-        ("📦 库内KPI", kf.get("inventory_kpis", [])),
-        ("⚙️ 支持KPI", kf.get("support_kpis", [])),
-    ]
-    has_kpis = any(v for _, v in kpi_groups)
-    if has_kpis:
-        lines += ["---", "", "## 📊 KPI 框架", ""]
-        for gname, kpis in kpi_groups:
-            if kpis:
-                lines.append(f"### {gname}")
-                for kpi in kpis:
-                    sla = " 🏆" if kpi.get("is_sla_candidate") else ""
-                    lines.append(f"- `{kpi.get('name','—')}` = {kpi.get('target','—')}{sla}")
+        if enabled_cats or sb.get("included") or sb.get("excluded"):
+            lines += ["---", "", "## 📦 服务范围", ""]
+            for cat, names in enabled_cats.items():
+                emoji = CAT_EMOJI.get(cat, "📌")
+                lines.append(f"- **{emoji} {'/'.join(names)}**")
+            if sb.get("included"):
+                lines.append("")
+                lines.append("**系统边界（方案范围内）：**")
+                for inc in sb["included"]:
+                    lines.append(f"  + {inc}")
+            if sb.get("excluded"):
+                lines.append("")
+                lines.append("**系统边界（明确排除）：**")
+                for exc in sb["excluded"]:
+                    lines.append(f"  - ~~{exc}~~")
+            if sb.get("integration_points"):
+                for pt in sb["integration_points"]:
+                    lines.append(f"  → {pt}")
+
+    # ── §4 核心流程设计 ──────────────────────────────────────────────────────
+    if pd:
+        enabled_stages = [s for s in pd.get("stages", []) if s.get("enabled")]
+        if enabled_stages:
+            lines += [
+                "---", "", "## 🔄 核心流程设计", "",
+                f"**整体流程：** {pd.get('flow_diagram_label', '—')}", ""
+            ]
+            for stage in enabled_stages:
+                sla_str = f"（SLA: {stage['sla']}）" if stage.get("sla") else ""
+                lines.append(f"### 📌 {stage.get('stage_name', '')} {sla_str}")
+                for act in (stage.get("activities") or [])[:6]:
+                    lines.append(f"- {act}")
+                if stage.get("handoff"):
+                    lines.append(f"**交接：** {stage['handoff']}")
+                if stage.get("kpis"):
+                    lines.append(f"**KPI：** {' / '.join(stage['kpis'])}")
                 lines.append("")
 
-    # Implementation
-    if impl.get("phases"):
-        lines += ["---", "", "## 🚀 实施阶段", ""]
-        for ph in impl.get("phases", []):
-            lines.append(f"### {ph.get('phase','Phase')} — {ph.get('name','—')} (~{ph.get('duration_months',0)}个月)")
-            lines.append(f"*{ph.get('focus','—')}*")
-            for a in ph.get("key_actions", [])[:5]:
-                lines.append(f"- {a}")
+    # ── §5 基础人力模型 ─────────────────────────────────────────────────────
+    lm = sol.get("labor_model", {})
+    if lm:
+        ROLE_DISPLAY = {
+            "receiving_team": "收货团队", "picking_team": "拣选团队",
+            "loading_team": "装车团队", "support_team": "支持团队",
+            "va_team": "增值加工团队", "qc_team": "质检团队",
+            "return_team": "退货处理团队", "it_support": "IT 支持",
+        }
+        lines += [
+            "---", "", "## 👷 基础人力模型", "",
+            f"**班次结构：** {lm.get('shift_structure', '—')}",
+            f"**日运营时长：** {lm.get('working_hours_per_day', 0):.0f} 小时", ""
+        ]
+        lines.append("**岗位配置：**")
+        for role, count in sorted(lm.get("headcount_by_role", {}).items(), key=lambda x: -x[1]):
+            if count > 0:
+                lines.append(f"- {ROLE_DISPLAY.get(role, role)}：{count} 人")
+        lines += [
+            "",
+            f"**单人月均成本：** ¥{lm.get('labor_cost_per_person_month', 0):,.0f} 元/月",
+            f"**月均人工总成本：** ¥{lm.get('labor_cost_per_month', 0):,.0f} 元/月",
+            f"**年人工成本：** ¥{lm.get('annual_labor_cost', 0):,.0f} 元/年",
+            f"**区域调整系数：** {lm.get('labor_cost_adjustment_factor', 1.0):.2f}",
+        ]
+
+    # ── §6 KPI / SLA 框架 ──────────────────────────────────────────────────
+    kf = sol.get("kpi_framework", {})
+    if kf:
+        kpis = kf.get("operational_kpis", [])
+        if kpis:
+            lines += [
+                "---", "", "## 📊 KPI / SLA 框架", "",
+                f"**测量频率：** {kf.get('measurement_frequency', '—')}", ""
+            ]
+            for kpi in kpis:
+                sla_flag = " 🏆 SLA" if kpi.get("is_sla_candidate") else ""
+                conf_flag = " 📝 合同承诺" if kpi.get("is_contractual") else ""
+                target = kpi.get("target", "—")
+                unit = kpi.get("unit", "")
+                name = kpi.get("name", kpi.get("kpi_key", "—"))
+                method = kpi.get("measurement_method", "")
+                lines.append(f"- **{name}**：{target} {unit}{sla_flag}{conf_flag}")
+                if method:
+                    lines.append(f"  _测量方式：{method}_")
             lines.append("")
 
-    # Risk
-    if rc.get("risks"):
-        lines += ["---", "", "## ⚠️ 风险与控制", ""]
-        for rk in rc.get("risks", []):
-            emoji = sev_emoji.get(rk.get("severity", ""), "⚪")
-            lines.append(f"### {emoji} {rk.get('risk_id','R-?')} — {rk.get('description','—')[:50]}")
-            lines.append(f"- **类别：** {rk.get('category','—')}")
-            lines.append(f"- **控制措施：** {rk.get('control_measure','—')}")
-            lines.append(f"- **缓解动作：** {rk.get('mitigation_action','—')}")
-            lines.append("")
+    # ── §7 风险档案 ─────────────────────────────────────────────────────────
+    rp = sol.get("risk_profile", {})
+    if rp:
+        risks = rp.get("risks", [])
+        if risks:
+            lines += ["---", "", "## ⚠️ 风险档案", ""]
+            SEV_EMOJI = {"high": "🔴", "medium": "🟡", "low": "🟢"}
+            SEV_LABEL = {"high": "高风险", "medium": "中风险", "low": "低风险"}
+            for risk in risks:
+                emoji = SEV_EMOJI.get(risk.get("severity", ""), "⚪")
+                sev_lbl = SEV_LABEL.get(risk.get("severity", ""), risk.get("severity", ""))
+                lines.append(f"### {emoji} {risk.get('risk_id', 'R-?')} — {sev_lbl}")
+                lines.append(f"**描述：** {risk.get('description', '—')}")
+                lines.append(f"**类别：** {risk.get('category', '—')}")
+                if risk.get("mitigation"):
+                    lines.append("**缓解措施：**")
+                    for m in risk["mitigation"]:
+                        lines.append(f"  - {m}")
+                lines.append("")
 
-    # Cost Model Linkage
-    if cml.get("current_mode"):
-        lines += ["---", "", "## 💰 成本测算衔接", ""]
-        lines.append(f"**当前模式：** {cml.get('mode_explanation','')}")
-        if cml.get("missing_for_full_calc"):
-            lines.append("")
-            lines.append("**进入完整测算还需：**")
-            for m in cml.get("missing_for_full_calc", []):
-                lines.append(f"- {m}")
-        if cml.get("assumptions_used"):
-            lines.append("")
-            lines.append(f"**当前假设项：** {len(cml.get('assumptions_used',[]))}项")
-        if cml.get("narrative"):
-            lines.append("")
-            lines.append(f"_{cml.get('narrative')}_")
+    # ── §8 实施策略 ─────────────────────────────────────────────────────────
+    impl = sol.get("implementation_strategy", {})
+    if impl:
+        phases = impl.get("phases", [])
+        if phases:
+            lines += [
+                "---", "", "## 🚀 实施策略", "",
+                f"**实施周期：** {impl.get('timeline_months', 0)} 个月（"
+                f"复杂度：{impl.get('complexity', 'unknown')}）", ""
+            ]
+            if impl.get("go_live_target"):
+                lines.append(f"**目标上线日期：** {impl['go_live_target']}")
+                lines.append("")
+            for ph in phases:
+                lines.append(
+                    f"### ⏱ {ph.get('phase', 'Phase')} — {ph.get('name', '—')} "
+                    f"（{ph.get('duration_months', 0)} 个月）"
+                )
+                lines.append(f"**重点：** {ph.get('focus', '—')}")
+                if ph.get("key_actions"):
+                    for a in ph["key_actions"][:6]:
+                        lines.append(f"- {a}")
+                if ph.get("gate_criteria"):
+                    lines.append("**门禁条件：**")
+                    for g in ph["gate_criteria"]:
+                        lines.append(f"  - {g}")
+                lines.append("")
 
-    lines += ["", "---", "", f"_由 Logistics Smart Solution v0.7 自动生成 | {sol.get('generated_at','')[:10]}_"]
+    # ── §9 输入完整度说明 ───────────────────────────────────────────────────
+    defaulted_p2 = sol.get("defaulted_p2_fields", [])
+    missing_p0 = sol.get("missing_p0_fields", [])
+    confidence = sol.get("confidence", "unknown")
+    CONF_EMOJI = {"high": "🟢", "medium": "🟡", "low": "🔴", "unknown": "⚪"}
+    CONF_LABEL = {"high": "高置信", "medium": "中置信（保守表述）", "low": "低置信（阻塞风险）", "unknown": "未评估"}
+    conf_emoji = CONF_EMOJI.get(confidence, "⚪")
+    conf_label = CONF_LABEL.get(confidence, confidence)
+
+    if defaulted_p2 or missing_p0 or confidence != "high":
+        lines += ["---", "", "## 🔍 输入完整度说明", "",
+                  f"**方案置信度：** {conf_emoji} {conf_label}", ""]
+        if defaulted_p2:
+            lines.append("**使用了默认值的字段（建议通过 Clarification Workspace 确认真实值）：**")
+            for f in defaulted_p2:
+                lines.append(f"- ⚠️ `{f}`")
+            lines.append("")
+            lines.append(
+                "_默认值字段可能导致方案与客户实际情况有偏差。"
+                "建议通过 Clarification Workspace 补录以提升方案精度。_"
+            )
+        elif missing_p0:
+            lines.append("**缺失 P0 字段（阻断正式测算）：**")
+            for f in missing_p0:
+                lines.append(f"- 🔴 `{f}`")
+            lines.append("")
+            lines.append("_请通过 Clarification Workspace 补录缺失字段后再生成正式方案。_")
+        else:
+            lines.append("✅ 所有核心字段均已提供，方案置信度高。")
+        lines.append("")
+
+    # ── Footer ────────────────────────────────────────────────────────────────
+    lines += ["", "---", "",
+              f"_由 Logistics Smart Solution {gen_ver} 自动生成 | {sol.get('generated_at', '')[:10]}_"]
     return Response(content="\n".join(lines), media_type="text/markdown; charset=utf-8")
+
+
+def _extract_md_section(narrative: str, section_heading: str) -> str:
+    """Extract content under a markdown heading from a narrative string."""
+    if not narrative:
+        return ""
+    import re
+    pattern = rf"(?:^|\n)## {re.escape(section_heading)}(.*?)(?=^## |\Z)"
+    m = re.search(pattern, narrative, re.DOTALL | re.MULTILINE)
+    if m:
+        content = m.group(1).strip()
+        content = re.sub(r"^## .*$", "", content, flags=re.MULTILINE).strip()
+        return content
+    return narrative[:400].strip() if narrative else ""
+
+
 
 
 @router.get("/base/{pipeline_id}", response_model=SolutionResponse)
