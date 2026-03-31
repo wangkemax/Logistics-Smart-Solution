@@ -2000,43 +2000,63 @@ elif app_mode == "🚀 Pipeline Run":
         final_tender_text = (st.session_state.get("tender_text", "") or "").strip() + "\n" + tender_text_manual
 
         # ── Quick Entry Expander ──────────────────────────────────────────────
-        with st.expander("⚡ 没有标书？使用快速录入模式", expanded=False):
-            st.caption("填入最少字段即可开始，推荐通过标书解析获取更完整参数")
-            industry_p = st.selectbox(
-                "行业", options=[
-                    "AUTOMOTIVE（汽车/零部件）", "ELECTRONICS（电子/VMI）",
-                    "FMCG（快消/零售）", "MANUFACTURING（制造）", "GENERIC_3PL（通用3PL）",
-                ], index=4,
+        with st.expander("⚡ 快速录入模式（覆盖标书提取字段）", expanded=False):
+            st.caption("只有在此处点击启用并填写字段后，才会覆盖标书提取结果")
+            quick_entry_check = st.checkbox(
+                "启用快速录入（将覆盖标书提取的同名字段）",
+                value=False,
+                help="勾选后，显式填写的字段将覆盖标书提取结果。未填写的字段仍使用标书提取值。",
             )
-            region_p = st.selectbox("区域", options=["华东", "华南", "华北", "华中", "西部"], index=0)
-            warehouse_area_p = st.number_input("面积 (㎡)", min_value=500, max_value=500000, value=20000, step=1000)
-            sku_count_p = st.number_input("SKU数量", min_value=100, max_value=1000000, value=30000, step=1000)
-            daily_orders_p = st.number_input("日订单", min_value=50, max_value=500000, value=5000, step=100)
-            inventory_p = st.number_input("库存量（选填）", min_value=0, max_value=10000000, value=0, step=10000)
-            automation_expectation_p = st.select_slider("自动化期望（选填）", options=["低", "中", "高"], value="中")
-            # Normalize industry value
-            industry_map = {
-                "AUTOMOTIVE（汽车/零部件）": "AUTOMOTIVE",
-                "ELECTRONICS（电子/VMI）": "ELECTRONICS",
-                "FMCG（快消/零售）": "FMCG",
-                "MANUFACTURING（制造）": "MANUFACTURING",
-                "GENERIC_3PL（通用3PL）": "GENERIC_3PL",
-            }
-            industry_normalized = industry_map.get(industry_p, "GENERIC_3PL")
-            quick_entry_overrides = {
-                "industry": industry_normalized,
-                "region": region_p,
-                "warehouse_area": float(warehouse_area_p),
-                "sku_count": int(sku_count_p),
-                "daily_orders": int(daily_orders_p),
-                "inventory": int(inventory_p) if inventory_p > 0 else None,
-                "automation_expectation": automation_expectation_p,
-            }
-            st.session_state._pipeline_params = {
-                "tender_text": final_tender_text,
-                "quick_entry_enabled": True,
-                "quick_entry_overrides": quick_entry_overrides,
-            }
+            if quick_entry_check:
+                industry_p = st.selectbox(
+                    "行业", options=[
+                        "AUTOMOTIVE（汽车/零部件）", "ELECTRONICS（电子/VMI）",
+                        "FMCG（快消/零售）", "MANUFACTURING（制造）", "GENERIC_3PL（通用3PL）",
+                    ], index=4,
+                )
+                region_p = st.selectbox("区域", options=["华东", "华南", "华北", "华中", "西部"], index=0)
+                warehouse_area_p = st.number_input("面积 (㎡)", min_value=500, max_value=500000, value=20000, step=1000)
+                sku_count_p = st.number_input("SKU数量", min_value=100, max_value=1000000, value=30000, step=1000)
+                daily_orders_p = st.number_input("日订单", min_value=50, max_value=500000, value=5000, step=100)
+                inventory_p = st.number_input("库存量（选填）", min_value=0, max_value=10000000, value=0, step=10000)
+                automation_expectation_p = st.select_slider("自动化期望（选填）", options=["低", "中", "高"], value="中")
+                # Normalize industry value
+                industry_map = {
+                    "AUTOMOTIVE（汽车/零部件）": "AUTOMOTIVE",
+                    "ELECTRONICS（电子/VMI）": "ELECTRONICS",
+                    "FMCG（快消/零售）": "FMCG",
+                    "MANUFACTURING（制造）": "MANUFACTURING",
+                    "GENERIC_3PL（通用3PL）": "GENERIC_3PL",
+                }
+                industry_normalized = industry_map.get(industry_p, "GENERIC_3PL")
+                # Build overrides: only non-None, non-default values
+                overrides = {}
+                if industry_normalized:
+                    overrides["industry"] = industry_normalized
+                if region_p:
+                    overrides["region"] = region_p
+                if warehouse_area_p and warehouse_area_p > 0:
+                    overrides["warehouse_area"] = float(warehouse_area_p)
+                if sku_count_p and sku_count_p > 0:
+                    overrides["sku_count"] = int(sku_count_p)
+                if daily_orders_p and daily_orders_p > 0:
+                    overrides["daily_orders"] = int(daily_orders_p)
+                if inventory_p and inventory_p > 0:
+                    overrides["inventory"] = int(inventory_p)
+                if automation_expectation_p:
+                    overrides["automation_expectation"] = automation_expectation_p
+
+                st.session_state._pipeline_params = {
+                    "tender_text": final_tender_text,
+                    "quick_entry_enabled": True,
+                    "quick_entry_overrides": overrides if overrides else None,
+                }
+            else:
+                st.session_state._pipeline_params = {
+                    "tender_text": final_tender_text,
+                    "quick_entry_enabled": False,
+                    "quick_entry_overrides": None,
+                }
 
         # ---- History Panel ----
         with st.expander("📋 历史任务", expanded=False):
