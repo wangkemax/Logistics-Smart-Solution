@@ -14,15 +14,13 @@ from backend.schemas.base_solution_schema import (
 
 
 # Maps industry → top operation mode candidates (ordered by priority)
+# AUTOMOTIVE checked FIRST — most specific automotive supply chain keywords
 INDUSTRY_OPERATION_MODES: dict[str, list[OperationModeEnum]] = {
-    "电商":    [OperationModeEnum.ECOMMERCE_FULFILLMENT, OperationModeEnum.STANDARD_WAREHOUSE],
-    "3PL":    [OperationModeEnum.THIRD_PARTY_LOGISTICS, OperationModeEnum.STANDARD_WAREHOUSE],
-    "零售":    [OperationModeEnum.OMNI_CHANNEL, OperationModeEnum.STANDARD_WAREHOUSE],
-    "制造":    [OperationModeEnum.MANUFACTURING_WIP, OperationModeEnum.STANDARD_WAREHOUSE],
-    "快递":    [OperationModeEnum.EXPRESS_SORTING, OperationModeEnum.STANDARD_WAREHOUSE],
-    "医药":    [OperationModeEnum.PHARMA, OperationModeEnum.COLD_CHAIN],
-    "食品":    [OperationModeEnum.FOOD, OperationModeEnum.COLD_CHAIN],
-    "生鲜":    [OperationModeEnum.FRESH, OperationModeEnum.COLD_CHAIN],
+    "AUTOMOTIVE":    [OperationModeEnum.AUTOMOTIVE_LINE_SIDE, OperationModeEnum.AUTOMOTIVE_SEQUENCING, OperationModeEnum.STANDARD_WAREHOUSE],
+    "ELECTRONICS":   [OperationModeEnum.ELECTRONICS_VMI_HUB, OperationModeEnum.STANDARD_WAREHOUSE],
+    "FMCG":         [OperationModeEnum.FMCG_HIGH_TURNOVER, OperationModeEnum.OMNI_CHANNEL, OperationModeEnum.STANDARD_WAREHOUSE],
+    "MANUFACTURING": [OperationModeEnum.MANUFACTURING_WIP, OperationModeEnum.STANDARD_WAREHOUSE],
+    "GENERIC_3PL":  [OperationModeEnum.STANDARD_WAREHOUSE],
 }
 
 # Region → cost index (华东 = 1.0 baseline)
@@ -37,44 +35,81 @@ REGION_COST_INDEX: dict[str, float] = {
 
 # Industry → overhead factor (电商 = 1.0 baseline)
 INDUSTRY_OVERHEAD_FACTOR: dict[str, float] = {
-    "电商": 1.00,
-    "3PL":  1.05,
-    "零售":  1.05,
-    "制造":  1.15,
-    "快递":  1.10,
-    "医药":  1.25,
-    "食品":  1.20,
-    "生鲜":  1.30,
+    "AUTOMOTIVE":    1.20,
+    "ELECTRONICS":   1.10,
+    "FMCG":         1.00,
+    "MANUFACTURING": 1.05,
+    "GENERIC_3PL":  1.00,
 }
 
 _MODE_LABELS: dict[OperationModeEnum, str] = {
+    # Generic
     OperationModeEnum.STANDARD_WAREHOUSE:   "标准仓配运营模式",
     OperationModeEnum.COLD_CHAIN:           "冷链仓配运营模式",
     OperationModeEnum.BONDED_WAREHOUSE:      "保税仓配运营模式",
     OperationModeEnum.HIGH_VALUE:             "高价值货仓运营模式",
-    OperationModeEnum.ECOMMERCE_FULFILLMENT:"电商履约运营模式",
-    OperationModeEnum.THIRD_PARTY_LOGISTICS: "第三方物流运营模式",
+    # Automotive
+    OperationModeEnum.AUTOMOTIVE_LINE_SIDE:   "汽车产线配套运营模式（JIT/JIS）",
+    OperationModeEnum.AUTOMOTIVE_SEQUENCING:  "汽车零部件排序运营模式（SKD/CKD）",
+    # Electronics
+    OperationModeEnum.ELECTRONICS_VMI_HUB:    "电子 VMI Hub 运营模式",
+    # FMCG
+    OperationModeEnum.FMCG_HIGH_TURNOVER:      "快消高周转运营模式",
+    # Manufacturing
     OperationModeEnum.MANUFACTURING_WIP:     "制造在制品仓配运营模式",
-    OperationModeEnum.EXPRESS_SORTING:        "快递分拣运营模式",
+    # Omni-channel
     OperationModeEnum.OMNI_CHANNEL:           "全渠道零售运营模式",
-    OperationModeEnum.PHARMA:                 "医药仓配运营模式",
-    OperationModeEnum.FOOD:                  "食品仓配运营模式",
-    OperationModeEnum.FRESH:                 "生鲜仓配运营模式",
 }
 
 _MODE_DESCRIPTIONS: dict[OperationModeEnum, str] = {
-    OperationModeEnum.STANDARD_WAREHOUSE:   "提供标准化的仓储出入库、存储、分拣、配送服务，适用于多行业通用场景。",
-    OperationModeEnum.ECOMMERCE_FULFILLMENT:"针对电商 B2C 业务设计，专注订单波次处理、高峰扩容能力和快速履约。",
-    OperationModeEnum.THIRD_PARTY_LOGISTICS: "面向 3PL 客户，支持多货主管理、灵活计费和 KPI 报表。",
-    OperationModeEnum.COLD_CHAIN:           "全程温控管理，满足冷藏冷冻商品的质量安全要求。",
-    OperationModeEnum.EXPRESS_SORTING:       "面向快递快运行业，高通量分拣、路由优化、快速周转。",
-    OperationModeEnum.OMNI_CHANNEL:          "支持线上线下全渠道订单统一管理，共享库存，统一履约。",
-    OperationModeEnum.MANUFACTURING_WIP:     "支持制造业在制品的线边仓、周转仓管理，与产线紧密协同。",
-    OperationModeEnum.HIGH_VALUE:             "高安全等级的贵重物品仓，配防盗防损和全程追溯。",
-    OperationModeEnum.BONDED_WAREHOUSE:       "满足保税监管要求，支持进口商品仓储和海关清关流程。",
-    OperationModeEnum.PHARMA:                "符合 GSP 规范，支持药品仓储的温湿度监控和追溯管理。",
-    OperationModeEnum.FOOD:                  "满足食品仓储的卫生标准和温控要求。",
-    OperationModeEnum.FRESH:                 "全程冷链，支持生鲜农产品的高效保鲜存储和快速周转。",
+    # Generic
+    OperationModeEnum.STANDARD_WAREHOUSE: (
+        "提供标准化的仓储出入库、存储、分拣、配送服务，适用于多行业通用场景。"
+    ),
+    OperationModeEnum.COLD_CHAIN: (
+        "全程温控管理，满足冷藏冷冻商品的质量安全要求。"
+    ),
+    OperationModeEnum.BONDED_WAREHOUSE: (
+        "满足保税监管要求，支持进口商品仓储和海关清关流程。"
+    ),
+    OperationModeEnum.HIGH_VALUE: (
+        "高安全等级的贵重物品仓，配防盗防损和全程追溯。"
+    ),
+    # Automotive
+    OperationModeEnum.AUTOMOTIVE_LINE_SIDE: (
+        "面向汽车主机厂/零部件供应商的产线配套仓储运营模式。"
+        "核心特征：JIT/JIS 供料、节拍驱动、线边仓、VMI/供应商协同。"
+        "重点：器具管理、缺料响应、空器具回收、工位配送准确性。"
+    ),
+    OperationModeEnum.AUTOMOTIVE_SEQUENCING: (
+        "面向汽车零部件 Sorting/SKD/CKD 模式的仓储运营。"
+        "核心特征：按工序顺序配料、sequencing 排序、组件配套组装。"
+        "重点：零部件层级管理、排序准确率、换线响应、器具循环。"
+    ),
+    # Electronics
+    OperationModeEnum.ELECTRONICS_VMI_HUB: (
+        "面向电子信息/ICT/EMS 行业的 VMI（供应商管理库存）Hub 运营模式。"
+        "核心特征：多供应商协同、入库即定址、FIFO 精确、VMI 计费对账。"
+        "重点：高价值品追溯、批量入库管理、库存水位实时监控。"
+    ),
+    # FMCG
+    OperationModeEnum.FMCG_HIGH_TURNOVER: (
+        "面向快消品的高周转仓储运营模式。"
+        "核心特征：高频波次、拣选为主、渠道补货快、峰值弹性要求高。"
+        "重点：波次优化、拣选效率、高峰人力弹性、履约时效。"
+    ),
+    # Manufacturing
+    OperationModeEnum.MANUFACTURING_WIP: (
+        "支持一般制造业（非汽车）的在制品、原材料、成品仓储运营。"
+        "核心特征：按工单配料、产线边仓、批量入库、库存批次管理。"
+        "重点：配套生产节奏、入出库与产线协同、批次追溯。"
+    ),
+    # Omni-channel
+    OperationModeEnum.OMNI_CHANNEL: (
+        "支持线上线下全渠道订单统一管理，共享库存，统一履约。"
+        "核心特征：多渠道订单归一、库存共享、差异化包装/配送。"
+        "重点：库存分配策略、渠道履约优先级、全渠道 KPI 统一。"
+    ),
 }
 
 
@@ -122,12 +157,17 @@ def build_operation_mode(
     ]
     if dc_count > 1:
         conditions.append(f"多仓联动架构（{dc_count} 个 DC）")
-    if service_scope.get("inbound", {}).get("cold_chain") or industry in ("医药", "食品", "生鲜"):
-        conditions.append("含冷链或温控作业需求")
     if automation_expectation == "高":
         conditions.append("客户对自动化程度期望较高")
     elif automation_expectation == "低":
         conditions.append("客户优先考虑运营灵活性，自动化期望较低")
+    # Automotive-specific conditions
+    if industry == "AUTOMOTIVE":
+        conditions.append("汽车供应链场景：JIT/JIS 供料 + 器具管理")
+    if industry == "ELECTRONICS":
+        conditions.append("电子 VMI Hub 场景：多供应商协同 + 高价值品追溯")
+    if industry == "FMCG":
+        conditions.append("快消高周转场景：波次优化 + 峰值弹性人力")
 
     # Core activities by mode
     core_activities = _get_core_activities(primary_mode, service_scope)

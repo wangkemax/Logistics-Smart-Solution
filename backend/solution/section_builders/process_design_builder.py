@@ -14,7 +14,7 @@ def build_process_design(
     *,
     service_scope: dict,
     region: str = "华东",
-    industry: str = "电商",
+    industry: str = "GENERIC_3PL",
 ) -> ProcessDesign:
     """
     Build ProcessDesign from service_scope.

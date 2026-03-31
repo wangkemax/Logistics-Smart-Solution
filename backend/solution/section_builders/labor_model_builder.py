@@ -100,6 +100,8 @@ _ROLE_LABELS: dict[str, str] = {
     "qc_team": "质检团队",
     "return_team": "退货处理团队",
     "it_support": "IT 支持",
+    "line_side_team": "线边配送团队",
+    "tooling_team": "器具管理团队",
 }
 
 
@@ -111,6 +113,7 @@ def build_labor_model(
     region: str,
     labor_cost_level: str,
     scale_tier: ScaleTier,
+    industry: str = "GENERIC_3PL",
 ) -> LaborModel:
     """
     Build LaborModel from resolved project fields.
@@ -153,7 +156,7 @@ def build_labor_model(
             for role in headcount:
                 headcount[role] = int(math.ceil(headcount[role] * scale_factor))
 
-    # Add roles based on service scope
+    # Add roles based on service scope and industry
     va = service_scope.get("value_added", {})
     if va.get("kitting") or va.get("repack") or va.get("light_assembly"):
         headcount["va_team"] = headcount.get("va_team", 0) + 3
@@ -168,6 +171,14 @@ def build_labor_model(
     support = service_scope.get("support", {})
     if support.get("system_integration"):
         headcount["it_support"] = headcount.get("it_support", 0) + 1
+
+    # Automotive-specific roles
+    # industry comes from resolved fields, normalized above
+    industry = kwargs.get("industry", "GENERIC_3PL")
+    if industry == "AUTOMOTIVE":
+        # Automotive adds line-side feeding,器具 management, sequencing
+        headcount["line_side_team"] = headcount.get("line_side_team", 0) + 4
+        headcount["tooling_team"] = headcount.get("tooling_team", 0) + 2
 
     # Total monthly labor cost
     total_monthly = sum(headcount.values()) * adjusted_cost_per_person

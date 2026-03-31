@@ -14,7 +14,7 @@ def build_kpi_framework(
     *,
     service_scope: dict,
     kpi_targets: dict = None,
-    industry: str = "电商",
+    industry: str = "GENERIC_3PL",
     region: str = "华东",
     labor_cost_level: str = "中",
 ) -> KPIFramework:
@@ -28,7 +28,7 @@ def build_kpi_framework(
     kpi_targets : dict, optional
         Structured KPI targets from project_state (e.g. {"库存准确率": {"target": "≥99.9%", ...}})
     industry : str
-        e.g. "电商", "3PL" — used for industry-specific KPI naming
+        e.g. "AUTOMOTIVE", "ELECTRONICS", "FMCG" — used for industry-specific KPI naming
     region : str
         e.g. "华东"
     labor_cost_level : str
@@ -162,6 +162,61 @@ def build_kpi_framework(
                 "%",
                 "加工合格件数 / 加工总件数",
                 "monthly",
+                is_sla_candidate=False,
+                contractual_kpis=contractual_kpis,
+            ),
+        ])
+
+    # ── AUTOMOTIVE KPIs ─────────────────────────────────────────────────
+    if industry == "AUTOMOTIVE":
+        kpis.extend([
+            _make_kpi(
+                "line_feed_timeliness",
+                "供料及时率",
+                _target(kpi_targets, "供料及时率", "≥99.5%"),
+                "%",
+                "按时到达工位次数 / 计划供料总次数",
+                "daily",
+                is_sla_candidate=True,
+                contractual_kpis=contractual_kpis,
+            ),
+            _make_kpi(
+                "line_stop_events",
+                "停线事件数",
+                _target(kpi_targets, "停线事件", "≤1 次/月"),
+                "次",
+                "因仓储供料问题导致的产线停工次数",
+                "monthly",
+                is_sla_candidate=True,
+                contractual_kpis=contractual_kpis,
+            ),
+            _make_kpi(
+                "tool_turnover_rate",
+                "器具周转率",
+                _target(kpi_targets, "器具周转率", "≥95%"),
+                "%",
+                "器具回收数量 / 器具发出数量",
+                "weekly",
+                is_sla_candidate=False,
+                contractual_kpis=contractual_kpis,
+            ),
+            _make_kpi(
+                "line_side_inventory_accuracy",
+                "线边库存准确率",
+                _target(kpi_targets, "线边库存准确率", "≥99.9%"),
+                "%",
+                "线边库存盘点差异 / 总线边库存件数",
+                "weekly",
+                is_sla_candidate=True,
+                contractual_kpis=contractual_kpis,
+            ),
+            _make_kpi(
+                "shortage_response_time",
+                "缺料响应时间",
+                _target(kpi_targets, "缺料响应", "≤30 分钟"),
+                "分钟",
+                "从缺料发现到补料到达工位的平均时间",
+                "daily",
                 is_sla_candidate=False,
                 contractual_kpis=contractual_kpis,
             ),
