@@ -571,18 +571,21 @@ class RetryStageRequest(BaseModel):
 async def retry_pipeline_stage(pipeline_id: str, request: RetryStageRequest):
     """
     Retry pipeline from a specific stage onwards (in-place, same pipeline_id).
-    
+
     - Cancels the pipeline if it is still RUNNING.
     - Resets all stages from `from_stage` onwards to PENDING.
     - Clears output_file and error for those stages.
     - Re-triggers pipeline_task in a background thread from that stage.
-    
+
     Use this for:
     - Fixing a specific failed stage without re-running the entire pipeline.
     - Re-running from an earlier stage after correcting inputs.
-    
+
     Body: {"from_stage": "3_cost_comparison"}  -- or omit from_stage to auto-detect first failed stage.
     """
+    import sys
+    print(f"[retry] >>> pipeline_id={pipeline_id}, from_stage={request.from_stage}, "
+          f"profile_overrides={request.profile_overrides}", file=sys.stderr, flush=True)
     from backend.services.pipeline_service import (
         get_pipeline_run as _get_sql,
         reset_pipeline_stages,
@@ -731,6 +734,7 @@ async def retry_pipeline_stage(pipeline_id: str, request: RetryStageRequest):
                 generate_pdf=params.get("generate_pdf", True),
                 use_llm=params.get("use_llm", True),
                 pipeline_id=pid,
+                rerun_stage2=True,  # Re-run recommendation with clarified fields
             )
         except Exception as e:
             import sys; print(f"[stage-retry {pid}] error: {e}", file=sys.stderr, flush=True)
