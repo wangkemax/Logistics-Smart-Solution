@@ -594,10 +594,14 @@ def _render_welcome_compare():
 with st.sidebar:
     st.header("🏭 Logistics Smart Solution")
 
+    _MODES = ["📋 方案生成", "⚖️ 多方案对比", "🚀 Pipeline Run", "💬 Clarification Workspace"]
+    # Use index in session_state (not keyed) so we can switch tabs programmatically
+    if "_app_mode_idx" not in st.session_state:
+        st.session_state._app_mode_idx = 0
     app_mode = st.radio(
         "选择功能模式",
-        options=["📋 方案生成", "⚖️ 多方案对比", "🚀 Pipeline Run", "💬 Clarification Workspace"],
-        index=0,
+        options=_MODES,
+        index=st.session_state._app_mode_idx,
         help="方案生成：单方案推荐+PDF\n多方案对比：横向对比ROI\nPipeline Run：端到端自动投标\nClarification：补录澄清推动项目继续",
     )
     st.divider()
@@ -1625,6 +1629,21 @@ def _render_results_panel():
 
 
 # =============================================================================
+# Shared helpers (visible to all app_mode branches)
+# =============================================================================
+def _switch_to_pipeline_run(pid):
+    """Cleanly switch to Pipeline Run tab and start polling."""
+    st.session_state._app_mode_idx = 2
+    st.session_state._pipeline_id = pid
+    st.session_state.pipeline_state = "polling"
+    st.session_state.pipeline_comparisons = None
+    st.session_state.pipeline_stages = None
+    st.session_state._results_refresh_ts = None
+    st.session_state.cw_recompute_result = None
+    st.rerun()
+
+
+# =============================================================================
 # Mode 1: Single Scenario
 # =============================================================================
 if app_mode == "📋 方案生成":
@@ -2278,34 +2297,40 @@ elif app_mode == "🚀 Pipeline Run":
 
     with col_right:
         st.markdown("### 📊 执行结果")
+        # Show debug if set
+        if st.session_state.get("_debug_info"):
+            st.code(st.session_state._debug_info)
+
         if st.session_state.get("pipeline_state") == "done":
-            comparisons = st.session_state.get("pipeline_comparisons") or []
-            if not comparisons:
-                # Guard: if comparisons still empty, refetch from API (clarification may have updated the pipeline)
-                last_refresh = st.session_state.get("_results_refresh_ts", 0)
-                now_ts = int(time.time())
+            comparisons = st.session_state.get("pipeline_comparisons")
+            if not comparisons:  # None or []
+                # Refetch from API if pipeline may have updated after clarification
                 stored_pid = st.session_state.get("_pipeline_id") or ""
+                last_refresh = st.session_state.get("_results_refresh_ts") or 0
+                now_ts = int(time.time())
+                refetch_ok = False
                 if stored_pid and now_ts - last_refresh > 3:
                     st.session_state._results_refresh_ts = now_ts
                     try:
                         resp = requests.get(f"{API}/api/pipeline/status/{stored_pid}", timeout=10)
                         if resp.ok:
                             fresh = resp.json()
-                            st.session_state.pipeline_comparisons = fresh.get("comparisons", [])
+                            st.session_state.pipeline_comparisons = fresh.get("comparisons")
                             st.session_state.pipeline_profile = fresh.get("profile", {})
                             st.session_state.pipeline_recs = fresh.get("recommendations", [])
                             st.session_state.pipeline_pdf_url = fresh.get("pdf_download_url")
                             st.session_state.pipeline_qa_verdict = fresh.get("qa_verdict", "UNKNOWN")
                             st.session_state.pipeline_stages = fresh.get("stages", [])
                             st.session_state.pipeline_result = fresh
-                            comparisons = st.session_state.pipeline_comparisons or []
+                            comparisons = fresh.get("comparisons")
+                            refetch_ok = True
                     except Exception:
                         pass
                 if not comparisons:
-                    if now_ts - last_refresh <= 3:
+                    if not refetch_ok and (not stored_pid or now_ts - last_refresh <= 3):
                         st.info("⏳ 等待 Pipeline 数据写入...")
                     else:
-                        st.info("⚠️ Pipeline 完成但无可用对比数据，请切换到「Clarification Workspace」补录字段后重新运行")
+                        st.warning("⚠️ Pipeline 完成但无对比数据，请检查该任务的推荐方案数量或联系管理员")
             else:
                 # Show stage breakdown in right column for FAILED pipelines
                 stored_stages = st.session_state.get("pipeline_stages", [])
@@ -2327,7 +2352,7 @@ elif app_mode == "🚀 Pipeline Run":
                  "pipeline_comparisons", "pipeline_pdf_bytes", "pipeline_pdf_filename",
                  "pipeline_log_lines", "pipeline_pdf_url", "_pipeline_id", "_skip_correction",
                  "pipeline_stages", "pipeline_qa_verdict", "pipeline_retry_count",
-                 "pipeline_risk_flags", "pipeline_retry_history"]:
+                 "pipeline_risk_flags", "pipeline_retry_history", "_results_refresh_ts"]:
         if key not in st.session_state:
             st.session_state[key] = [] if key == "pipeline_log_lines" else None
 
@@ -2336,7 +2361,7 @@ elif app_mode == "🚀 Pipeline Run":
                      "pipeline_comparisons", "pipeline_pdf_bytes", "pipeline_pdf_filename",
                      "pipeline_log_lines", "pipeline_pdf_url", "_pipeline_id", "_skip_correction",
                      "pipeline_stages", "pipeline_qa_verdict", "pipeline_retry_count",
-                     "pipeline_risk_flags", "pipeline_retry_history"]:
+                     "pipeline_risk_flags", "pipeline_retry_history", "_results_refresh_ts"]:
             st.session_state[key] = [] if key == "pipeline_log_lines" else None
 
     pipeline_state = st.session_state.get("pipeline_state")
@@ -2667,6 +2692,7 @@ elif app_mode == "💬 Clarification Workspace":
             st.markdown("#### 🚀 用补录数据重新运行 Pipeline")
             st.caption("将澄清后的字段注入 pipeline，跳过 extraction，直接运行推荐→成本→QA→PDF 阶段。")
             if st.button("🚀 运行 Pipeline（使用补录数据）", type="primary", use_container_width=True):
+                st.session_state._debug_info = f"按钮点击: selected_pid={selected_pid}, cw_pipeline_id={st.session_state.get('cw_pipeline_id')}"
                 with st.spinner("Pipeline 运行中，请稍候..."):
                     try:
                         # Get resolved fields from recompute result (usable ones)
@@ -2678,22 +2704,20 @@ elif app_mode == "💬 Clarification Workspace":
                             "profile_overrides": resolved_fields,
                             "from_stage": "2_recommendation",
                         }
+                        st.session_state._debug_info = f"POST /retry -> pid={selected_pid}, payload={run_payload}"
                         retry_resp = requests.post(
                             f"{API}/api/pipeline/{selected_pid}/retry",
                             json=run_payload,
                             timeout=10,
                         )
+                        st.session_state._debug_info = f"POST /retry -> status={retry_resp.status_code}"
                         if retry_resp.ok:
-                            st.session_state._pipeline_id = selected_pid
-                            st.session_state.pipeline_state = "polling"
-                            st.session_state.pipeline_comparisons = None
-                            st.session_state.cw_recompute_result = None
-                            st.success("✅ Pipeline 已重新运行！请切换到「🚀 Pipeline Run」查看进度，完成后会显示最新结果。")
-                            st.rerun()
+                            _switch_to_pipeline_run(selected_pid)
                         else:
                             st.error(f"启动失败: {retry_resp.status_code} — {retry_resp.text[:200]}")
                     except Exception as e:
                         st.error(f"❌ 启动异常: {e}")
+                        st.session_state._debug_info = f"异常: {e}"
 
             # ====================================================================
             # v0.6.3 New Panels — Downstream Explainability

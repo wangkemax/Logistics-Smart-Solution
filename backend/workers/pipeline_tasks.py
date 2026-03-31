@@ -79,7 +79,8 @@ def pipeline_task(tender_document: str, project_profile_overrides: dict = None, 
                   api_base_url: str = "http://localhost:8000",
                   compare_scenario_ids: list = None,
                   generate_pdf: bool = True,
-                  pipeline_id: str = None) -> dict:
+                  pipeline_id: str = None,
+                  rerun_stage2: bool = False) -> dict:
     """
     Main RQ pipeline task. Runs stages sequentially, updating Redis at each step.
     Returns the final pipeline state dict.
@@ -212,28 +213,60 @@ def pipeline_task(tender_document: str, project_profile_overrides: dict = None, 
             from backend.downstream.downstream_input_builder import build_cost_model_input
             downstream_input = build_cost_model_input(analyzer_result=analyzer_result_for_downstream)
 
-            # Load recommendations from stage_2 file (already computed from original run)
+            # Load recommendations — either from file (fast path) or re-run Stage 2 with new profile
             recommendations = []
             compare_ids = []
             best_id = None
             try:
-                rec_file = pipeline_dir / "stage_2_recommendations.md"
-                if rec_file.exists():
-                    import re
-                    text = rec_file.read_text(encoding="utf-8")
-                    m = re.search(r"Top Recommendations:\s*(\[)", text)
-                    if m:
-                        json_start = text.index("[", m.start())
-                        recommendations = json.loads(text[json_start:])
-                        compare_ids = [r["scenario_id"] for r in recommendations[:3]] if recommendations else []
+                if rerun_stage2:
+                    # Re-run recommendation engine with the clarified profile
+                    stage2_start = datetime.now()
+                    _update_stage(pipeline_id, "2_recommendation", "RUNNING")
+                    try:
+                        rec_result = recommend_solutions(profile, top_n=5, include_reasons=True)
+                        recommendations = rec_result.get("recommendations", [])
+                        if compare_scenario_ids:
+                            compare_ids = compare_scenario_ids[:5]
+                        else:
+                            compare_ids = [r["scenario_id"] for r in recommendations[:3]]
+                            if len(compare_ids) < 2:
+                                compare_ids = [r["scenario_id"] for r in recommendations[:5]]
                         best_id = compare_ids[0] if compare_ids else None
-                # Mark stage 2 DONE — recommendations loaded from original run's stage_2 file
-                _update_stage(pipeline_id, "2_recommendation", "DONE",
-                              output_file=str(rec_file),
-                              duration_seconds=0,
-                              extra={"recommendations": recommendations[:5] if recommendations else [],
-                                     "best_scenario_id": best_id,
-                                     "source": "loaded_from_original_stage2_file"})
+                        rec_file = pipeline_dir / "stage_2_recommendations.md"
+                        rec_file.write_text(
+                            f"# Stage 2: Automation Recommendations (re-run with Clarification overrides)\n\n"
+                            f"Top Recommendations:\n{json.dumps(recommendations[:5], ensure_ascii=False, indent=2)}",
+                            encoding="utf-8"
+                        )
+                        _update_stage(pipeline_id, "2_recommendation", "DONE",
+                                      output_file=str(rec_file),
+                                      duration_seconds=(datetime.now() - stage2_start).total_seconds(),
+                                      extra={"recommendations": recommendations[:5],
+                                             "best_scenario_id": best_id,
+                                             "source": "rerun_with_clarification"})
+                    except Exception as e2:
+                        _update_stage(pipeline_id, "2_recommendation", "FAILED",
+                                      error=str(e2), duration_seconds=0)
+                        complete_pipeline(pipeline_id, "FAILED", error=str(e2))
+                        return {"pipeline_id": pipeline_id, "status": "FAILED", "error": str(e2)}
+                else:
+                    # Load from original stage_2 file (no re-run)
+                    rec_file = pipeline_dir / "stage_2_recommendations.md"
+                    if rec_file.exists():
+                        import re
+                        text = rec_file.read_text(encoding="utf-8")
+                        m = re.search(r"Top Recommendations:\s*(\[)", text)
+                        if m:
+                            json_start = text.index("[", m.start())
+                            recommendations = json.loads(text[json_start:])
+                            compare_ids = [r["scenario_id"] for r in recommendations[:3]] if recommendations else []
+                            best_id = compare_ids[0] if compare_ids else None
+                    _update_stage(pipeline_id, "2_recommendation", "DONE",
+                                  output_file=str(rec_file),
+                                  duration_seconds=0,
+                                  extra={"recommendations": recommendations[:5] if recommendations else [],
+                                         "best_scenario_id": best_id,
+                                         "source": "loaded_from_original_stage2_file"})
             except Exception:
                 pass  # Fall back to empty
 
