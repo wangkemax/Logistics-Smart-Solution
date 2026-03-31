@@ -416,8 +416,9 @@ def seed_default_scenarios() -> int:
                     weight_orders, weight_budget, weight_region,
                     capital_cost_per_sqm, annual_maintenance_pct,
                     annual_savings_per_sqm, labor_reduction_ratio,
-                    deployment_months, compatible_regions
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    deployment_months, compatible_regions,
+                    is_active
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 s.get("scenario_code") or f"SCN{s.get('scenario_id', 99):02d}",
                 s["scenario_name"],
@@ -442,6 +443,7 @@ def seed_default_scenarios() -> int:
                 s.get("labor_reduction_ratio"),
                 s.get("deployment_months"),
                 _json.dumps(s.get("compatible_regions")) if s.get("compatible_regions") else None,
+                s.get("is_active", True),
             ))
         conn.commit()
         return len(DEFAULT_SCENARIOS)
