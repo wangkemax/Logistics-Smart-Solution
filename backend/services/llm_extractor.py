@@ -170,6 +170,7 @@ _GO_LIVE_DATE_PATTERNS = [
 _INDUSTRY_PATTERNS = [
     (re.compile(r'电商|电子商务|天猫|京东|淘宝|拼多多|抖音电商|小红书|唯品会', re.I), 'ind_ecommerce'),
     (re.compile(r'3PL|第三方物流|物流外包|货运代理', re.I), 'ind_3pl'),
+    (re.compile(r'dealer|Distributor|dealer network|分销|经销商|代理商|代理商网络', re.I), 'ind_3pl'),
     (re.compile(r'零售|商超|便利店|百货|购物中心|超市|大卖场', re.I), 'ind_retail'),
     (re.compile(r'制造|生产商|工厂|制造业|生产型', re.I), 'ind_mfg'),
     (re.compile(r'快递|速运|快运|落地配', re.I), 'ind_express'),
@@ -179,7 +180,7 @@ _INDUSTRY_PATTERNS = [
 ]
 
 _REGION_PATTERNS = [
-    (re.compile(r'华东|Shanghai|Jiangsu|Zhejiang|Anhui', re.I), 'reg_east'),
+    (re.compile(r'华东|上海|上海市|浦东|Shanghai|Jiangsu|Zhejiang|Anhui', re.I), 'reg_east'),
     (re.compile(r'华南|广东|广西|海南|Guangdong|Guangxi|Hainan', re.I), 'reg_south'),
     (re.compile(r'华北|北京|天津|河北|Beijing|Tianjin|Hebei', re.I), 'reg_north'),
     (re.compile(r'华中|湖北|湖南|河南|Hubei|Hunan|Henan', re.I), 'reg_central'),
@@ -294,7 +295,7 @@ def _call_minimax_llm(prompt: str, timeout: int = 30) -> Optional[dict]:
     import urllib.request
     payload = {
         'model': model,
-        'max_tokens': 1024,
+        'max_tokens': 8192,
         'messages': [{'role': 'user', 'content': prompt}]
     }
     req_url = f'{base_url}/v1/messages'
@@ -312,11 +313,17 @@ def _call_minimax_llm(prompt: str, timeout: int = 30) -> Optional[dict]:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             result = json.loads(resp.read())
             content_list = result.get('content', [])
+            # Extract stop reason for truncation detection
+            stop_reason = result.get('stop_reason', '')
             if isinstance(content_list, list):
-                text = '\n'.join(b.get('text', '') for b in content_list if b.get('type') == 'text')
+                raw_text = '\n'.join(b.get('text', '') for b in content_list if b.get('type') == 'text')
             else:
-                text = content_list
-            return _parse_json_response(text)
+                raw_text = content_list
+            print(f'[LLM] raw_output_len={len(raw_text)} stop_reason={stop_reason}')
+            parsed = _parse_json_response(raw_text)
+            if parsed is None:
+                print(f'[LLM] JSON_parse_status=failed raw_len={len(raw_text)}')
+            return parsed
     except urllib.error.HTTPError as e:
         body = e.read().decode()[:200]
         print(f'[LLM] HTTP {e.code} body: {body}')
