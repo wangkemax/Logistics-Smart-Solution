@@ -417,7 +417,7 @@ def seed_default_scenarios() -> int:
                     capital_cost_per_sqm, annual_maintenance_pct,
                     annual_savings_per_sqm, labor_reduction_ratio,
                     deployment_months, compatible_regions
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 s.get("scenario_code") or f"SCN{s.get('scenario_id', 99):02d}",
                 s["scenario_name"],
