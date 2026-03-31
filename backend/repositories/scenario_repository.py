@@ -384,19 +384,9 @@ def seed_default_scenarios() -> int:
         # Check if already seeded
         count = conn.execute("SELECT COUNT(*) FROM automation_scenarios").fetchone()[0]
         if count > 0:
-            # Backfill NULL weight columns with defaults for existing rows
-            conn.execute("""
-                UPDATE automation_scenarios
-                SET weight_industry=COALESCE(weight_industry, 0.20),
-                    weight_area=COALESCE(weight_area, 0.15),
-                    weight_sku=COALESCE(weight_sku, 0.20),
-                    weight_orders=COALESCE(weight_orders, 0.20),
-                    weight_budget=COALESCE(weight_budget, 0.15),
-                    weight_region=COALESCE(weight_region, 0.10)
-                WHERE weight_industry IS NULL OR weight_area IS NULL
-            """)
-            conn.commit()
-            return 0
+            # Reset and re-seed: ensures DB always matches current DEFAULT_SCENARIOS
+            # (including newly added AUTO-01/AUTO-02 scenarios)
+            conn.execute("DELETE FROM automation_scenarios")
 
         for s in DEFAULT_SCENARIOS:
             conn.execute("""
