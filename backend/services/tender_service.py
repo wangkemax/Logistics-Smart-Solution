@@ -91,7 +91,7 @@ def extract_with_regex(text: str) -> dict:
             break
 
     # SKU
-    m = re.search(r"SKU(?:数量|数|量)?[是为约：:\s]*(\d[\d,\.]*)", text, re.IGNORECASE)
+    m = re.search(r"SKU[是为约：:\s]*(?:数量|数|量)?[是为约]?[：:\s]*(\d[\d,\.]*)", text, re.IGNORECASE)
     if not m:
         m = re.search(r"(\d[\d,\.]*)\s*(?:SKU|种|品类)", text, re.IGNORECASE)
     if m:

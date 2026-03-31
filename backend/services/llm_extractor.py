@@ -58,8 +58,8 @@ _WAREHOUSE_AREA_PATTERNS = [
 ]
 
 _SKU_COUNT_PATTERNS = [
-    (re.compile(r'SKU[：:\s]*(?:数量|数|量)?[是为约]?\s*(\d[\d,\.]*)', re.I), 'sku_direct'),
-    (re.compile(r'sku[：:\s]*(?:数量|数|量)?[是为约]?\s*(\d[\d,\.]*)', re.I), 'sku_lowercase'),
+    (re.compile(r'SKU[：:\s]*(?:数量|数|量)?[是为约]?[：:\s]*(\d[\d,\.]*)', re.I), 'sku_direct'),
+    (re.compile(r'sku[：:\s]*(?:数量|数|量)?[是为约]?[：:\s]*(\d[\d,\.]*)', re.I), 'sku_lowercase'),
     (re.compile(r'商品[种种类品][数数量][为是约]?[：:\s]*(\d[\d,\.]*)', re.I), 'sku_goods'),
     (re.compile(r'(\d[\d,\.]*)\s*(?:种|品|sku|SKU|品类|品种)', re.I), 'sku_suffix'),
     (re.compile(r'(?:SKU|sku)[^0-9]*(\d{1,3}(?:,\d{3})+(?:\.\d+)?)', re.I), 'sku_formatted'),

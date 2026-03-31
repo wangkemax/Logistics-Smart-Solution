@@ -343,7 +343,7 @@ def _extract_scalar_fields_from_markdown(report_text: str) -> dict:
     for pat in [
         r"(\d[\d,\.]*)\s*SKU",
         r"(\d[\d,\.]*)\s*[种品类]",
-        r"SKU[是为约：:\s]*(\d[\d,\.]*)",
+        r"SKU[是为约：:\s]*(?:数量|数|量)?[是为约]?[：:\s]*(\d[\d,\.]*)",
     ]:
         m = _re.search(pat, table_text)
         if m:
