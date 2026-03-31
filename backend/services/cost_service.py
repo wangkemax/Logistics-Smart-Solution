@@ -231,10 +231,18 @@ def calculate_solution_financials(
     efficiency_gain_ratio = scenario.get("efficiency_gain", 0)
     risk_level = scenario.get("risk_level", "中")
 
-    # CAPEX estimate (mid-point of range)
-    capex_min = scenario.get("capex_min", 0)
-    capex_max = scenario.get("capex_max", 999999999)
-    capex_estimate = (capex_min + capex_max) / 2 if capex_max > capex_min else capex_min
+    # CAPEX estimate (mid-point of range, or capital_cost_per_sqm * area for AUTO scenarios)
+    capex_min = scenario.get("capex_min", 0) or 0
+    capex_max = scenario.get("capex_max", 0) or 0
+    capital_cost_per_sqm = scenario.get("capital_cost_per_sqm") or 0
+    warehouse_area_for_calc = warehouse_area or 10000  # default 10000sqm if not provided
+    if capital_cost_per_sqm > 0 and (capex_min == 0 and capex_max == 0):
+        # AUTO-style scenarios: use capital_cost_per_sqm * warehouse_area
+        capex_estimate = capital_cost_per_sqm * warehouse_area_for_calc
+    elif capex_max > capex_min:
+        capex_estimate = (capex_min + capex_max) / 2
+    else:
+        capex_estimate = capex_max or capex_min or 0
 
     # ---- Field value resolution (downstream_input or legacy profile) ----
     def _resolved_val(field_key: str, default=None):
