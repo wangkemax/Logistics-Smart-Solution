@@ -1,0 +1,107 @@
+{
+  "metadata": {
+    "version": "v1.0",
+    "date": "2026-03-31",
+    "source": "SQLite DB: logistics_presale.db → pipeline_runs table"
+  },
+  "summary": {
+    "total_pipelines_tested": 20,
+    "pipelines_with_null_industry": 17,
+    "pipelines_with_null_region": 17,
+    "pipelines_with_null_labor_cost_level": 17,
+    "pipelines_with_null_budget_level": 17,
+    "note": "高null率部分因clarification override路径填充了默认值，需区分'LLM提取null'和'clarification填默认值'"
+  },
+  "cases": [
+    {
+      "pipeline_id": "6079fb6a",
+      "tender_length": 65304,
+      "extraction_result": {
+        "industry": null,
+        "region": null,
+        "labor_cost_level": null,
+        "budget_level": null,
+        "warehouse_area": null,
+        "sku_count": null,
+        "daily_orders": null
+      },
+      "root_cause": {
+        "industry": "文档不包含显式industry关键词，EWM dealer network被误判为零售（LLM推断错误）",
+        "region": "文档包含'上海市浦东区'（pos 57854），但_REGION_PATTERNS缺少'上海/上海市/浦东'",
+        "labor_cost_level": "文档无显式人工成本表述",
+        "budget_level": "文档无显式预算表述"
+      },
+      "fix_required": {
+        "industry": "增加dealer network pattern → ind_3pl",
+        "region": "增加'上海|上海市|浦东'到_REGION_PATTERNS",
+        "max_tokens": "1024→8192"
+      },
+      "clarification_override_applied": true,
+      "override_values": {"industry": "电商", "region": "华东", "labor_cost_level": "中", "budget_level": "中"},
+      "override_correct": false,
+      "override_issue": "dealer network被填为'电商'，错误推断"
+    },
+    {
+      "pipeline_id": "f96751f7",
+      "tender_length": 155143,
+      "extraction_result": {
+        "industry": null,
+        "region": null,
+        "labor_cost_level": null,
+        "budget_level": null
+      },
+      "root_cause": {
+        "industry": "tender无显式industry表述",
+        "region": "tender无显式region关键词"
+      },
+      "fix_required": {
+        "industry": "需LLM推断+industry知识库辅助",
+        "region": "需补region正则pattern"
+      },
+      "clarification_override_applied": true,
+      "override_values": {"industry": "电商", "region": "华东"}
+    },
+    {
+      "pipeline_id": "f8b993a6",
+      "tender_length": "unknown",
+      "extraction_result": {
+        "industry": "电商",
+        "region": "华东",
+        "labor_cost_level": "中",
+        "budget_level": "中",
+        "warehouse_area": 20000,
+        "sku_count": 30000,
+        "daily_orders": 5000
+      },
+      "root_cause": {
+        "note": "少数成功提取案例，industry='电商'可能是LLM从业务描述推断，非文档显式表述"
+      },
+      "fix_required": {},
+      "clarification_override_applied": false
+    }
+  ],
+  "repeated_patterns": [
+    {
+      "pattern": "dealer network仓储 → industry缺失",
+      "frequency": "multiple tenders",
+      "description": "多份tender涉及SAP EWM经销商网络仓储，内容为仓储管理系统文档，无显式业务类型描述",
+      "recommendation": "增加dealer|distribution pattern，识别为3PL"
+    },
+    {
+      "pattern": "region关键词为中文城市名",
+      "frequency": "multiple tenders",
+      "description": "tender中region信息以中文城市名出现（上海市/北京市等），但region pattern仅有英文",
+      "recommendation": "扩展_REGION_PATTERNS包含中文城市名"
+    }
+  ],
+  "llm_extraction_quality": {
+    "avg_fields_filled_by_llm": "3-6/13",
+    "avg_confidence": "25-40%",
+    "main_gaps": [
+      "warehouse_area/sku_count/daily_orders (P0字段)",
+      "industry/region (P2字段)",
+      "labor_cost_level/budget_level (P2字段)"
+    ],
+    "reason": "max_tokens=1024不足以支持15字段JSON完整输出"
+  }
+}
