@@ -135,7 +135,8 @@ _ANALYSIS_PROMPT = (
     '  "s10_mandatory_clauses": [{"code":"","clause":"","description":""}],\n'
     '  "s11_risks": {"unclear_clauses":[],"conflicting_clauses":[]},\n'
     '  "s12_missing": {"missing_quantitative_data":[],"assumptions":[]},\n'
-    '  "s13_downstream_inputs": {"bid_strategy":"","cost_boundary":"","contract_review":"","kpi_plan":""}\n'
+    '  "s13_downstream_inputs": {"bid_strategy":"","cost_boundary":"","contract_review":"","kpi_plan":""},\n'
+    '  "sku_count": null\n'
     "}\n"
     "```\n\n"
     "原则：1.不得编造 2.不得默认补值(null/未提供) 3.推断项须标注 4.矛盾条款须列入s11 5.先Markdown后JSON\n\n"
@@ -503,6 +504,19 @@ def normalize_extracted_fields(analysis_result: dict) -> dict:
                                   f"从s3_warehouse_dc_list明确提取，共{len(dcs)}个DC",
                                   "仓库DC信息", "P0",
                                   ["cost_model", "layout_design", "investment_plan"])
+
+    # --- Extract sku_count from top-level structured field ---
+    sku_raw = s.get("sku_count")
+    if sku_raw is not None:
+        try:
+            sku_val = int(float(str(sku_raw).replace(",", "")))
+            if sku_val > 0:
+                p["sku_count"] = fld(sku_val, "explicit",
+                                     "从LLM结构化JSON提取",
+                                     "s12_downstream_inputs", "P0",
+                                     ["layout_design", "automation_selection", "labor_plan"])
+        except (ValueError, TypeError):
+            pass
 
     # --- Extract from s2_service_scope (v0.6.4 structured matrix) ---
     svc = s.get("s2_service_scope", {})
