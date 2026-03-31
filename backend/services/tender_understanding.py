@@ -830,7 +830,6 @@ def analyze_and_extract(tender_text: str) -> dict:
     Version: v0.2
     """
     analysis = analyze_tender_document(tender_text)
-    print(f"[DEBUG analyze_and_extract] industry from report: {analysis.get('_extracted_industry', 'NONE')}")
 
     # Extract industry from the analysis report text (LLM prompt doesn't include industry in structured JSON)
     report_text = analysis.get("analysis_report", "") or ""
@@ -839,7 +838,6 @@ def analyze_and_extract(tender_text: str) -> dict:
         analysis["_extracted_industry"] = extracted_industry
 
     profile  = normalize_extracted_fields(analysis)
-    print(f"[DEBUG analyze_and_extract] profile['industry'] after normalize: {profile.get('industry')}")
 
     # Override industry field with the extracted value (normalize_extracted_fields initializes it as None)
     if extracted_industry and "industry" in profile:
@@ -857,7 +855,6 @@ def analyze_and_extract(tender_text: str) -> dict:
     # IMPORTANT: update field dict in-place, don't replace with plain value
     # (flatten logic depends on field dict structure: {value, status, ...})
     markdown_fallbacks = _extract_scalar_fields_from_markdown(analysis.get("analysis_report", "") or "")
-    print(f"[DEBUG analyze_and_extract] markdown_fallbacks: {markdown_fallbacks}")
     for field, value in markdown_fallbacks.items():
         entry = profile.get(field)
         if entry is None or entry == "":
@@ -866,13 +863,11 @@ def analyze_and_extract(tender_text: str) -> dict:
                               "source_basis": "从分析报告文本正则推断",
                               "section": "s1_project_overview", "priority": "P2",
                               "impact": ["cost_model", "solution_design"]}
-            print(f"[DEBUG analyze_and_extract] created {field}={value}")
         elif isinstance(entry, dict) and entry.get("value") in (None, ""):
             # Field dict exists but value is None — update in place
             entry["value"] = value
             entry["status"] = "extracted"
             entry["source_basis"] = "从分析报告文本正则推断"
-            print(f"[DEBUG analyze_and_extract] updated {field}={value}")
 
     profile["_analysis_report"] = analysis["analysis_report"]
     profile["_analysis_sections"] = analysis.get("analysis_sections", {})
@@ -900,18 +895,33 @@ def analyze_and_extract(tender_text: str) -> dict:
         "evidence_score": _evidence_score(quality),
         "readiness_score": readiness.get("readiness_score", 0.0),
     }
-    # Fallback: if scalar fields are still None/empty, extract from markdown report text
-    # (handles cases where LLM structured JSON returned null but report text has the info)
-    markdown_fallbacks = _extract_scalar_fields_from_markdown(analysis.get("analysis_report", "") or "")
-    for field, value in markdown_fallbacks.items():
-        if profile.get(field) is None or profile.get(field) == "":
-            # Update field object in place (preserve status/basis/priority metadata)
-            if isinstance(profile.get(field), dict) and "value" in profile[field]:
-                profile[field]["value"] = value
-                profile[field]["status"] = "extracted"
-                profile[field]["source_basis"] = "从分析报告文本正则推断"
-            else:
-                profile[field] = value  # plain scalar override
+    # Semantic field fallback: extract labor_cost_level / budget_level from raw tender text
+    # (analyze_and_extract LLM prompt doesn't include these in structured JSON)
+    raw_text = tender_text or ""
+    for field_name, pattern_re in [
+        ("labor_cost_level", r"人工成本(?:等级|水平|成本)[为：:\s]*([低中高]+)"),
+        ("budget_level",     r"预算(?:等级|水平)?[为：:\s]*([低中高]+)"),
+    ]:
+        m = re.search(pattern_re, raw_text)
+        if not m:
+            continue
+        raw_val = m.group(1)
+        val_map = {"中高": "中", "中低": "低", "高低": "高", "高": "高", "中": "中", "低": "低"}
+        val = val_map.get(raw_val)
+        if not val:
+            continue
+        entry = profile.get(field_name)
+        if isinstance(entry, dict):
+            if entry.get("value") in (None, ""):
+                entry["value"] = val
+                entry["status"] = "extracted"
+                entry["source_basis"] = "从招标文件原文正则提取"
+        elif not entry:
+            profile[field_name] = {"value": val, "status": "extracted",
+                                  "source_basis": "从招标文件原文正则提取",
+                                  "section": "s1_project_overview", "priority": "P2",
+                                  "impact": ["cost_model", "labor_plan"] if field_name == "labor_cost_level"
+                                            else ["cost_model", "roi_analysis"]}
 
     profile["meta"] = {
         "analysis_version": "v0.2",
