@@ -158,7 +158,34 @@ def recommend_solutions(
         }
     """
     # 1. Normalize input once
-    normalized = normalize_profile(profile)
+    # Detect field-trace format: either nested _field_traces/normalized_fields,
+    # OR top-level profile values are themselves field-trace dicts.
+    _top_is_ft = isinstance(profile.get("industry"), dict) and "value" in profile["industry"]
+    _nf = profile.get("_field_traces") or profile.get("normalized_fields") or {}
+    _has_nested_ft = bool(_nf and any(isinstance(v, dict) and "value" in v for v in _nf.values()))
+
+    if _top_is_ft or _has_nested_ft:
+        # Field-trace format: extract scalar values for recommendation engine
+        normalized = {}
+        scalar_keys = [
+            "project_name", "client_name", "industry", "region",
+            "warehouse_area", "sku_count", "daily_orders", "inventory",
+            "labor_cost_level", "budget_level", "automation_expectation",
+            "contract_years", "go_live_date", "dc_count",
+        ]
+        for key in scalar_keys:
+            # Check top-level field-trace first, then nested _field_traces
+            entry = profile.get(key) if _top_is_ft else None
+            if not (isinstance(entry, dict) and "value" in entry):
+                entry = _nf.get(key) if _has_nested_ft else None
+            if isinstance(entry, dict) and "value" in entry:
+                normalized[key] = entry["value"]
+            else:
+                normalized[key] = profile.get(key)  # fallback to raw
+        _field_traces = _nf or (_top_is_ft and profile)
+    else:
+        normalized = normalize_profile(profile)
+        _field_traces = None
 
     # 2. Get ranked scenarios from engine
     raw_scenarios = recommend_automation(normalized)
@@ -211,6 +238,7 @@ def recommend_solutions(
     return {
         "recommendations": recommendations,
         "total_profiles_normalized": normalized,
+        "field_traces": _field_traces,   # preserved field metadata for downstream cost model
         "match_distribution": match_counts,
     }
 

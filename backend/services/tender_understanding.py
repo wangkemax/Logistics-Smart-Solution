@@ -923,6 +923,22 @@ def analyze_and_extract(tender_text: str) -> dict:
                                   "impact": ["cost_model", "labor_plan"] if field_name == "labor_cost_level"
                                             else ["cost_model", "roi_analysis"]}
 
+    # Rebuild downstream_input using updated profile (semantic fallback may have updated
+    # fields after the initial build). This ensures cost model gets fresh normalized_fields.
+    # Skip _readiness rebuild since it calls normalize_extracted_fields() which would
+    # overwrite semantic fallback values; the readiness UI metadata is preserved from first pass.
+    quality = profile["_quality_score"]
+    readiness = profile["_readiness"]
+    downstream_input = build_downstream_input(
+        profile, analysis.get("structured", {}), quality)
+    profile["_downstream_input"] = downstream_input
+    profile["downstream_input_meta"] = {
+        "readiness_level": downstream_input.get("readiness_level"),
+        "recommended_mode": downstream_input.get("recommended_mode"),
+        "p0_summary": downstream_input.get("p0_summary"),
+        "blocking_reasons": downstream_input.get("blocking_reasons", []),
+    }
+
     profile["meta"] = {
         "analysis_version": "v0.2",
         "prompt_version": "tender_understanding_v0.2",

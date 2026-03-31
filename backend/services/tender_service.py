@@ -541,12 +541,16 @@ def extract_requirements(
             }
 
             # Flatten scalar values for backward compat with existing callers
+            # IMPORTANT: preserve field dict objects (status/value/basis) — they are needed
+            # by downstream cost_model_input builder for accurate readiness computation.
             flat = {}
             for key, val in result.items():
                 if key.startswith("_"):
                     continue
                 if isinstance(val, dict) and "value" in val:
-                    flat[key] = val["value"]       # scalar for compat
+                    # Keep field dict intact (not just the scalar) so that downstream
+                    # can read status/source_basis and compute readiness accurately.
+                    flat[key] = val  # preserve full field object
                 else:
                     flat[key] = val
 
