@@ -285,7 +285,7 @@ def _get_status(entry, req: CostFieldRequirement) -> str:
     status = entry.get("status", "missing")
 
     # Map explicit → provided (explicit is the gold standard)
-    if status == "explicit":
+    if status in ("explicit", "extracted"):
         return "provided"
     return status
 
@@ -294,6 +294,10 @@ def _determine_usable(status: str, req: CostFieldRequirement) -> tuple[bool, str
     """Determine if a field is usable for cost calculation."""
     if status == "provided":
         return True, "字段值明确来自招标文件，可直接使用"
+    elif status == "extracted":
+        # extracted = successfully extracted by LLM from document context
+        # Treat as usable for P0 (more reliable than inferred guesswork)
+        return True, "字段值从文档上下文中提取，可用于正式测算"
     elif status == "inferred":
         if req.priority == "P0":
             return False, f"P0字段推断值不得用于正式测算，必须从原文明确获取"
