@@ -160,9 +160,9 @@ def generate_base_solution_endpoint(
     return SolutionResponse(
         pipeline_id=pipeline_id,
         solution_id=solution.solution_id,
-        title=solution.title,
-        summary=solution.summary,
-        current_cost_mode=solution.input_cost_mode,
+        title=getattr(solution.operation_mode, "label", "基础运营方案"),
+        summary=solution.narrative[:200] if solution.narrative else "",
+        current_cost_mode=getattr(solution.confidence, "value", "unknown"),
         generated_at=solution.generated_at,
         solution=serialize_solution(solution),
     )

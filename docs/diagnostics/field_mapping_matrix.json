@@ -1,0 +1,130 @@
+{
+  "metadata": {
+    "version": "v1.0",
+    "date": "2026-03-31",
+    "source": "field_observability_report.md"
+  },
+  "fields": {
+    "industry": {
+      "priority": "P2",
+      "allowed_values": ["电商", "3PL", "零售", "制造", "快递", "医药", "食品", "生鲜"],
+      "extraction_methods": [
+        {
+          "method": "LLM",
+          "prompt_field": "industry",
+          "coverage": "high",
+          "notes": "LLM可推断，但依赖文档业务描述质量"
+        },
+        {
+          "method": "regex",
+          "patterns": "_INDUSTRY_PATTERNS",
+          "coverage": "medium",
+          "notes": "覆盖电商/3PL/零售/制造/快递/医药/食品/生鲜"
+        }
+      ],
+      "current_issues": [
+        "缺少 'dealer|Distributor|dealer network|分销|经销商' 模式 → dealer network仓储被误判为零售",
+        "dealer network应识别为3PL（经销商仓储），不是零售"
+      ],
+      "tender_examples": {
+        "6079fb6a": {
+          "evidence": "Dealer returns (6次出现), EWM dealer network",
+          "expected": "3PL",
+          "actual": "零售 (错误推断)"
+        }
+      },
+      "fix_priority": "P1"
+    },
+    "region": {
+      "priority": "P2",
+      "allowed_values": ["华东", "华南", "华北", "华中", "西部", "东北"],
+      "extraction_methods": [
+        {
+          "method": "LLM",
+          "prompt_field": "region",
+          "coverage": "medium",
+          "notes": "依赖文档中城市/省份名称出现，截断时丢失"
+        },
+        {
+          "method": "regex",
+          "patterns": "_REGION_PATTERNS",
+          "coverage": "low",
+          "notes": "当前只有英文Shanghai/Jiangsu/Zhejiang，缺少中文上海/上海市/浦东"
+        }
+      ],
+      "current_issues": [
+        "缺少 '上海|上海市|浦东' 模式 → 上海市浦东区被漏提取",
+        "tender中上海在position 57854（超过8000-char截断窗口），regex是唯一提取路径"
+      ],
+      "tender_examples": {
+        "6079fb6a": {
+          "evidence": "上海市浦东区同顺大道555号 (pos 57854)",
+          "expected": "华东",
+          "actual": "华东 (默认值，非提取)"
+        }
+      },
+      "fix_priority": "P0",
+      "regex_fix": "r'华东|上海|上海市|Shanghai|浦东|Jiangsu|Zhejiang|Anhui'"
+    },
+    "labor_cost_level": {
+      "priority": "P2",
+      "allowed_values": ["低", "中", "高"],
+      "extraction_methods": [
+        {
+          "method": "LLM",
+          "prompt_field": "labor_cost_level",
+          "coverage": "medium",
+          "notes": "LLM可从工资/社保描述推断，但中文tender通常不显式说明"
+        },
+        {
+          "method": "regex",
+          "patterns": "_LABOR_COST_LEVEL_PATTERNS",
+          "coverage": "low",
+          "notes": "需要显式出现'人工成本低/中/高'等表述"
+        }
+      ],
+      "current_issues": [
+        "大多数tender不显式说明人工成本水平",
+        "无默认值可推断时应结合industry+region行业数据库推断"
+      ],
+      "fix_priority": "P2",
+      "current_default": "中"
+    },
+    "budget_level": {
+      "priority": "P2",
+      "allowed_values": ["低", "中", "高"],
+      "extraction_methods": [
+        {
+          "method": "LLM",
+          "prompt_field": "budget_level",
+          "coverage": "medium",
+          "notes": "LLM可从投资/预算描述推断，但中文tender通常分散在各处"
+        },
+        {
+          "method": "regex",
+          "patterns": "_BUDGET_LEVEL_PATTERNS",
+          "coverage": "low",
+          "notes": "需要显式出现'预算充足/紧张/有限'等表述"
+        }
+      ],
+      "current_issues": [
+        "大多数tender不集中说明预算水平",
+        "需要从分散的预算/投资描述片段中综合判断"
+      ],
+      "fix_priority": "P2",
+      "current_default": "中"
+    }
+  },
+  "global_issues": [
+    {
+      "issue": "max_tokens=1024严重不足",
+      "impact": "LLM JSON输出截断，仅填充3/13字段，置信度30%",
+      "fix": "max_tokens: 1024 → 8192"
+    },
+    {
+      "issue": "industry+region两处默认逻辑重复",
+      "impact": "line 755和971-978对P2字段重复设默认值，代码维护性差",
+      "fix": "统一到_fill_missing_fields阶段一次性处理"
+    }
+  ]
+}
