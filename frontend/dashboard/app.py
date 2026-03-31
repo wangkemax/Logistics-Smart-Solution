@@ -2626,7 +2626,7 @@ elif app_mode == "💬 Clarification Workspace":
             with st.spinner("重新计算中..."):
                 try:
                     pending = _collect_pending_inputs()
-                    payload = {"inputs": pending} if pending else {}
+                    payload = {"inputs": pending}  # always include inputs (even if {})
                     recompute_resp = requests.post(
                         f"{API}/api/clarification/recompute/{selected_pid}",
                         json=payload,
