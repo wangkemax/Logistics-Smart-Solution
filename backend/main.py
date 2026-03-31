@@ -36,6 +36,9 @@ async def startup_event():
     os.makedirs("data", exist_ok=True)
     os.makedirs("data/pipelines", exist_ok=True)
     init_db()
+    # Ensure automation_scenarios DB matches current DEFAULT_SCENARIOS (including new AUTO scenarios)
+    from backend.repositories import seed_default_scenarios
+    seed_default_scenarios()
 
 
 @app.get("/")
