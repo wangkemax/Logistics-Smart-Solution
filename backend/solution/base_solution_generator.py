@@ -116,7 +116,7 @@ def _build_system_boundary(resolved: dict[str, Any]) -> SystemBoundary:
 # ── Risk profile builder (inline, v1) ──────────────────────────────────────
 
 def _build_risk_profile(resolved: dict[str, Any]) -> RiskProfile:
-    industry = resolved.get("industry", "电商")
+    industry = resolved.get("industry", "GENERIC_3PL")
     region = resolved.get("region", "华东")
     labor_cost_level = resolved.get("labor_cost_level", "中")
     risks: list[RiskItem] = []
@@ -141,24 +141,32 @@ def _build_risk_profile(resolved: dict[str, Any]) -> RiskProfile:
             mitigation=["引入局部自动化降低对人工的依赖", "优化排班减少无效工时"],
         ))
 
-    if industry == "医药":
+    if industry == "AUTOMOTIVE":
         risks.append(RiskItem(
-            risk_id="R-03",
-            category="regulatory",
-            description="医药仓需满足 GSP 合规要求，部分地区有特殊监管要求",
+            risk_id="R-AUTO-01",
+            category="line_stop_risk",
+            description="汽车产线 JIT/JIS 供料要求高，缺料可直接导致停线",
             severity="high",
             likelihood="medium",
-            mitigation=["提前确认 GSP 认证要求", "配置温湿度监控系统"],
+            mitigation=["建立双仓安全库存", "配置缺料应急响应流程", "实时监控库存水位"],
+        ))
+        risks.append(RiskItem(
+            risk_id="R-AUTO-02",
+            category="tooling_management",
+            description="器具（周转箱/料架）流转丢失或损坏影响产线节拍",
+            severity="medium",
+            likelihood="medium",
+            mitigation=["器具条码追踪", "建立器具回收考核机制", "配置备用器具池"],
         ))
 
-    if industry in ("生鲜", "食品"):
+    if industry == "ELECTRONICS":
         risks.append(RiskItem(
-            risk_id="R-04",
-            category="temperature_control",
-            description="冷链断链风险，生鲜/食品货损率可能上升",
+            risk_id="R-ELEC-01",
+            category="high_value_risk",
+            description="高价值电子元器件丢失/损坏赔偿金额高",
             severity="high",
-            likelihood="medium",
-            mitigation=["全程温控监控", "配置应急冷库备用"],
+            likelihood="low",
+            mitigation=["全程视频监控", "高价值品专区管理", "全程条码追溯"],
         ))
 
     risks.append(RiskItem(
@@ -296,12 +304,13 @@ def generate_base_solution(
         region=resolved.get("region", "华东"),
         labor_cost_level=resolved.get("labor_cost_level", "中"),
         scale_tier=scale_tier,
+        industry=resolved.get("industry", "GENERIC_3PL"),
     )
 
     kpi_framework = build_kpi_framework(
         service_scope=resolved.get("service_scope", {}),
         kpi_targets=resolved.get("kpi_targets"),
-        industry=resolved.get("industry", "电商"),
+        industry=resolved.get("industry", "GENERIC_3PL"),
         region=resolved.get("region", "华东"),
         labor_cost_level=resolved.get("labor_cost_level", "中"),
     )

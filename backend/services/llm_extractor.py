@@ -168,15 +168,32 @@ _GO_LIVE_DATE_PATTERNS = [
 ]
 
 _INDUSTRY_PATTERNS = [
-    (re.compile(r'电商|电子商务|天猫|京东|淘宝|拼多多|抖音电商|小红书|唯品会', re.I), 'ind_ecommerce'),
-    (re.compile(r'3PL|第三方物流|物流外包|货运代理', re.I), 'ind_3pl'),
-    (re.compile(r'dealer|Distributor|dealer network|分销|经销商|代理商|代理商网络', re.I), 'ind_3pl'),
-    (re.compile(r'零售|商超|便利店|百货|购物中心|超市|大卖场', re.I), 'ind_retail'),
-    (re.compile(r'制造|生产商|工厂|制造业|生产型', re.I), 'ind_mfg'),
-    (re.compile(r'快递|速运|快运|落地配', re.I), 'ind_express'),
-    (re.compile(r'医药|制药|医疗|医疗器械|药品', re.I), 'ind_pharma'),
-    (re.compile(r'食品|饮料|乳制品|调味品|烘焙', re.I), 'ind_food'),
-    (re.compile(r'生鲜|冷链|农产品|水产|果蔬', re.I), 'ind_fresh'),
+    # ── AUTOMOTIVE (check first — most specific automotive supply chain patterns) ──
+    (re.compile(
+        r'汽车|汽车零部件|汽车整车|主机厂|产线配套|JIT|JIS|'
+        r'sequencing|SKD|CKD|line.?feeding|milkrun|'
+        r'汽车售后|备件|after.?market.*auto|auto.?parts', re.I), 'ind_automotive'),
+
+    # ── ELECTRONICS ─────────────────────────────────────────────────────────
+    (re.compile(
+        r'电子信息|消费电子|ICT|EMS|Electronics|电子元器件|'
+        r'VMI.?hub|vmi.?hub|供应商管理库存|光电|半导体封测', re.I), 'ind_electronics'),
+
+    # ── FMCG (replaces old 电商 + 零售) ───────────────────────────────────
+    (re.compile(
+        r'快消|快消品|FMCG|零售配送|便利店|商超|超市|'
+        r'高频周转|高周转|波次.*拣|门店补货|渠道补货|'
+        r'天猫|京东.*自营|拼多多|抖音电商', re.I), 'ind_fmcg'),
+
+    # ── MANUFACTURING ──────────────────────────────────────────────────────
+    (re.compile(
+        r'制造|生产商|工厂|制造业|工业.*制造|原材料.*仓|'
+        r'生产型|一般制造|工业品|非汽车.*制造', re.I), 'ind_manufacturing'),
+
+    # ── GENERIC_3PL (兜底 — dealer network / 传统3PL) ───────────────────
+    (re.compile(
+        r'dealer|Distributor|dealer.?network|分销.*网络|'
+        r'经销商|代理商|代理商网络|第三方物流|3PL|物流外包|货运代理', re.I), 'ind_generic_3pl'),
 ]
 
 _REGION_PATTERNS = [
@@ -531,14 +548,12 @@ def _infer_level_from_descriptions(field_name: str, descriptions: list) -> Optio
 def _infer_industry_from_descriptions(descriptions: list) -> Optional[str]:
     """Infer industry from matched pattern descriptions."""
     name_map = {
-        "ind_ecommerce": "电商",
-        "ind_3pl": "3PL",
-        "ind_retail": "零售",
-        "ind_mfg": "制造",
-        "ind_express": "快递",
-        "ind_pharma": "医药",
-        "ind_food": "食品",
-        "ind_fresh": "生鲜",
+        # New 5-level industry system (v0.8+)
+        "ind_automotive":    "AUTOMOTIVE",
+        "ind_electronics":   "ELECTRONICS",
+        "ind_fmcg":         "FMCG",
+        "ind_manufacturing": "MANUFACTURING",
+        "ind_generic_3pl":  "GENERIC_3PL",
     }
     for desc in descriptions:
         for key, val in name_map.items():

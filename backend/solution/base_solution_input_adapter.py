@@ -86,28 +86,23 @@ LABOR_COST_PER_PERSON_MONTH: dict[str, float] = {
     "高": 9000.0,
 }
 
-# Industry → overhead factor (ecommerce = 1.0 baseline)
+# Industry → overhead factor (FMCG = 1.0 baseline, v0.8 five-level system)
 INDUSTRY_OVERHEAD_FACTOR: dict[str, float] = {
-    "电商": 1.00,
-    "3PL": 1.05,
-    "零售": 1.05,
-    "制造": 1.15,
-    "快递": 1.10,
-    "医药": 1.25,
-    "食品": 1.20,
-    "生鲜": 1.30,
+    "AUTOMOTIVE":    1.20,
+    "ELECTRONICS":   1.10,
+    "FMCG":         1.00,
+    "MANUFACTURING": 1.05,
+    "GENERIC_3PL":  1.00,
 }
 
-# Industry → applicable operation modes (top candidates)
+# Industry → applicable operation modes (top candidates, priority order)
+# AUTOMOTIVE checked FIRST — most specific automotive supply chain keywords
 INDUSTRY_OPERATION_MODES: dict[str, list[OperationModeEnum]] = {
-    "电商":         [OperationModeEnum.ECOMMERCE_FULFILLMENT, OperationModeEnum.STANDARD_WAREHOUSE],
-    "3PL":         [OperationModeEnum.THIRD_PARTY_LOGISTICS, OperationModeEnum.STANDARD_WAREHOUSE],
-    "零售":         [OperationModeEnum.OMNI_CHANNEL, OperationModeEnum.STANDARD_WAREHOUSE],
-    "制造":         [OperationModeEnum.MANUFACTURING_WIP, OperationModeEnum.STANDARD_WAREHOUSE],
-    "快递":         [OperationModeEnum.EXPRESS_SORTING, OperationModeEnum.STANDARD_WAREHOUSE],
-    "医药":         [OperationModeEnum.PHARMA, OperationModeEnum.COLD_CHAIN],
-    "食品":         [OperationModeEnum.FOOD, OperationModeEnum.COLD_CHAIN],
-    "生鲜":         [OperationModeEnum.FRESH, OperationModeEnum.COLD_CHAIN],
+    "AUTOMOTIVE":    [OperationModeEnum.AUTOMOTIVE_LINE_SIDE, OperationModeEnum.AUTOMOTIVE_SEQUENCING, OperationModeEnum.STANDARD_WAREHOUSE],
+    "ELECTRONICS":   [OperationModeEnum.ELECTRONICS_VMI_HUB, OperationModeEnum.STANDARD_WAREHOUSE],
+    "FMCG":         [OperationModeEnum.FMCG_HIGH_TURNOVER, OperationModeEnum.OMNI_CHANNEL, OperationModeEnum.STANDARD_WAREHOUSE],
+    "MANUFACTURING": [OperationModeEnum.MANUFACTURING_WIP, OperationModeEnum.STANDARD_WAREHOUSE],
+    "GENERIC_3PL":  [OperationModeEnum.STANDARD_WAREHOUSE],
 }
 
 # Scale tier thresholds (sqm)
@@ -160,35 +155,56 @@ _HEADCOUNT_BASE: dict[ScaleTier, dict[str, int]] = {
 }
 
 _OP_MODE_LABELS: dict[OperationModeEnum, str] = {
+    # Generic
     OperationModeEnum.STANDARD_WAREHOUSE:     "标准仓配",
     OperationModeEnum.COLD_CHAIN:              "冷链仓配",
     OperationModeEnum.BONDED_WAREHOUSE:        "保税仓配",
     OperationModeEnum.HIGH_VALUE:              "高价值货仓",
-    OperationModeEnum.ECOMMERCE_FULFILLMENT:   "电商履约",
-    OperationModeEnum.THIRD_PARTY_LOGISTICS:   "第三方物流",
+    # Automotive
+    OperationModeEnum.AUTOMOTIVE_LINE_SIDE:     "汽车产线配套（JIT/JIS）",
+    OperationModeEnum.AUTOMOTIVE_SEQUENCING:   "汽车零部件排序（SKD/CKD）",
+    # Electronics
+    OperationModeEnum.ELECTRONICS_VMI_HUB:     "电子 VMI Hub",
+    # FMCG
+    OperationModeEnum.FMCG_HIGH_TURNOVER:      "快消高周转",
+    # Manufacturing
     OperationModeEnum.MANUFACTURING_WIP:      "制造在制品",
-    OperationModeEnum.EXPRESS_SORTING:          "快递分拣",
+    # Omni-channel
     OperationModeEnum.OMNI_CHANNEL:            "全渠道零售",
 }
 
 _CORE_ACTIVITIES_BY_MODE: dict[OperationModeEnum, list[str]] = {
+    # Generic
     OperationModeEnum.STANDARD_WAREHOUSE: [
         "收货入库", "质检入库", "上架存储", "订单拣选",
         "包装贴标", "出库装车", "退货处理", "库存盘点",
     ],
-    OperationModeEnum.ECOMMERCE_FULFILLMENT: [
-        "B2C 收货", "SKU 分类", "波次拣选", "合单包装",
-        "快递交接", "逆向退货", "峰值扩容",
-    ],
-    OperationModeEnum.THIRD_PARTY_LOGISTICS: [
-        "多客户共仓", "货主分账", "揽收交接", "KPI 报表",
-        "客制化增值服务", "多波次管理",
-    ],
     OperationModeEnum.COLD_CHAIN: [
         "温控收货", "冷库存储", "冷链拣选", "保温包装", "冷链配送",
     ],
-    OperationModeEnum.EXPRESS_SORTING: [
-        "揽收扫描", "自动分拣", "集包装车", "路由跟踪",
+    # Automotive
+    OperationModeEnum.AUTOMOTIVE_LINE_SIDE: [
+        "JIT/JIS 供料", "线边仓管理", "器具配送", "空器具回收",
+        "产线协同", "节拍驱动补给",
+    ],
+    OperationModeEnum.AUTOMOTIVE_SEQUENCING: [
+        "SKD/CKD 排序配料", "工序顺序组织", "组件配套", "器具循环管理",
+    ],
+    # Electronics
+    OperationModeEnum.ELECTRONICS_VMI_HUB: [
+        "多供应商协同", "入库即定址", "FIFO 精确管理", "VMI 计费对账",
+    ],
+    # FMCG
+    OperationModeEnum.FMCG_HIGH_TURNOVER: [
+        "高频波次拣选", "门店/渠道补货", "峰值弹性人力", "快速周转",
+    ],
+    # Manufacturing
+    OperationModeEnum.MANUFACTURING_WIP: [
+        "按工单配料", "产线边仓", "批量入库", "批次追溯",
+    ],
+    # Omni-channel
+    OperationModeEnum.OMNI_CHANNEL: [
+        "多渠道订单统一管理", "库存共享", "差异化包装/配送",
     ],
 }
 

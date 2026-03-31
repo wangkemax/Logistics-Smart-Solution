@@ -35,18 +35,27 @@ from pydantic import BaseModel, ConfigDict, Field
 class OperationModeEnum(str, Enum):
     """Known operation-mode candidates. Extensible via registry."""
 
-    STANDARD_WAREHOUSE = "standard_warehouse"          # 标准仓配
-    COLD_CHAIN = "cold_chain"                          # 冷链
-    BONDED_WAREHOUSE = "bonded_warehouse"              # 保税
-    HIGH_VALUE = "high_value"                          # 高价值货
-    ECOMMERCE_FULFILLMENT = "ecommerce_fulfillment"    # 电商履约
-    THIRD_PARTY_LOGISTICS = "third_party_logistics"   # 3PL
-    MANUFACTURING_WIP = "manufacturing_wip"            # 制造在制品
-    EXPRESS_SORTING = "express_sorting"                # 快递分拣
-    OMNI_CHANNEL = "omni_channel"                      # 全渠道
-    PHARMA = "pharma"                                  # 医药
-    FOOD = "food"                                      # 食品
-    FRESH = "fresh"                                    # 生鲜
+    # ── Generic ─────────────────────────────────────────────────────────────
+    STANDARD_WAREHOUSE = "standard_warehouse"          # 标准仓配（通用兜底）
+    COLD_CHAIN = "cold_chain"                          # 冷链仓配
+    BONDED_WAREHOUSE = "bonded_warehouse"              # 保税仓配
+    HIGH_VALUE = "high_value"                          # 高价值货仓
+
+    # ── Automotive ──────────────────────────────────────────────────────────
+    AUTOMOTIVE_LINE_SIDE = "automotive_line_side"     # 汽车产线配套 / JIT / JIS
+    AUTOMOTIVE_SEQUENCING = "automotive_sequencing"    # 汽车零部件排序 / SKD / CKD
+
+    # ── Electronics ─────────────────────────────────────────────────────────
+    ELECTRONICS_VMI_HUB = "electronics_vmi_hub"       # 电子 VMI Hub / ICT / EMS
+
+    # ── FMCG ────────────────────────────────────────────────────────────────
+    FMCG_HIGH_TURNOVER = "fgcu_high_turnover"          # 快消高周转 / 零售配送
+
+    # ── Manufacturing ──────────────────────────────────────────────────────
+    MANUFACTURING_WIP = "manufacturing_wip"            # 一般制造业在制品 / 原材料仓
+
+    # ── Omni-channel ────────────────────────────────────────────────────────
+    OMNI_CHANNEL = "omni_channel"                      # 全渠道零售
 
 
 class ComplexityLevel(str, Enum):
@@ -97,14 +106,23 @@ class Region(str, Enum):
 
 
 class Industry(str, Enum):
-    ECOMMERCE    = "电商"
-    TPL          = "3PL"
-    RETAIL       = "零售"
-    MANUFACTURE  = "制造"
-    EXPRESS      = "快递"
-    PHARMA       = "医药"
-    FOOD         = "食品"
-    FRESH        = "生鲜"
+    """Primary industry classification for the client's business.
+
+    Five-level system (v0.8+):
+    - AUTOMOTIVE:    汽车整车/零部件/售后备件/JIT/JIS/产线配套/SKD/CKD
+    - ELECTRONICS:   电子信息/消费电子/ICT/EMS/VMI Hub/配套仓
+    - FMCG:          快消/零售配送/高周转/高频订单履约
+    - MANUFACTURING: 一般制造业（非汽车）/工业制造/原材料/成品仓
+    - GENERIC_3PL:   行业不明确/混合型/通用合同物流（兜底）
+
+    Enum values are upper-case strings matching extraction-layer output.
+    """
+
+    AUTOMOTIVE = "AUTOMOTIVE"
+    ELECTRONICS = "ELECTRONICS"
+    FMCG = "FMCG"
+    MANUFACTURING = "MANUFACTURING"
+    GENERIC_3PL = "GENERIC_3PL"
 
 
 # =============================================================================
