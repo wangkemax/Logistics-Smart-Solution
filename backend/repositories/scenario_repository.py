@@ -429,7 +429,9 @@ def seed_default_scenarios() -> int:
                 s.get("max_area") or 999999,
                 s.get("sku_min") or 0, s.get("sku_max") or 999999999,
                 s.get("order_min") or 0, s.get("order_max") or 999999999,
-                s.get("capex_min") or 0, s.get("capex_max") or 999999999,
+                # Compute capex from capital_cost_per_sqm for AUTO-style scenarios
+                (s.get("capital_cost_per_sqm") or 0) * max(s.get("min_area") or 1, 1),
+                (s.get("capital_cost_per_sqm") or 0) * max(s.get("max_area") or 1, 1),
                 s.get("opex_year") or s.get("annual_savings_per_sqm", 0) * s.get("min_area", 10000) * 0.1 or 0,
                 s.get("labor_saving") or s.get("labor_reduction_ratio", 0),
                 s.get("efficiency_gain") or 0,
