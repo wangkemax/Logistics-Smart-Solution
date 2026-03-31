@@ -384,6 +384,10 @@ def seed_default_scenarios() -> int:
         # Check if already seeded
         count = conn.execute("SELECT COUNT(*) FROM automation_scenarios").fetchone()[0]
         if count > 0:
+            # Migrate: add scenario_code column if missing (old schema)
+            cols = [r[1] for r in conn.execute("PRAGMA table_info(automation_scenarios)").fetchall()]
+            if "scenario_code" not in cols:
+                conn.execute("ALTER TABLE automation_scenarios ADD COLUMN scenario_code TEXT")
             # Reset and re-seed: ensures DB always matches current DEFAULT_SCENARIOS
             # (including newly added AUTO-01/AUTO-02 scenarios)
             conn.execute("DELETE FROM automation_scenarios")
@@ -400,7 +404,7 @@ def seed_default_scenarios() -> int:
                     weight_orders, weight_budget, weight_region
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
-                f"SCN{s['scenario_id']:02d}",
+                s.get("scenario_code") or f"SCN{s.get('scenario_id', 99):02d}",
                 s["scenario_name"],
                 s["category"],
                 s["applicable_industry"],
