@@ -6,9 +6,11 @@
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.115+-green.svg)](https://fastapi.tiangolo.com/)
 [![Streamlit](https://img.shields.io/badge/Streamlit-1.55+-red.svg)](https://streamlit.io/)
 
-> AI-powered logistics presale copilot for **tender analysis**, **warehouse automation recommendation**, **ROI comparison**, **QA gate**, and **professional proposal generation**.
+> **招标文件驱动的物流售前方案系统** — 从标书提取 → 缺失澄清 → 基础方案生成 → 改善建议 → 专业 PDF 报告。
 
-一个可以演示的物流售前 AI 系统：从招标文件解析 → 自动化场景推荐 → 多方案 ROI 对比 → QA 质量审核 → PDF 方案建议书，**全流程可演示、端到端可操作**。
+一个可以演示的物流售前 AI 系统：从招标文件解析 → 缺失字段 Clarification → Base Solution 生成 → Improvement Layer → Cost / QA → PDF 方案建议书，**全流程可演示、端到端可操作**。
+
+**产品定位：不是参数计算器，而是先理解项目、再生成方案的投标 copilot。**
 
 ---
 
@@ -16,16 +18,17 @@
 
 | 能力 | 说明 |
 |------|------|
-| **Tender 解析** | LLM 智能提取（MiniMax API，置信度 80-100%）+ 正则兜底，提取面积/SKU/订单量/行业/痛点 |
-| **智能推荐** | 基于 15 种自动化场景的 AI 推荐，覆盖电商/3PL/制造/零售/快递/医药等 |
+| **标书解析** | LLM 智能提取（MiniMax API）+ 正则兜底，提取面积/SKU/订单量/行业等 P0/P1 字段 |
+| **Clarification** | 自动识别缺失 P0 字段，Clarification Workspace 支持补录、冲突确认、假设声明 |
+| **Base Solution** | 基于 5 级行业体系（AUTOMOTIVE / ELECTRONICS / FMCG / MANUFACTURING / GENERIC_3PL）生成结构化方案：运营模式、流程设计、人力模型、KPI 框架、风险画像 |
+| **Confidence 追踪** | 全链路追踪字段来源（P0 实填 / P2 默认 / LLM 推断），置信度影响方案精度 |
 | **成本测算** | 自动化 CAPEX + 年维护 + 节省人力 → 5 年 ROI + 回本周期 + Y1 EBITA |
-| **多方案对比** | 横向对比 2-5 个方案的 ROI、投资、回本、省人，支持权重滑块实时刷新 |
+| **多方案对比** | 横向对比 2-5 个方案的 ROI，投资、回本，省人，支持权重滑块实时刷新 |
 | **雷达图可视化** | 5 维度归一化评分（ROI / 回本 / 年节省 / 人工节省 / 综合） |
-| **QA 质量审核** | Pipeline 内置 QA Gate，识别 P0 缺失项（保险预算、DG 处理费等），未通过不推送 PDF |
+| **QA 质量审核** | Pipeline 内置 QA Gate，识别 P0 缺失项，未通过阻断 PDF 生成 |
 | **PDF 报告** | 一键生成专业投标方案建议书（Jinja2 + WeasyPrint，中英双语） |
-| **Pipeline 编排** | 异步非阻塞执行，5 步实时状态（✅/⏳），支持中途参数修正，SQLite 持久化 |
+| **Pipeline 编排** | 异步非阻塞执行，实时状态（✅/⏳），Clarification 修正后重跑，SQLite 持久化 |
 
----
 
 ## 🏗 系统架构
 
@@ -165,14 +168,16 @@ docker compose up --build
 ### Pipeline 执行流程（v2 Pipeline）
 
 ```
-① 招标文件解析  →  ② 推荐引擎  →  ③ ROI 计算  →  ④ QA 审核  →  ⑤ PDF 报告
-   (PDF/DOCX)       (15场景)      (对比)       (质量门禁)     (可下载)
-      ↓                 ↓              ↓             ↓            ↓
-  需求提取          方案设计        成本模型       风险评估      标书生成
-  YAML输出          Markdown        YAML           39项风险      QA报告
+① 招标文件解析  →  ② Readiness  →  ③ Clarification  →  ④ Base Solution  →  ⑤ Cost/QA  →  ⑥ PDF
+   (PDF/DOCX)       (Gate)         (缺失补录)       (结构化方案)      (ROI+风险)     (可下载)
+      ↓                 ↓                ↓                 ↓                ↓            ↓
+  项目字段提取       P0 门禁       缺失项澄清        行业模式          成本模型      专业报告
+  YAML输出          BLOCK/PASS     Clarification    Base Solution    QA Gate      PDF+QA
 ```
 
-**QA Gate 门禁机制**：QA 审核 FAIL 时阻断 PDF 生成，需修正后重新触发。识别 P0 缺失项（如保险预算、危险品处理费、现场勘查确认）后推送客户澄清请求。
+**主流程原则：** 上传标书 → 系统提取字段 → 缺失进入 Clarification Workspace 补录 → 生成方案
+
+**无标书场景：** 展开「快速录入模式」→ 填入最少字段（industry/region/warehouse_area/sku_count/daily_orders）→ 直接进入 Pipeline，缺失字段同样在 Clarification 补录
 
 ---
 
@@ -186,12 +191,14 @@ docker compose up --build
 
 ### 3️⃣ Pipeline Run（异步）
 端到端投标流程：
-1. 上传招标文件（PDF/DOCX/TXT）或粘贴摘要
-2. 填写项目参数（支持自动从文件中提取）
+1. 上传招标文件（PDF/DOCX/TXT）或粘贴摘要（**主入口**）
+2. 不填参数表单，缺失字段由系统自动识别
 3. 点击"🚀 开始运行 Pipeline"
-4. 实时查看 5 步执行状态（✅/⏳/❌）
-5. 低置信度时弹出参数修正表单
-6. Pipeline 完成后在右侧结果区显示：画像 / ROI 对比 / 雷达图 / TOP5 / PDF 下载
+4. 实时查看执行状态（✅/⏳/❌）
+5. 缺失 P0 字段时进入 Clarification Workspace 补录
+6. Pipeline 完成后在右侧结果区显示：Base Solution / 成本 / ROI / QA 报告 / PDF 下载
+
+**无标书场景：** 展开「⚡ 快速录入模式」→ 填入 5 个必填字段（行业/区域/面积/SKU/日订单）→ 开始运行
 
 ---
 
@@ -245,10 +252,10 @@ pytest tests/ -v
 |------|------|------|
 | **v0.1–v0.5** | MVP — 推荐 + 成本 + PDF + UI + QA Gate | ✅ 完成 |
 | **v0.6** | Quality-Gated Foundation + Clarification 闭环 | ✅ 完成 |
-| **v0.7** | 阶段一：唯一事实层打牢 + Clarification 标准化 | 🔄 进行中 |
-| **v0.8** | 阶段二：Base Solution 主轴化 + 三层方案生成 | 待开始 |
-| **v0.9** | 阶段三：Assumption Governance + 参数库 | 待开始 |
-| **v1.0** | 阶段四：Proposal Studio + Workspace | 待开始 |
+| **v0.7** | 唯一事实层打牢 + Clarification 标准化 | ✅ 完成 |
+| **v0.8** | Base Solution 主轴化 + 行业枚举 + 测试体系 + UI主入口重构 | ✅ 完成 |
+| **v0.9** | Improvement Layer（流程/库位/人力/KPI 优化建议） | 🔄 进行中 |
+| **v1.0** | Proposal Studio + Workspace | 待开始 |
 
 ---
 
