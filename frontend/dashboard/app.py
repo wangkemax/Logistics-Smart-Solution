@@ -1939,7 +1939,7 @@ elif app_mode == "🚀 Pipeline Run":
     col_left, col_center, col_right = st.columns([1, 2, 2])
 
     with col_left:
-        st.markdown("### 📂 招标文件 & 参数")
+        st.markdown("### 📂 招标文件")
 
         uploaded_files = st.file_uploader(
             "上传招标文件",
@@ -1999,26 +1999,44 @@ elif app_mode == "🚀 Pipeline Run":
         )
         final_tender_text = (st.session_state.get("tender_text", "") or "").strip() + "\n" + tender_text_manual
 
-        st.divider()
-        st.markdown("**项目参数**")
-        industry_p = st.selectbox("行业", options=["电商", "3PL", "零售", "制造", "快递", "医药", "食品", "生鲜"], index=0)
-        region_p = st.selectbox("区域", options=["华东", "华南", "华北", "华中", "西部"], index=0)
-        warehouse_area_p = st.number_input("面积 (㎡)", min_value=500, max_value=500000, value=20000, step=1000)
-        sku_count_p = st.number_input("SKU数量", min_value=100, max_value=1000000, value=30000, step=1000)
-        daily_orders_p = st.number_input("日订单", min_value=50, max_value=500000, value=5000, step=100)
-        inventory_p = st.number_input("库存量", min_value=1000, max_value=10000000, value=500000, step=10000)
-        labor_cost_level_p = st.select_slider("人工成本", options=["低", "中", "高"], value="中")
-        budget_level_p = st.select_slider("自动化预算", options=["低", "中", "高"], value="中")
-        compare_sids_str = st.text_input("对比方案ID", value="1,2,3", placeholder="1,2,3,4,5")
-
-        st.session_state._pipeline_params = {
-            "industry": industry_p, "warehouse_area": float(warehouse_area_p),
-            "sku_count": int(sku_count_p), "daily_orders": int(daily_orders_p),
-            "inventory": int(inventory_p), "labor_cost_level": labor_cost_level_p,
-            "budget_level": budget_level_p, "region": region_p,
-            "compare_sids_str": compare_sids_str,
-            "tender_text": final_tender_text,
-        }
+        # ── Quick Entry Expander ──────────────────────────────────────────────
+        with st.expander("⚡ 没有标书？使用快速录入模式", expanded=False):
+            st.caption("填入最少字段即可开始，推荐通过标书解析获取更完整参数")
+            industry_p = st.selectbox(
+                "行业", options=[
+                    "AUTOMOTIVE（汽车/零部件）", "ELECTRONICS（电子/VMI）",
+                    "FMCG（快消/零售）", "MANUFACTURING（制造）", "GENERIC_3PL（通用3PL）",
+                ], index=4,
+            )
+            region_p = st.selectbox("区域", options=["华东", "华南", "华北", "华中", "西部"], index=0)
+            warehouse_area_p = st.number_input("面积 (㎡)", min_value=500, max_value=500000, value=20000, step=1000)
+            sku_count_p = st.number_input("SKU数量", min_value=100, max_value=1000000, value=30000, step=1000)
+            daily_orders_p = st.number_input("日订单", min_value=50, max_value=500000, value=5000, step=100)
+            inventory_p = st.number_input("库存量（选填）", min_value=0, max_value=10000000, value=0, step=10000)
+            automation_expectation_p = st.select_slider("自动化期望（选填）", options=["低", "中", "高"], value="中")
+            # Normalize industry value
+            industry_map = {
+                "AUTOMOTIVE（汽车/零部件）": "AUTOMOTIVE",
+                "ELECTRONICS（电子/VMI）": "ELECTRONICS",
+                "FMCG（快消/零售）": "FMCG",
+                "MANUFACTURING（制造）": "MANUFACTURING",
+                "GENERIC_3PL（通用3PL）": "GENERIC_3PL",
+            }
+            industry_normalized = industry_map.get(industry_p, "GENERIC_3PL")
+            quick_entry_overrides = {
+                "industry": industry_normalized,
+                "region": region_p,
+                "warehouse_area": float(warehouse_area_p),
+                "sku_count": int(sku_count_p),
+                "daily_orders": int(daily_orders_p),
+                "inventory": int(inventory_p) if inventory_p > 0 else None,
+                "automation_expectation": automation_expectation_p,
+            }
+            st.session_state._pipeline_params = {
+                "tender_text": final_tender_text,
+                "quick_entry_enabled": True,
+                "quick_entry_overrides": quick_entry_overrides,
+            }
 
         # ---- History Panel ----
         with st.expander("📋 历史任务", expanded=False):
@@ -2262,17 +2280,9 @@ elif app_mode == "🚀 Pipeline Run":
                          help="异步执行，不阻塞页面"):
                 params = st.session_state.get("_pipeline_params", {})
                 tender_text = params.get("tender_text", "") or ""
-                overrides = {
-                    "industry": params.get("industry", "电商"),
-                    "warehouse_area": float(params.get("warehouse_area", 20000)),
-                    "sku_count": int(params.get("sku_count", 30000)),
-                    "daily_orders": int(params.get("daily_orders", 5000)),
-                    "inventory": int(params.get("inventory", 500000)),
-                    "labor_cost_level": params.get("labor_cost_level", "中"),
-                    "budget_level": params.get("budget_level", "中"),
-                    "automation_expectation": "中",
-                    "region": params.get("region", "华东"),
-                }
+                # Only inject overrides when quick-entry mode is explicitly enabled
+                quick_entry_enabled = params.get("quick_entry_enabled", False)
+                overrides = params.get("quick_entry_overrides") if quick_entry_enabled else None
                 try:
                     run_resp = requests.post(
                         f"{API_BASE_URL}/api/pipeline/run",
