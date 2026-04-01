@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 solution_schema.py — v0.7 Base Solution Generator
 ===============================================
@@ -144,9 +146,13 @@ class CostModelLinkage(BaseModel):
         default_factory=list,
         description="进入full_calc还缺的字段"
     )
-    assumptions_used: list[dict] = Field(
+    assumptions_used: list["AssumptionSchema"] = Field(
         default_factory=list,
-        description="当前使用的假设字段"
+        description="当前使用的假设字段（带版本和来源信息）"
+    )
+    assumption_qa_result: Optional["AssumptionQAResultSchema"] = Field(
+        default=None,
+        description="假设QA校验结果"
     )
     narrative: str = Field(default="", description="成本衔接说明")
 

@@ -65,6 +65,8 @@ class ClarificationTask:
             "current_value": self.current_value,
             "conflict_candidates": self.conflict_candidates,
             "service_matrix": self.service_matrix,
+            # 新增字段 for assumption preview
+            "assumption_preview": {},  # dict with keys: value, rule, confidence, benchmark_ref, is_overridden
         }
 
 

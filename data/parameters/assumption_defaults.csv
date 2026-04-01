@@ -1,0 +1,30 @@
+field_key,industry,region,default_value,benchmark,confidence,rule
+sku_count,FMCG,华东,月均出货量÷15件/SKU/月,行业均值,0.7,按出货量反推SKU数量
+sku_count,FMCG,华南,月均出货量÷15件/SKU/月,行业均值,0.7,按出货量反推SKU数量
+sku_count,FMCG,华北,月均出货量÷15件/SKU/月,行业均值,0.7,按出货量反推SKU数量
+sku_count,FMCG,华中,月均出货量÷15件/SKU/月,行业均值,0.7,按出货量反推SKU数量
+sku_count,FMCG,西部,月均出货量÷15件/SKU/月,行业均值,0.7,按出货量反推SKU数量
+sku_count,FMCG,*,月均出货量÷15件/SKU/月,行业均值,0.6,按出货量反推SKU数量
+sku_count,AUTOMOTIVE,*,月均出货量÷3件/SKU/月,汽车行业均值,0.6,配件种类少但单值大
+sku_count,ELECTRONICS,*,月均出货量÷10件/SKU/月,电子行业均值,0.6,中等品类宽度
+sku_count,MANUFACTURING,*,月均出货量÷8件/SKU/月,制造行业均值,0.6,一般制造业均值
+sku_count,GENERIC_3PL,*,月均出货量÷12件/SKU/月,3PL行业均值,0.5,通用默认值
+inventory,FMCG,*,日出库量×8天,行业平均在库天数,0.7,快消品高周转
+inventory,AUTOMOTIVE,*,日出库量×15天,汽车行业均值,0.6,长周期备货
+inventory,ELECTRONICS,*,日出库量×10天,电子行业均值,0.6,中等周期
+inventory,MANUFACTURING,*,日出库量×12天,制造行业均值,0.6,一般制造均值
+inventory,GENERIC_3PL,*,日出库量×10天,3PL均值,0.5,通用默认值
+peak_factor,*,*,1.5,旺季参考倍数,0.8,CNY旺季默认1.5倍
+labor_cost_level,FMCG,华东,8000-10000元/人/月,招聘网站数据,0.8, bottom25%=7500|median=9000|top25%=11000
+labor_cost_level,FMCG,华南,7500-9500元/人/月,招聘网站数据,0.8, bottom25%=7000|median=8500|top25%=10000
+labor_cost_level,FMCG,华北,7000-9000元/人/月,招聘网站数据,0.8, bottom25%=6500|median=8000|top25%=9500
+labor_cost_level,FMCG,*,7500-9500元/人/月,行业均值,0.6,通用默认值
+labor_cost_level,AUTOMOTIVE,*,8500-12000元/人/月,汽车行业均值,0.7,技术岗薪资偏高
+labor_cost_level,ELECTRONICS,*,8000-11000元/人/月,电子行业均值,0.7,工程师薪资偏高
+labor_cost_level,MANUFACTURING,*,7000-10000元/人/月,制造行业均值,0.6,一般制造均值
+labor_cost_level,GENERIC_3PL,*,6500-9000元/人/月,3PL均值,0.5,通用默认值
+automation_expectation,*,*,默认人工方案（无自动化设备）,市场参考,0.5,无CAPEX假设
+industry,*,*,GENERIC_3PL,默认行业,0.3,未从文档提取到行业信息
+region,*,*,华东,默认区域,0.3,未从文档提取到区域信息
+go_live_date,*,*,按合同起始日,招标文件,0.8,以招标文件为准
+budget_level,*,*,合同金额5-8%,市场参考,0.5,行业惯例
