@@ -493,6 +493,152 @@ def _run_constraint_rules(profile: dict, recommendations: list) -> list[QAIssue]
 
 
 # =============================================================================
+# Assumption QA (v0.9)
+# =============================================================================
+
+def validate_assumptions(
+    assumptions: list,
+    industry: str,
+    current_date=None,
+):
+    """
+    Validate a list of AssumptionSchema objects against business rules.
+    Returns an AssumptionQAResult from backend.schemas.assumption_schemas.
+    """
+    from backend.schemas.assumption_schemas import QAIssue as AQAIssue, AssumptionQAResult
+    import datetime as dt
+
+    if current_date is None:
+        current_date = dt.datetime.utcnow()
+
+    issues = []
+    p1_count = 0
+    auto_fields = set()
+    labor_fields = set()
+
+    for a in assumptions:
+        fk = a.get("field_key", "")
+        conf = float(a.get("confidence", 0.5))
+        val = str(a.get("value", ""))
+        rule = str(a.get("rule", ""))
+        eff_date = a.get("effective_date")
+
+        # Rule 1: Confidence check
+        if conf < 0.5:
+            issues.append(AQAIssue(
+                rule="low_confidence",
+                severity="warning",
+                message=f"字段 [{fk}] 假设置信度仅 {conf:.0%}，建议优先补录真实数据",
+                field_key=fk,
+            ))
+
+        # Rule 3: P1 field count
+        if fk in ("sku_count", "daily_orders", "inventory", "labor_cost_level", "peak_factor", "budget_level"):
+            p1_count += 1
+
+        # Rule 5: Mutual exclusion detection
+        if fk == "automation_expectation":
+            auto_fields.add(val)
+        if fk == "labor_cost_level":
+            labor_fields.add(val.lower())
+
+        # Rule 6: Temporal effectiveness
+        if eff_date:
+            try:
+                if isinstance(eff_date, str):
+                    eff_date = dt.datetime.fromisoformat(eff_date.replace("Z", "+00:00"))
+                age_days = (current_date - eff_date.replace(tzinfo=None)).days
+                if age_days > 180:
+                    issues.append(AQAIssue(
+                        rule="stale_assumption",
+                        severity="warning",
+                        message=f"字段 [{fk}] 假设来自 {age_days} 天前（>180天），可能已失效",
+                        field_key=fk,
+                    ))
+            except Exception:
+                pass
+
+        # Rule 7: Unit/numeric sanity check
+        numeric_fields = {"sku_count", "daily_orders", "inventory", "peak_factor"}
+        if fk in numeric_fields:
+            try:
+                num_val = float(val)
+                if fk == "peak_factor" and (num_val < 1.0 or num_val > 5.0):
+                    issues.append(AQAIssue(
+                        rule="unrealistic_value",
+                        severity="warning",
+                        message=f"字段 [{fk}] 峰值系数 {num_val} 不合理（应在 1.0~5.0 之间）",
+                        field_key=fk,
+                    ))
+                elif fk == "sku_count" and num_val < 10:
+                    issues.append(AQAIssue(
+                        rule="unrealistic_value",
+                        severity="warning",
+                        message=f"字段 [{fk}] SKU数量 {num_val} 过小，请核实",
+                        field_key=fk,
+                    ))
+            except (ValueError, TypeError):
+                pass
+
+        # Rule 4: Cross-industry check
+        if industry not in ("AUTOMOTIVE", "*") and "汽车行业" in rule:
+            issues.append(AQAIssue(
+                rule="cross_industry_benchmark",
+                severity="error",
+                message=f"项目行业为 [{industry}]，但使用了汽车行业基准：{rule}",
+                field_key=fk,
+            ))
+        if industry not in ("FMCG", "*") and "快消" in rule:
+            issues.append(AQAIssue(
+                rule="cross_industry_benchmark",
+                severity="error",
+                message=f"项目行业为 [{industry}]，但使用了快消行业基准：{rule}",
+                field_key=fk,
+            ))
+        if industry not in ("ELECTRONICS", "*") and "电子行业" in rule:
+            issues.append(AQAIssue(
+                rule="cross_industry_benchmark",
+                severity="error",
+                message=f"项目行业为 [{industry}]，但使用了电子行业基准：{rule}",
+                field_key=fk,
+            ))
+
+    # Rule 3: Multiple P1 fields assumed
+    if p1_count >= 3:
+        issues.append(AQAIssue(
+            rule="too_many_p1_assumptions",
+            severity="note",
+            message=f"当前有 {p1_count} 个P1字段采用业务假设，建议优先补录以提升方案精度",
+            field_key="general",
+        ))
+
+    # Rule 5: Mutual exclusion
+    if auto_fields and labor_fields:
+        has_high_auto = any("自动" in s or "高" in s or "全" in s for s in auto_fields)
+        has_low_labor = any("低" in s for s in labor_fields)
+        if has_high_auto and has_low_labor:
+            issues.append(AQAIssue(
+                rule="mutual_exclusion",
+                severity="error",
+                message="假设全自动化方案的同时又假设低人工成本等级，两者逻辑互斥",
+                field_key="general",
+            ))
+
+    # Compute overall confidence
+    avg_conf = (
+        sum(float(a.get("confidence", 0.5)) for a in assumptions) / len(assumptions)
+        if assumptions else 1.0
+    )
+    error_count = sum(1 for i in issues if i.severity == "error")
+
+    return AssumptionQAResult(
+        passed=error_count == 0,
+        issues=issues,
+        overall_confidence=avg_conf,
+    )
+
+
+# =============================================================================
 # Main QA Runner
 # =============================================================================
 
@@ -530,6 +676,24 @@ def run_qa(
 
     # Text-based P0 rules (insurance + DG from tender text)
     issues += _text_based_p0_rules(profile, tender_text)
+
+    # v0.9: Assumption-level QA
+    _assumption_results = validate_assumptions(
+        assumptions=profile.get("_assumptions", []),
+        industry=profile.get("industry", ""),
+    )
+    # Convert assumption QA issues to qa_engine QAIssue and merge
+    for a_issue in _assumption_results.issues:
+        sev = "P0" if a_issue.severity == "error" else "P1" if a_issue.severity == "warning" else "P2"
+        blocking = a_issue.severity == "error"
+        issues.append(QAIssue(
+            severity=sev,
+            field=a_issue.field_key or "general",
+            rule=a_issue.rule,
+            message=a_issue.message,
+            suggested_fix="",
+            blocking=blocking,
+        ))
 
     # Sort: P0 → P1 → P2
     sev_order = {"P0": 0, "P1": 1, "P2": 2}

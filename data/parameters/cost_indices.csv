@@ -1,0 +1,6 @@
+parameter_id,region,warehouse_rent_per_sqm,labor_cost_per_person_year,equipment_maintenance_rate,overhead_rate,pallet_density
+1,华东,600,80000,0.05,0.15,4
+2,华南,550,75000,0.05,0.15,4
+3,华北,500,70000,0.05,0.15,4
+4,华中,450,65000,0.05,0.15,4
+5,西部,400,60000,0.05,0.15,4

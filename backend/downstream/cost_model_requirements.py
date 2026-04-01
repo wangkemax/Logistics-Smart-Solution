@@ -230,6 +230,9 @@ P0_FIELDS = [req.field_key for req in COST_MODEL_REQUIREMENTS if req.priority ==
 P1_FIELDS = [req.field_key for req in COST_MODEL_REQUIREMENTS if req.priority == "P1"]
 P2_FIELDS = [req.field_key for req in COST_MODEL_REQUIREMENTS if req.priority == "P2"]
 
+# DEPRECATED v0.9: Use backend.services.parameter_service.get_assumption_defaults() instead.
+# This dict is kept for backward compatibility with downstream_input_builder
+# until full migration is complete.
 # Assumption fallback rules for P1 fields
 ASSUMPTION_TEMPLATES: dict[str, str] = {
     "sku_count": "按月均出货量÷15件/SKU/月估算（行业均值）",

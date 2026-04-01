@@ -24,6 +24,8 @@ from backend.services.project_service import (
 from backend.services.recommendation_service import recommend_solutions
 from backend.services.cost_service import compare_solution_financials
 from backend.services.qa_engine import run_qa, format_issues_for_ui
+from backend.services.assumption_service import AssumptionService
+from backend.services.parameter_service import get_all_defaults_for_project
 from backend.services.pipeline_service import (
     create_pipeline_run,
     create_stage,
@@ -754,6 +756,44 @@ def pipeline_task(tender_document: str, project_profile_overrides: dict = None, 
                 )
         except Exception:
             pass  # Fall back to legacy calculation without downstream_input
+
+        # v0.9: Register P1 field assumptions from parameter_service defaults
+        if cost_model_input and cost_model_input.get("assumptions_template"):
+            try:
+                missing_p1_keys = [
+                    item["field_key"]
+                    for item in cost_model_input["assumptions_template"]
+                    if item.get("fallback_assumption")
+                ]
+                if missing_p1_keys:
+                    industry_str = profile.get("industry", "") if isinstance(profile, dict) else ""
+                    if isinstance(industry_str, dict):
+                        industry_str = industry_str.get("value", "") or ""
+                    region_str = region or ""
+                    defaults = get_all_defaults_for_project(industry_str, region_str, missing_p1_keys)
+                    svc = AssumptionService()
+                    registered = []
+                    for a in defaults:
+                        saved = svc.register(
+                            run_id=pipeline_id,
+                            field_key=a.field_key,
+                            value=a.value,
+                            rule=a.rule,
+                            source="default_fallback",
+                            source_type=a.source_type.value if hasattr(a.source_type, "value") else str(a.source_type),
+                            confidence=a.confidence,
+                        )
+                        registered.append({
+                            "field_key": saved.field_key,
+                            "value": saved.value,
+                            "rule": saved.rule,
+                            "confidence": saved.confidence,
+                            "source_type": saved.source_type,
+                            "effective_date": (saved.effective_date.isoformat() if saved.effective_date else None),
+                        })
+                    profile["_assumptions"] = registered  # type: ignore
+            except Exception:
+                pass  # Non-blocking: QA will still run, possibly with no assumptions
 
         if len(compare_ids) >= 2:
             # Use new cost service for batch comparison (with downstream_input for gating)

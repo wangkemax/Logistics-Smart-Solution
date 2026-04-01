@@ -182,3 +182,37 @@ class CompareResponse(BaseModel):
     comparisons: List[ScenarioComparisonRow]
     best_scenario_id: Optional[int] = None
     analysis_summary: str
+
+
+# =============================================================================
+# Assumption QA Schemas — v0.9
+# =============================================================================
+
+
+class AssumptionSchema(BaseModel):
+    field_key: str
+    value: str
+    rule: str = ""
+    source: str = "default_fallback"
+    source_type: str = "system_default"
+    confidence: float = 0.5
+    is_overridden: bool = False
+    validated: bool = False
+    benchmark_ref: str = ""
+    context_tags: dict = {}
+    impact_factors: list[str] = []
+    effective_date: Optional[datetime] = None
+    version_id: int = 1
+
+
+class QAIssueSchema(BaseModel):
+    rule: str
+    severity: str = "warning"  # error | warning | note
+    message: str
+    field_key: str = ""
+
+
+class AssumptionQAResultSchema(BaseModel):
+    passed: bool = True
+    issues: list[QAIssueSchema] = []
+    overall_confidence: float = 1.0

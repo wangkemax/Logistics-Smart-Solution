@@ -23,9 +23,9 @@ from backend.downstream.cost_model_requirements import (
     FIELD_REQUIREMENTS,
     P0_FIELDS,
     P1_FIELDS,
-    ASSUMPTION_TEMPLATES,
     CostFieldRequirement,
 )
+from backend.services.parameter_service import get_assumption_defaults
 
 
 # =============================================================================
@@ -231,17 +231,26 @@ def build_cost_model_input(
     ]
 
     # ---- Assumptions template (for range_estimate mode) ----
+    # v0.9: Read fallback values from parameter_service instead of inp dict
     assumptions_template = []
+    industry_entry = nf.get("industry", {})
+    region_entry = nf.get("region", {})
+    industry_val = (industry_entry.get("value") if isinstance(industry_entry, dict) else str(industry_entry)) or ""
+    region_val = (region_entry.get("value") if isinstance(region_entry, dict) else str(region_entry)) or ""
     for fkey in P1_FIELDS:
         req = FIELD_REQUIREMENTS.get(fkey)
         inp = required_inputs.get(fkey, {})
         if req and req.assumption_allowed and inp.get("clarification_needed"):
+            # v0.9: use parameter_service as primary source for fallback assumption
+            assumption_obj = get_assumption_defaults(fkey, industry_val, region_val)
+            fallback_text = assumption_obj.value if assumption_obj else inp.get("fallback_assumption", req.assumption_rule)
+            fallback_rule = assumption_obj.rule if assumption_obj else req.assumption_rule
             assumptions_template.append({
                 "field_key": fkey,
                 "display_name": req.display_name,
                 "fallback_value": inp.get("fallback_value"),
-                "fallback_assumption": inp.get("fallback_assumption"),
-                "fallback_rule": req.assumption_rule,
+                "fallback_assumption": fallback_text,
+                "fallback_rule": fallback_rule,
                 "unit": req.unit,
                 "impact": req.impact_on_cost,
                 "question": inp.get("clarification_question"),
@@ -326,9 +335,10 @@ def _get_fallback(status: str, req: CostFieldRequirement, entry: dict) -> tuple:
     if not req.assumption_allowed:
         return None, None
 
-    # P1 fields get fallback from ASSUMPTION_TEMPLATES
-    if req.field_key in ASSUMPTION_TEMPLATES:
-        assumption_text = ASSUMPTION_TEMPLATES[req.field_key]
+    # P1 fields get fallback from parameter_service (v0.9)
+    assumption_obj = get_assumption_defaults(req.field_key, "", "")
+    if assumption_obj:
+        assumption_text = assumption_obj.value
         # For sku_count and inventory, try to derive from available fields
         val = entry.get("value") if isinstance(entry, dict) else None
         if val is None:
