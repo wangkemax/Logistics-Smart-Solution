@@ -341,7 +341,7 @@ def pipeline_task(tender_document: str, project_profile_overrides: dict = None, 
                     (c for c in cost_comparisons if c.get("is_best")),
                     cost_comparisons[0] if cost_comparisons else {}
                 )
-                cost_summary = (f"推荐方案5年ROI {best_cost.get('roi_5y', 'N/A')}x，"
+                cost_summary = (f"推荐方案5年ROI {(best_cost.get('roi_5y') or 0):.1f}x，"
                                 f"回本周期 {(best_cost.get('payback_years') or 'N/A')}年")
                 cost_recommendations = [
                     f"{c['scenario_name']}: ROI {(c.get('roi_5y') or 0):.1f}x"
@@ -353,7 +353,7 @@ def pipeline_task(tender_document: str, project_profile_overrides: dict = None, 
                         "scenario_name": c["scenario_name"],
                         "category": c.get("category", ""),
                         "score": (c.get("roi_5y") or 0) * 10,
-                        "reason": f"5年ROI {c.get('roi_5y', 0):.1f}x，回本 {c.get('payback_years', 0):.1f}年",
+                        "reason": f"5年ROI {(c.get('roi_5y') or 0):.1f}x，回本 {(c.get('payback_years') or 0):.1f}年",
                         "risk": "中",
                         "capex_range": f"¥{int((c.get('capex_estimate') or 0)/10000)}万",
                         "labor_saving": (c.get("headcount_saved") or 0) / max(c.get("headcount_required") or 1, 1),
@@ -827,7 +827,7 @@ def pipeline_task(tender_document: str, project_profile_overrides: dict = None, 
                 (c for c in cost_comparisons if c.get("is_best")),
                 cost_comparisons[0] if cost_comparisons else {}
             )
-            cost_summary = (f"推荐方案5年ROI {best_cost.get('roi_5y', 'N/A')}x，"
+            cost_summary = (f"推荐方案5年ROI {(best_cost.get('roi_5y') or 0):.1f}x，"
                             f"回本周期 {(best_cost.get('payback_years') or 'N/A')}年")
             cost_recommendations = [
                 f"{c['scenario_name']}: ROI {(c.get('roi_5y') or 0):.1f}x"
@@ -840,7 +840,7 @@ def pipeline_task(tender_document: str, project_profile_overrides: dict = None, 
                     "scenario_name": c["scenario_name"],
                     "category": c.get("category", ""),
                     "score": (c.get("roi_5y") or 0) * 10,
-                    "reason": f"5年ROI {c.get('roi_5y') or 0:.1f}x，回本 {c.get('payback_years') or 0:.1f}年",
+                    "reason": f"5年ROI {(c.get('roi_5y') or 0):.1f}x，回本 {(c.get('payback_years') or 0):.1f}年",
                     "risk": "中",
                     "capex_range": f"¥{int((c.get('capex_estimate') or 0)/10000)}万",
                     "labor_saving": (c.get("headcount_saved") or 0) / max(c.get("headcount_required") or 1, 1),

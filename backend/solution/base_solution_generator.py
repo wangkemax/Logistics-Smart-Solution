@@ -121,7 +121,7 @@ def _build_risk_profile(resolved: dict[str, Any]) -> RiskProfile:
     labor_cost_level = resolved.get("labor_cost_level", "中")
     risks: list[RiskItem] = []
 
-    if region in ("华东", "华南"):
+    if region and region in ("华东", "华南"):
         risks.append(RiskItem(
             risk_id="R-01",
             category="labor_availability",

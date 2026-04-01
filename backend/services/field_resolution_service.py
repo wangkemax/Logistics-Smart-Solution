@@ -123,7 +123,7 @@ def _normalize_unit(field_key: str, value: Any, unit: Optional[str]) -> tuple[An
 
     # Daily orders: convert month/year to day
     if field_key == "daily_orders":
-        if unit in ("orders/month", "orders/months", "月订单量", "月"):
+        if unit and unit in ("orders/month", "orders/months", "月订单量", "月"):
             return round(value * ORDERS_PER_DAY_FROM_MONTH), "orders/day"
         elif unit in ("orders/year", "orders/yearly", "年订单量", "年"):
             return round(value * ORDERS_PER_DAY_FROM_YEAR), "orders/day"

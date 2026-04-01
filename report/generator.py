@@ -87,6 +87,20 @@ def build_report_data(
     Returns:
         Data dict ready for template rendering
     """
+    # Unwrap field-dict values (pipeline uses field-dict format: {value, status, ...})
+    _UNWRAP_KEYS = {
+        "industry", "region", "warehouse_area", "total_warehouse_area",
+        "daily_orders", "sku_count", "inventory", "labor_cost_level",
+        "budget_level", "automation_expectation", "contract_years",
+        "go_live_date", "project_name", "client_name",
+    }
+    _profile_flat = {}
+    for k, v in profile.items():
+        if isinstance(v, dict) and "value" in v:
+            _profile_flat[k] = v.get("value")
+        else:
+            _profile_flat[k] = v
+    profile = _profile_flat
     # Attach region to profile for template access
     profile["region"] = region
 

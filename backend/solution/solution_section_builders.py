@@ -137,7 +137,8 @@ def build_service_design(context: dict) -> ServiceDesign:
 
     # Service boundary notes
     notes = []
-    if context.get("cost_mode") in ("blocked",):
+    cost_mode = context.get("cost_mode")
+    if cost_mode and cost_mode in ("blocked",):
         notes.append("⚠️ 服务范围尚未完整确认，方案基于当前已知服务设计，建议尽快完成澄清")
     if not included_services:
         notes.append("⚠️ 无已确认服务，实际方案待服务范围明确后生成")
@@ -374,7 +375,7 @@ def build_kpi_framework(context: dict) -> KPIFramework:
                 name=clean_name,
                 target=target,
                 measurement_method="WMS/系统自动统计",
-                is_sla_candidate=(cost_mode in ("range_estimate", "full_calc")),
+                is_sla_candidate=(cost_mode and cost_mode in ("range_estimate", "full_calc")),
             ))
 
     # Ensure baseline KPIs are present
@@ -433,7 +434,7 @@ def build_implementation_focus(context: dict) -> ImplementationFocus:
 
     phases = []
 
-    if complexity in ("low", "medium"):
+    if complexity and complexity in ("low", "medium"):
         phases.append(ImplementationPhase(
             phase="Phase 1",
             name="项目启动与系统切换",

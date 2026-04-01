@@ -72,8 +72,9 @@ def generate_base_solution_endpoint(
         except (json.JSONDecodeError, TypeError):
             pass
 
-    # Load resolved_fields
+    # Load resolved_fields and convert to simple project_state dict
     resolved_fields = {}
+    project_state = {}
     if run.resolved_fields_json:
         try:
             raw_rf = json.loads(run.resolved_fields_json)
@@ -86,6 +87,12 @@ def generate_base_solution_endpoint(
                     self.final_unit = d.get("final_unit")
                     self.source_type = d.get("source_type", "")
             resolved_fields = {k: _RF(v) for k, v in raw_rf.items()}
+            # Build project_state for generate_base_solution()
+            for k, rf in resolved_fields.items():
+                if rf.final_value is not None:
+                    project_state[k] = rf.final_value
+                elif rf.usable is not False and rf.usable is not None:
+                    project_state[k] = rf.usable
         except (json.JSONDecodeError, TypeError):
             pass
 
@@ -145,12 +152,9 @@ def generate_base_solution_endpoint(
 
     # Generate base solution
     solution = generate_base_solution(
-        pipeline_id=pipeline_id,
-        project_name=project_name,
-        analysis_sections=analysis_sections,
-        resolved_fields=resolved_fields,
-        operation_profile=operation_profile,
-        downstream_input=downstream_input,
+        project_state,
+        project_id=pipeline_id,
+        narrative=True,
     )
 
     # Persist to PipelineRun
