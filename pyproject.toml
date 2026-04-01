@@ -7,7 +7,7 @@ packages = ["backend", "frontend"]
 
 [project]
 name = "logistics-presale-ai"
-version = "0.7.1"
+version = "0.8.0"
 description = "MVP Logistics Presale AI System for warehouse automation recommendations"
 readme = "README.md"
 requires-python = ">=3.11"
