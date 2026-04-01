@@ -9,6 +9,8 @@ services:
       - "8000:8000"
     volumes:
       - ./data:/app/data
+    env_file:
+      - .env
     environment:
       - DATABASE_URL=sqlite:///./data/logistics_presale.db
     healthcheck:
@@ -45,6 +47,8 @@ services:
     command: rq worker pipeline --url redis://redis:6379/0 -v
     volumes:
       - ./data:/app/data
+    env_file:
+      - .env
     environment:
       - REDIS_URL=redis://redis:6379/0
       - DATABASE_URL=sqlite:///./data/logistics_presale.db

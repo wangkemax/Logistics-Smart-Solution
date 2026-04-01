@@ -1,24 +1,20 @@
-FROM python:3.11-slim
+FROM python:3.11-bookworm
 
 WORKDIR /app
 
-# WeasyPrint system dependencies for PDF generation
+# WeasyPrint system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    gcc \
-    libpango-1.0-0 \
-    libpangocairo-1.0-0 \
-    libgdk-pixbuf2.0-0 \
-    libffi-dev \
-    shared-mime-info \
-    libgirepository1.0-dev \
-    libcairo2-dev \
-    libpango1.0-dev \
-    && rm -rf /var/lib/apt/lists/*
+    libpango-1.0-0 libpangocairo-1.0-0 libgdk-pixbuf2.0-0 libcairo2-dev libpango1.0-dev \
+    libffi-dev shared-mime-info libgirepository1.0-dev \
+    fonts-wqy-microhei fonts-noto-cjk && rm -rf /var/lib/apt/lists/*
 
-COPY pyproject.toml .
-RUN pip install --no-cache-dir -e ".[dev]"
+# Upgrade pip + setuptools, pin hatchling to stable 1.20.0
+RUN pip install --no-cache-dir --upgrade pip setuptools
+RUN pip install --no-cache-dir hatchling==1.20.0
 
 COPY . .
+
+RUN pip install --no-cache-dir -e ".[dev]"
 
 RUN mkdir -p data
 

@@ -57,7 +57,7 @@ def _generate_reasons(scenario: dict, profile: dict, score_breakdown: dict = Non
 
     # Industry match
     applicable = scenario.get("applicable_industry", "")
-    if industry in applicable:
+    if industry and industry in applicable:
         reasons.append(f"适合{industry}行业应用场景")
 
     # Area suitability

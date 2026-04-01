@@ -453,9 +453,9 @@ def _run_constraint_rules(profile: dict, recommendations: list) -> list[QAIssue]
     constraint_keys: set[str] = set()
     # Detect from text fields
     industry = _fv(profile, "industry", "")
-    if industry in ("医药", "医疗"):
+    if industry and industry in ("医药", "医疗"):
         constraint_keys.add("pharmaceutical")
-    if industry in ("食品", "生鲜", "冷链"):
+    if industry and industry in ("食品", "生鲜", "冷链"):
         constraint_keys.add("cold_chain")
     if _fv(profile, "dg_handling"):
         constraint_keys.add("dg_handling")

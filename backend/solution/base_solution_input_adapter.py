@@ -392,7 +392,7 @@ def _derive_operation_mode(
         f"行业: {industry}",
         f"仓库规模: {scale_tier.value} ({resolved.get('warehouse_area', '?')} sqm)",
     ]
-    if service_scope.get("inbound", {}).get("cold_chain") or industry in ("医药", "食品", "生鲜"):
+    if service_scope.get("inbound", {}).get("cold_chain") or (industry and industry in ("医药", "食品", "生鲜")):
         conditions.append("含冷链或温控需求")
     if resolved.get("dc_count", 1) > 1:
         conditions.append(f"多仓联动 ({resolved['dc_count']} 个 DC)")
@@ -709,7 +709,7 @@ def _derive_risk_profile(
     region: str = resolved.get("region", "华东")
     risks: list[RiskItem] = []
 
-    if region in ("华东", "华南"):
+    if region and region in ("华东", "华南"):
         risks.append(RiskItem(
             risk_id="R-01", category="labor_availability",
             description=f"{region}地区旺季可能出现临时工招募困难，影响峰值期间运营",
@@ -733,7 +733,7 @@ def _derive_risk_profile(
             mitigation=["提前确认 GSP 认证要求", "配置温湿度监控系统"],
         ))
 
-    if industry in ("生鲜", "食品"):
+    if industry and industry in ("生鲜", "食品"):
         risks.append(RiskItem(
             risk_id="R-04", category="temperature_control",
             description="冷链断链风险，生鲜/食品货损率可能上升",
