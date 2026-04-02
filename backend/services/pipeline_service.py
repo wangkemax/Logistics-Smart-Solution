@@ -14,6 +14,30 @@ sys.path.insert(0, str(PROJECT_ROOT))
 from backend.models.database import SessionLocal, PipelineRun, PipelineStage
 
 
+def _unwrap_field_dicts(profile: dict) -> dict:
+    """
+    Unwrap field dicts (value/status/basis) to scalar values for storage.
+    Field dicts like {'value': 'GENERIC_3PL', 'status': 'extracted', ...} become 'GENERIC_3PL'.
+    Preserves _field_traces and other underscore-prefixed metadata intact.
+    """
+    if not isinstance(profile, dict):
+        return profile
+    result = {}
+    for key, val in profile.items():
+        if key == "_field_traces":
+            # Keep _field_traces as-is; it's a dict of field dicts needed by downstream
+            result[key] = val
+        elif isinstance(val, dict) and "value" in val and "status" in val:
+            # Unwrap field trace to scalar
+            result[key] = val["value"]
+        elif isinstance(val, dict):
+            # Recurse into nested dicts (e.g., downstream_input sections)
+            result[key] = _unwrap_field_dicts(val)
+        else:
+            result[key] = val
+    return result
+
+
 def init_pipeline_db():
     """Create tables if they don't exist."""
     from backend.models.database import Base, engine
@@ -160,7 +184,7 @@ def complete_pipeline(pipeline_id: str, status: str,
         if run:
             run.status = status
             if profile_json is not None:
-                run.profile_json = json.dumps(profile_json, ensure_ascii=False)
+                run.profile_json = json.dumps(_unwrap_field_dicts(profile_json), ensure_ascii=False)
             if recommendations_json is not None:
                 run.recommendations_json = json.dumps(recommendations_json, ensure_ascii=False)
             if comparisons_json is not None:
@@ -216,7 +240,7 @@ def complete_pipeline(pipeline_id: str, status: str,
                 except Exception:
                     result_summary = None
             if result_summary is not None:
-                run.result_summary = json.dumps(result_summary, ensure_ascii=False)
+                run.result_summary = json.dumps(_unwrap_field_dicts(result_summary), ensure_ascii=False)
         db.commit()
     finally:
         db.close()
