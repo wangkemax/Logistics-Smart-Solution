@@ -37,7 +37,7 @@ from backend.services.input_capture_service import (
     save_manual_inputs_to_pipeline,
     get_manual_inputs,
 )
-from backend.services.tender_schema import get_p0_fields, get_p1_fields
+from backend.services.tender_schema import get_p0_fields, get_p1_fields, FIELD_REGISTRY
 from backend.services.operation_profile_service import derive_operation_profile
 from backend.downstream.downstream_input_builder import build_cost_model_input
 from backend.models.database import PipelineRun, SessionLocal
@@ -336,17 +336,61 @@ def _get_downstream_input_from_run(run: PipelineRun) -> dict:
         gate = {}
         readiness = {}
 
-    # Try to get p0/p1 from normalized fields missing_items
-    missing_items = _parse_json(run.missing_items_json) or {}
-    p0_missing = missing_items.get("p0", []) if isinstance(missing_items, dict) else []
-    p1_missing = missing_items.get("p1", []) if isinstance(missing_items, dict) else []
+    # Reconstruct required_inputs from normalized_fields so build_clarification_tasks
+    # can generate auto-tasks for P0/P1 missing fields even without a full recompute.
+    normalized_fields = _parse_json(run.normalized_fields_json) or {}
+    required_inputs = {}
+    for fkey in list(get_p0_fields()) + list(get_p1_fields()):
+        fdef = FIELD_REGISTRY.get(fkey)
+        if not fdef:
+            continue
+        field_data = normalized_fields.get(fkey, {})
+        status = field_data.get("status", "missing")
+        value = field_data.get("value")
+        priority = fdef.priority
+        impact = fdef.impact or []
+        usable = status in ("provided", "explicit")
+
+        if status == "missing":
+            clarification_question = f"请补充「{fdef.display_name}」的具体数据"
+        elif status == "ambiguous":
+            clarification_question = f"「{fdef.display_name}」存在歧义，请确认准确口径"
+        else:
+            clarification_question = ""
+
+        required_inputs[fkey] = {
+            "priority": priority,
+            "status": status,
+            "value": value,
+            "usable": usable,
+            "impact": impact,
+            "clarification_question": clarification_question,
+        }
+
+    # p0_summary for downstream_input_meta
+    p0_fields = get_p0_fields()
+    p0_missing = [k for k in p0_fields if required_inputs.get(k, {}).get("status") == "missing"]
+    p0_ambiguous = [k for k in p0_fields if required_inputs.get(k, {}).get("status") == "ambiguous"]
+    p0_provided = [k for k in p0_fields if required_inputs.get(k, {}).get("status") in ("provided", "explicit")]
+    p1_fields = get_p1_fields()
+    p1_missing = [k for k in p1_fields if required_inputs.get(k, {}).get("status") == "missing"]
+    p1_ambiguous = [k for k in p1_fields if required_inputs.get(k, {}).get("status") == "ambiguous"]
 
     return {
         "readiness": readiness,
         "pipeline_gate": gate,
+        "required_inputs": required_inputs,
         "p0_summary": {
-            "total": len(p0_missing) + sum(1 for _ in p0_missing),
+            "total": len(p0_fields),
+            "provided": len(p0_provided),
             "missing": len(p0_missing),
+            "ambiguous": len(p0_ambiguous),
+        },
+        "p1_summary": {
+            "total": len(p1_fields),
+            "provided": sum(1 for k in p1_fields if required_inputs.get(k, {}).get("status") in ("provided", "explicit")),
+            "missing": len(p1_missing),
+            "ambiguous": len(p1_ambiguous),
         },
     }
 
