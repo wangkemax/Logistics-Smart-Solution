@@ -406,22 +406,34 @@ QA Agent → Quality Gate
 
 > **建立在 Base Solution 之上。** Optimization 和 Automation 方案是对 Base Solution 的增强，不是独立生成。
 
-目标：
-- [ ] Optimization Solution Generator — 基于 Base Solution 的优化版本（效率/成本/人力优化）
-- [ ] Automation Fit Analyzer — 在 Base Solution 流程基础上评估自动化适配度
-- [ ] Solution Compare — Base / Optimization / Automation 三方案对比矩阵
+## v1.1 — Equipment & Physics（物理底座）✅ 规划中
+- 2026-04-02 Gemini Review 确定优先级：Equipment Database > PPT > PDF
+- 存储方案：SQLAlchemy 关系型表（与 Assumption Governance 体系一致）
 
-不做什么（v0.8边界）：
-- 不做正式投标书全文生成（→ v1.0）
-- 不做PPT自动生成（→ v1.1）
-- 不做多页报告（→ v1.1）
+### 核心交付功能
+1. **Equipment Database** — SQLAlchemy 表：设备型号/CAPEX/吞吐量/载重/速度/能耗/MTBF/维保成本
+2. **Scenario-Equipment DI** — 场景引擎与设备库依赖注入解耦，支持按吞吐量查设备数量
 
-## v1.1 — PPT Generator + Equipment Database（规划中）
-- [ ] PPT大纲自动生成（基于 ProposalSections）
-- [ ] Equipment Database — 设备库（AMR/GTP/ASRS/Shuttle/Conveyor/Sorter）
-- [ ] PDF Proposal 整合（现有 Jinja2 模板 + ProposalSections）
+### 退出标准
+- scenario_engine 能通过查库返回具体设备型号与测算数量
+- LLM 生成文本中 100% 精确引用设备库参数
 
-## v1.2 — Solution Architect + Case Library（规划中）
-- [ ] Automation Fit Analyzer — 评估 Base Solution 流程的自动化适配度
-- [ ] Equipment Mix Recommender — 基于 SKU/吞吐量 推荐设备组合
-- [ ] Case Library — 历史项目案例库，支持 similar project detection
+## v1.2 — Commercials & ROI（商业定价引擎）🚧 规划中
+
+### 核心交付功能
+1. **Financial Modeler** — 综合设备 Capex + 人员 Opex + 场地租赁生成成本基线
+2. **ROI / Payback Calculator** — 多周期现金流量表 + IRR + Payback Period
+
+### 退出标准
+- 输入假设组合，输出含折旧/ROI/成本拆解的 JSON/CSV
+
+### Gemini 判断：v1.2 是"完整售前推进系统"的真正 MVP
+
+## v1.3 — RFP Ingestion（逆向解析引擎）🚧 规划中
+- **Constraint Extractor** — 上传 RFP，用 LLM 提取关键约束
+- **Clarification Generator** — 自动生成"缺失信息澄清清单"
+- 可与 v1.1/v1.2 并行开发（独立于后端计算链路）
+
+## v1.4 — Pitch & Presentation（决胜展示端）🚧 规划中
+- **Markdown to PPT** — Marp 方案（Docs as Code，弃用 python-pptx）
+- **Bid Scenario Diffing** — A/B 两方案版本差异对比面板
