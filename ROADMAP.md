@@ -179,11 +179,16 @@ QA Agent → Quality Gate
 
 ---
 
-## Phase 4（v0.9）— 自动化解决方案设计
+## Phase 4（v0.9）— Assumption Governance + 参数库 ✅
 
-**Solution Architect Agent**
+> 实际 v0.9 内容与原规划不同，已调整为：
+> - 假设注册表（Assumption Registry）— 版本化 / context_tags / source_type
+> - 参数库（Parameter Library）— industry_overhead / cost_indices / assumption_defaults
+> - QA 校验规则（互斥 / 时间效力 / 离群检测）
 
-自动设计：
+**Equipment Database**（→ v1.2）
+
+建立设备库，覆盖：
 - warehouse layout（仓库布局）
 - automation architecture（自动化架构）
 - equipment mix（设备组合）
@@ -209,17 +214,18 @@ QA Agent → Quality Gate
 
 ---
 
-## Phase 5（v1.0）— AI Proposal System
+## Phase 5（v1.0）— AI Proposal System ✅
 
-系统可直接生成完整投标方案：
+### v1.0.0 完成内容（2026-04-02）
 
 **输出：**
-- [ ] PDF Proposal
-- [ ] PPT Proposal
-- [ ] 完整 solution design
+- [x] **Workspace Context API** — WorkspaceManager + SQLAlchemy model + REST endpoints
+- [x] **Proposal Section Generator** — LLM 生成执行摘要/核心方案/实施计划（MiniMax, temperature=0.3）
+- [x] **DOCX Export** — python-docx，中文字体支持，附录假设清单
+- [ ] PPT Proposal（→ v1.1）
+- [ ] PDF Proposal（已有 Jinja2，可整合）
 - [ ] financial model（财务模型）
 - [ ] timeline（实施时间线）
-- [ ] implementation plan（实施计划）
 - [ ] risk analysis（风险分析）
 
 ---
@@ -406,12 +412,16 @@ QA Agent → Quality Gate
 - [ ] Solution Compare — Base / Optimization / Automation 三方案对比矩阵
 
 不做什么（v0.8边界）：
-- 不做正式投标书全文生成（→ v0.9）
-- 不做PPT自动生成（→ v0.9）
-- 不做多页报告（→ v0.9）
+- 不做正式投标书全文生成（→ v1.0）
+- 不做PPT自动生成（→ v1.1）
+- 不做多页报告（→ v1.1）
 
-## v0.9 — Proposal Studio（规划中）
-- [ ] 客户版方案文本生成（基于Base Solution + Optimization）
-- [ ] 正式报告结构（摘要 / 方案 / KPI / 风险 / 实施计划）
-- [ ] PPT大纲自动生成
-- [ ] DOCX/PDF导出
+## v1.1 — PPT Generator + Equipment Database（规划中）
+- [ ] PPT大纲自动生成（基于 ProposalSections）
+- [ ] Equipment Database — 设备库（AMR/GTP/ASRS/Shuttle/Conveyor/Sorter）
+- [ ] PDF Proposal 整合（现有 Jinja2 模板 + ProposalSections）
+
+## v1.2 — Solution Architect + Case Library（规划中）
+- [ ] Automation Fit Analyzer — 评估 Base Solution 流程的自动化适配度
+- [ ] Equipment Mix Recommender — 基于 SKU/吞吐量 推荐设备组合
+- [ ] Case Library — 历史项目案例库，支持 similar project detection
