@@ -33,7 +33,7 @@ PARTIAL_TENDER = """
 class TestExtractRequirements:
     def test_extract_full_tender(self):
         profile, missing = extract_requirements(SAMPLE_TENDER)
-        assert profile["industry"] == "电商"
+        assert profile["industry"] == "FMCG"  # v0.8: 电商 → FMCG
         assert profile["warehouse_area"] == 25000
         assert profile["daily_orders"] == 8000
         assert profile["sku_count"] == 50000
@@ -43,7 +43,7 @@ class TestExtractRequirements:
 
     def test_extract_partial_tender(self):
         profile, missing = extract_requirements(PARTIAL_TENDER)
-        assert profile["industry"] == "制造"
+        assert profile["industry"] == "MANUFACTURING"  # v0.8: 制造 → MANUFACTURING
         assert profile["warehouse_area"] == 15000
         assert profile["daily_orders"] == 3000
         assert profile["sku_count"] == 20000
@@ -52,7 +52,7 @@ class TestExtractRequirements:
 
     def test_extract_defaults_for_missing_fields(self):
         profile, missing = extract_requirements("这是一段没有任何数值的文本")
-        assert profile["industry"] == "电商"  # default
+        assert profile["industry"] == "GENERIC_3PL"  # v0.8 default: e-commerce → GENERIC_3PL
         assert profile["region"] == "华东"     # default
         assert profile["labor_cost_level"] == "中"
         assert profile["budget_level"] == "中"
