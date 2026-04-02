@@ -11,6 +11,7 @@ from backend.api import document_api
 from backend.api import equipment_api
 from backend.api import financial_api
 from backend.api import rfp_api
+from backend.api import diff_api
 from agents import orchestrator
 from backend.models.database import init_db
 import os
@@ -41,6 +42,7 @@ app.include_router(document_api.router)
 app.include_router(equipment_api.router)
 app.include_router(financial_api.router)
 app.include_router(rfp_api.router)
+app.include_router(diff_api.router)
 
 
 @app.on_event("startup")
