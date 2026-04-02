@@ -88,6 +88,10 @@ Requirements:
 有效假设（已确认参数）：
 {assumptions_text}
 
+{equipment_text}
+
+设备选型说明：{equipment_rationale}
+
 成本测算模式：{cost_mode}
 
 要求：
@@ -109,6 +113,10 @@ Process Design:
 
 Active Assumptions (Confirmed Parameters):
 {assumptions_text}
+
+{equipment_text}
+
+Equipment Selection Rationale: {equipment_rationale}
 
 Cost Model: {cost_mode}
 
@@ -224,6 +232,23 @@ def _render_process_modules(process_modules: dict) -> str:
     return "；".join(lines) if lines else "（基于待确认数据）"
 
 
+def _build_equipment_text(selected_equipment: list[dict]) -> str:
+    """将 selected_equipment 转换为 prompt 可读文本"""
+    if not selected_equipment:
+        return "（未选定具体设备，需根据现场条件确定）"
+
+    lines = []
+    for eq in selected_equipment:
+        capex_est = eq.get("_capex_estimate", 0)
+        lines.append(
+            f"• {eq['equipment_type']} {eq['model_name']}："
+            f"吞吐量{eq['throughput_value']}{eq['throughput_unit']}，"
+            f"载重{eq['payload_kg']}kg，"
+            f"单机估算{capex_est}万元"
+        )
+    return "\n".join(lines)
+
+
 def _render_assumptions(active_assumptions: list[dict]) -> str:
     """将 active_assumptions list 转换为可读文本"""
     if not active_assumptions:
@@ -308,6 +333,7 @@ def _build_context_text(workspace: WorkspaceContext, language: str = "cn") -> di
 
     # service_scope_summary 用于 executive_summary（简化版本）
     service_scope_summary = _render_service_scope(workspace.service_scope)
+    equipment_text = _build_equipment_text(workspace.selected_equipment)
 
     return {
         "project_name": project_name,
@@ -325,6 +351,9 @@ def _build_context_text(workspace: WorkspaceContext, language: str = "cn") -> di
         "assumptions_text": assumptions_text,
         "roi_text": roi_text,
         "effective_date_text": effective_date_text,
+        "equipment_text": equipment_text,
+        "equipment_rationale": workspace.equipment_rationale or "",
+        "equipment_capex_range": workspace.equipment_capex_range or {},
     }
 
 

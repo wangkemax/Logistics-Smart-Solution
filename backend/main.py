@@ -8,6 +8,7 @@ from backend.api import solution_api
 from backend.api import workspace_api
 from backend.api import proposal_api
 from backend.api import document_api
+from backend.api import equipment_api
 from agents import orchestrator
 from backend.models.database import init_db
 import os
@@ -35,6 +36,7 @@ app.include_router(workspace_api.router)
 app.include_router(orchestrator.router)
 app.include_router(proposal_api.router)
 app.include_router(document_api.router)
+app.include_router(equipment_api.router)
 
 
 @app.on_event("startup")

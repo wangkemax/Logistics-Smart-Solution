@@ -12,10 +12,14 @@ from backend.schemas.workspace_schemas import (
     WorkspaceContext,
     WorkspaceSchema,
 )
+from backend.services.equipment_service import EquipmentService
 
 
 class WorkspaceManager:
     """Workspace 生命周期管理器"""
+
+    def __init__(self):
+        self.equipment_service = EquipmentService()
 
     def _to_schema(self, workspace: Workspace) -> WorkspaceSchema:
         """Convert SQLAlchemy model to Pydantic schema."""
@@ -90,6 +94,64 @@ class WorkspaceManager:
                 Workspace.workspace_id == workspace_id
             ).first()
 
+    def _inject_equipment_snapshot(self, workspace: Workspace, base_solution_json: dict) -> dict:
+        """
+        根据 base_solution 中的 operation_type，从 Equipment Database 匹配设备。
+        将匹配结果注入 context_json。
+        """
+        selected_equipment = []
+        capex_ranges = {}
+
+        operation_type = base_solution_json.get("operation_type", "")
+
+        # 简化策略：基于运营类型推断设备类型
+        # 实际生产中应该从 downstream_input 或 assumption 中取吞吐量目标
+        equipment_map = {
+            "warehouse_distribution": [("AMR", 60), ("Conveyor", 150)],
+            "cold_chain": [("Conveyor", 100), ("Sorter", 2000)],
+            "bonded": [("Conveyor", 80), ("AS/RS", 50)],
+            "3PL": [("AMR", 60), ("Conveyor", 100)],
+            "JIT": [("Conveyor", 80), ("AS/RS", 50)],
+            "JIT线边仓": [("AMR", 60), ("Conveyor", 80)],
+            "VMI Hub": [("AMR", 50), ("Conveyor", 100)],
+        }
+
+        equipment_types = equipment_map.get(operation_type, [("AMR", 60), ("Conveyor", 100)])
+
+        for eq_type, throughput_target in equipment_types:
+            matches = self.equipment_service.match_equipment_for_scenario(
+                equipment_type=eq_type,
+                throughput_target=float(throughput_target),
+                payload_min=None,
+            )
+            if matches:
+                best = matches[0]
+                eq_dict = best.equipment.model_dump(mode="json")
+                eq_dict["_match_score"] = best.match_score
+                eq_dict["_capex_estimate"] = best.capex_estimate
+                selected_equipment.append(eq_dict)
+
+                capex_ranges[eq_type.lower()] = {
+                    "min": best.equipment.capex_min,
+                    "max": best.equipment.capex_max,
+                }
+
+        # 生成 rationale
+        rationale_parts = []
+        for eq in selected_equipment:
+            rationale_parts.append(
+                f"{eq['equipment_type']}-{eq['model_name']}："
+                f"吞吐量{eq['throughput_value']}{eq['throughput_unit']}，"
+                f"估算单价{eq['capex_max']}万元"
+            )
+        equipment_rationale = "；".join(rationale_parts)
+
+        return {
+            "selected_equipment": selected_equipment,
+            "equipment_capex_range": capex_ranges,
+            "equipment_rationale": equipment_rationale,
+        }
+
     def refresh_snapshot(
         self,
         workspace_id: str,
@@ -154,6 +216,14 @@ class WorkspaceManager:
                 "cost_mode": downstream_input.get("cost_mode", ""),
                 "roi_summary": downstream_input.get("roi_summary", {}),
             }
+
+            # v1.1 Scenario-Equipment DI：注入匹配设备
+            equipment_data = self._inject_equipment_snapshot(workspace, base_solution_json)
+            context_dict.update({
+                "selected_equipment": equipment_data["selected_equipment"],
+                "equipment_capex_range": equipment_data["equipment_capex_range"],
+                "equipment_rationale": equipment_data["equipment_rationale"],
+            })
 
             workspace.context_json = json.dumps(context_dict, ensure_ascii=False)
 
