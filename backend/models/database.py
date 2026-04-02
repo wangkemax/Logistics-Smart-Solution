@@ -148,5 +148,6 @@ def get_db():
 def init_db():
     # Late import to avoid circular import; Assumption registers itself with Base on import
     from backend.models import assumption_models  # noqa: F401
+    from backend.models import equipment_models  # noqa: F401
     from backend.models.workspace_models import Workspace  # noqa: F401
     Base.metadata.create_all(bind=engine)

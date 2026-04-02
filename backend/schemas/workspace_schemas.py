@@ -47,6 +47,11 @@ class WorkspaceContext(BaseModel):
     cost_mode: str = ""
     roi_summary: dict = Field(default_factory=dict)
 
+    # 设备选型（v1.1 Scenario-Equipment DI）
+    selected_equipment: list[dict] = Field(default_factory=list)
+    equipment_capex_range: dict = Field(default_factory=dict)
+    equipment_rationale: str = ""
+
 
 class WorkspaceSchema(BaseModel):
     """Full Workspace model returned by API."""
