@@ -153,6 +153,43 @@ Requirements:
 - Explain key milestones
 - Mention quality assurance measures""",
     },
+    # v1.2: Financial Summary section
+    "financial_summary": {
+        "title_cn": "四、财务测算摘要",
+        "title_en": "4. Financial Summary",
+        "prompt_template_cn": """基于以下财务测算结果，撰写财务摘要（约300字）：
+
+项目总投资：{capex_total:.0f}万元（含设备、工程、软件）
+年运营成本节省：{opex_total:.0f}万元/年
+年净收益：{net_annual_benefit:.0f}万元/年
+投资回收期：{payback_years:.1f}年
+5年ROI：{roi_5y:.0f}%
+内部收益率：{irr:.1f}%
+
+财务摘要文本：{financial_summary_text}
+
+要求：
+- 用通俗语言解释 ROI 和 Payback 的业务含义
+- 强调项目的投资价值
+- 提及合同期内的总收益
+- 结尾一句话总结推荐理由""",
+        "prompt_template_en": """Based on the following financial analysis results, write a financial summary (approximately 300 words):
+
+Total Project Investment: {capex_total:.0f} ten-thousand yuan (equipment, engineering, software)
+Annual Cost Savings: {opex_total:.0f} ten-thousand yuan/year
+Net Annual Benefit: {net_annual_benefit:.0f} ten-thousand yuan/year
+Payback Period: {payback_years:.1f} years
+5-Year ROI: {roi_5y:.0f}%
+Internal Rate of Return: {irr:.1f}%
+
+Financial Summary: {financial_summary_text}
+
+Requirements:
+- Explain the business meaning of ROI and Payback in plain language
+- Emphasize the investment value of the project
+- Mention total revenue within the contract period
+- End with one sentence summarizing the recommendation""",
+    },
 }
 
 
@@ -335,6 +372,20 @@ def _build_context_text(workspace: WorkspaceContext, language: str = "cn") -> di
     service_scope_summary = _render_service_scope(workspace.service_scope)
     equipment_text = _build_equipment_text(workspace.selected_equipment)
 
+    # v1.2: financial_summary context — derive from roi_summary if available
+    roi_summary = workspace.roi_summary or {}
+    capex_range = workspace.equipment_capex_range or {}
+    eq_min = capex_range.get("min", 0) or 0
+    eq_max = capex_range.get("max", 0) or 0
+    avg_capex = (eq_min + eq_max) / 2
+    capex_total = avg_capex + avg_capex * 0.10 + avg_capex * 0.05  # +10% engineering +5% software
+    opex_total = roi_summary.get("annual_savings", 0) or 0
+    net_annual_benefit = roi_summary.get("net_annual_benefit", 0) or roi_summary.get("annual_savings", 0) or 0
+    payback_years = roi_summary.get("payback_years", 0) or 0
+    roi_5y = roi_summary.get("roi_5y", 0) or 0
+    irr = roi_summary.get("irr", 0) or 0
+    financial_summary_text = roi_summary.get("summary_text", "") or ""
+
     return {
         "project_name": project_name,
         "industry": industry,
@@ -354,6 +405,14 @@ def _build_context_text(workspace: WorkspaceContext, language: str = "cn") -> di
         "equipment_text": equipment_text,
         "equipment_rationale": workspace.equipment_rationale or "",
         "equipment_capex_range": workspace.equipment_capex_range or {},
+        # v1.2: financial_summary fields
+        "capex_total": capex_total,
+        "opex_total": opex_total,
+        "net_annual_benefit": net_annual_benefit,
+        "payback_years": payback_years,
+        "roi_5y": roi_5y,
+        "irr": irr,
+        "financial_summary_text": financial_summary_text,
     }
 
 
@@ -492,5 +551,7 @@ class ProposalSectionGenerator:
             result_kwargs["financial_kpi"] = generated.get("financial_kpi")
         if "risk_analysis" in sections_to_generate:
             result_kwargs["risk_analysis"] = generated.get("risk_analysis")
+        if "financial_summary" in sections_to_generate:
+            result_kwargs["financial_summary"] = generated.get("financial_summary")
 
         return ProposalSections(**result_kwargs)

@@ -24,6 +24,7 @@ class ProposalSections(BaseModel):
     implementation_plan: SectionOutput
     financial_kpi: Optional[SectionOutput] = None
     risk_analysis: Optional[SectionOutput] = None
+    financial_summary: Optional[SectionOutput] = None  # v1.2: 财务测算摘要
     total_tokens: int = 0
     generated_at: str = ""
 

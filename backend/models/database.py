@@ -150,4 +150,5 @@ def init_db():
     from backend.models import assumption_models  # noqa: F401
     from backend.models import equipment_models  # noqa: F401
     from backend.models.workspace_models import Workspace  # noqa: F401
+    from backend.models.financial_models import FinancialSnapshot  # noqa: F401
     Base.metadata.create_all(bind=engine)
