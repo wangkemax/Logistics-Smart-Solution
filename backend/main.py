@@ -5,6 +5,9 @@ from backend.api import report_api
 from backend.api import task_api
 from backend.api import clarification_api
 from backend.api import solution_api
+from backend.api import workspace_api
+from backend.api import proposal_api
+from backend.api import document_api
 from agents import orchestrator
 from backend.models.database import init_db
 import os
@@ -28,7 +31,10 @@ app.include_router(report_api.router)
 app.include_router(task_api.router)
 app.include_router(clarification_api.router)
 app.include_router(solution_api.router)
+app.include_router(workspace_api.router)
 app.include_router(orchestrator.router)
+app.include_router(proposal_api.router)
+app.include_router(document_api.router)
 
 
 @app.on_event("startup")

@@ -68,43 +68,43 @@ class TestIndustryPatterns:
         """'dealer' (lowercase) in text should identify 3PL."""
         text = "Dealer returns process for warehouse management"
         field_values, _, _ = _extract_with_patterns(text)
-        assert field_values.get("industry") == "3PL", \
-            f"Expected 3PL, got {field_values.get('industry')}"
+        assert field_values.get("industry") == "GENERIC_3PL", \
+            f"Expected GENERIC_3PL, got {field_values.get('industry')}"
 
     def test_industry_distributor(self):
-        """'Distributor' should identify 3PL."""
+        """'Distributor' should identify GENERIC_3PL (dealer/distributor pattern)."""
         text = "Distributor network warehousing solution"
         field_values, _, _ = _extract_with_patterns(text)
-        assert field_values.get("industry") == "3PL", \
-            f"Expected 3PL, got {field_values.get('industry')}"
+        assert field_values.get("industry") == "GENERIC_3PL", \
+            f"Expected GENERIC_3PL, got {field_values.get('industry')}"
 
     def test_industry_distributor_chinese(self):
-        """'分销' / '经销商' should identify 3PL."""
+        """'分销' / '经销商' should identify GENERIC_3PL (v0.8 industry system)."""
         for keyword in ["分销网络仓储", "经销商仓库", "代理商物流中心"]:
             field_values, _, _ = _extract_with_patterns(keyword)
-            assert field_values.get("industry") == "3PL", \
-                f"Keyword='{keyword}': Expected 3PL, got {field_values.get('industry')}"
+            assert field_values.get("industry") == "GENERIC_3PL", \
+                f"Keyword='{keyword}': Expected GENERIC_3PL, got {field_values.get('industry')}"
 
     def test_industry_dealer_network(self):
-        """'dealer network' should identify 3PL."""
+        """'dealer network' should identify GENERIC_3PL (v0.8 industry system)."""
         text = "SAP EWM dealer network warehouse management"
         field_values, _, _ = _extract_with_patterns(text)
-        assert field_values.get("industry") == "3PL", \
-            f"Expected 3PL, got {field_values.get('industry')}"
+        assert field_values.get("industry") == "GENERIC_3PL", \
+            f"Expected GENERIC_3PL, got {field_values.get('industry')}"
 
     def test_industry_retail_supermarket(self):
-        """Existing retail patterns should still work."""
+        """Retail/supermarket patterns map to FMCG (v0.8 5-level system)."""
         text = "超市仓储物流自动化解决方案"
         field_values, _, _ = _extract_with_patterns(text)
-        assert field_values.get("industry") == "零售", \
-            f"Expected 零售, got {field_values.get('industry')}"
+        assert field_values.get("industry") == "FMCG", \
+            f"Expected FMCG, got {field_values.get('industry')}"
 
     def test_industry_ecommerce(self):
-        """Existing e-commerce patterns should still work."""
+        """E-commerce patterns map to GENERIC_3PL in v0.8 (no distinct e-commerce category)."""
         text = "电商平台仓储物流外包"
         field_values, _, _ = _extract_with_patterns(text)
-        assert field_values.get("industry") == "电商", \
-            f"Expected 电商, got {field_values.get('industry')}"
+        assert field_values.get("industry") == "GENERIC_3PL", \
+            f"Expected GENERIC_3PL, got {field_values.get('industry')}"
 
 
 class TestLaborCostLevel:
@@ -170,4 +170,4 @@ class TestExtractionNoCrash:
         field_values, _, _ = _extract_with_patterns(text)
         assert isinstance(field_values, dict)
         assert field_values.get("region") == "华东"
-        assert field_values.get("industry") == "3PL"
+        assert field_values.get("industry") == "GENERIC_3PL"
