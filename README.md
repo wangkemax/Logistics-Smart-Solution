@@ -4,57 +4,67 @@
 [![CI](https://github.com/wangkemax/Logistics-Smart-Solution/actions/workflows/ci.yml/badge.svg)](https://github.com/wangkemax/Logistics-Smart-Solution/actions)
 [![Python](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.115+-green.svg)](https://fastapi.tiangolo.com/)
-[![Streamlit](https://img.shields.io/badge/Streamlit-1.55+-red.svg)](https://streamlit.io/)
+[![Tests](https://img.shields.io/badge/tests-396%20passed-brightgreen.svg)]()
 
-> **招标文件驱动的物流售前方案系统** — 从标书提取 → 缺失澄清 → 基础方案生成 → 改善建议 → 专业 PDF 报告。
+> **从招标文件到完整投标方案的全流程 AI 系统** — RFP解析 → Assumption治理 → 设备匹配 → 方案生成 → 财务ROI → DOCX/PPTX导出。
 
-一个可以演示的物流售前 AI 系统：从招标文件解析 → 缺失字段 Clarification → Base Solution 生成 → Improvement Layer → Cost / QA → PDF 方案建议书，**全流程可演示、端到端可操作**。
-
-**产品定位：不是参数计算器，而是先理解项目、再生成方案的投标 copilot。**
+**产品定位：物流售前推进系统（Presale OS）**，不是参数计算器，而是先理解项目、再生成方案、自动测算ROI、端到端交付文档的完整 copilot。
 
 ---
 
 ## 🎯 系统能力
 
-| 能力 | 说明 |
-|------|------|
-| **标书解析** | LLM 智能提取（MiniMax API）+ 正则兜底，提取面积/SKU/订单量/行业等 P0/P1 字段 |
-| **Clarification** | 自动识别缺失 P0 字段，Clarification Workspace 支持补录、冲突确认、假设声明 |
-| **Base Solution** | 基于 5 级行业体系（AUTOMOTIVE / ELECTRONICS / FMCG / MANUFACTURING / GENERIC_3PL）生成结构化方案：运营模式、流程设计、人力模型、KPI 框架、风险画像 |
-| **Confidence 追踪** | 全链路追踪字段来源（P0 实填 / P2 默认 / LLM 推断），置信度影响方案精度 |
-| **成本测算** | 自动化 CAPEX + 年维护 + 节省人力 → 5 年 ROI + 回本周期 + Y1 EBITA |
-| **多方案对比** | 横向对比 2-5 个方案的 ROI，投资、回本，省人，支持权重滑块实时刷新 |
-| **雷达图可视化** | 5 维度归一化评分（ROI / 回本 / 年节省 / 人工节省 / 综合） |
-| **QA 质量审核** | Pipeline 内置 QA Gate，识别 P0 缺失项，未通过阻断 PDF 生成 |
-| **PDF 报告** | 一键生成专业投标方案建议书（Jinja2 + WeasyPrint，中英双语） |
-| **Pipeline 编排** | 异步非阻塞执行，实时状态（✅/⏳），Clarification 修正后重跑，SQLite 持久化 |
+| 能力 | 说明 | 版本 |
+|------|------|------|
+| **RFP 解析** | 上传 PDF 或粘贴文本，LLM 提取 16 个结构化字段，识别置信度，生成澄清问题 | v1.3 |
+| **Assumption 治理** | 假设注册表 + 版本化 + 可追溯，支持 override/rollback，7条 QA 校验规则 | v0.9 |
+| **参数库** | 行业默认参数 / 区域成本指数 / overhead系数，多键优先级匹配 | v0.9 |
+| **设备库（Equipment DB）** | SQLAlchemy 设备库（AMR/GTP/ASRS/Shuttle/Conveyor/Sorter），支持按吞吐量匹配 | v1.1 |
+| **设备-场景 DI** | Workspace 快照自动注入匹配设备，提案引用真实设备参数 | v1.1 |
+| **Base Solution** | 5级行业体系（AUTOMOTIVE/ELECTRONICS/FMCG/MANUFACTURING/GENERIC_3PL），8个section结构化方案 | v0.7 |
+| **Clarification** | P0/P1/Conflict/Assumption 四类澄清，自动生成问题清单，Workspace补录闭环 | v0.7 |
+| **Workspace 快照** | Workspace 生命周期管理，版本快照，Dirty追踪，Context统一管理 | v1.0 |
+| **提案生成** | LLM 生成执行摘要/核心方案/实施计划（MiniMax, temperature=0.3），QA冲突阻断 | v1.0 |
+| **Financial ROI** | CAPEX汇总 + OPEX分解 + ROI/IRR/Payback + 现金流量表（牛顿法IRR） | v1.2 |
+| **DOCX 导出** | python-docx，中文字体，附录含假设清单，支持 Microsoft Word 直接编辑 | v1.0 |
+| **PPTX 导出（Marp）** | Markdown→Marp→PPTX，支持3种主题，长内容自动分页，优雅降级 | v1.4 |
+| **方案对比（Diffing）** | 两 Workspace 版本参数+成本差异对比，数值字段自动计算百分比变化 | v1.4 |
+| **PDF 报告** | Jinja2 + WeasyPrint，9章节专业投标建议书，中英双语 | v0.7 |
+| **Pipeline 编排** | 异步非阻塞，实时状态追踪，Clarification修正后重跑，SQLite持久化 | v0.7 |
 
+---
 
 ## 🏗 系统架构
 
 ```
-┌──────────────────────────────────────────────────────────────┐
-│                       用户界面 (Streamlit)                     │
-│   ┌──────────┐  ┌────────────────────┐  ┌──────────────┐  │
-│   │ 📋 方案生成 │  │  ⚖️ 多方案对比      │  │ 🚀 Pipeline Run │  │
-│   └──────────┘  └────────────────────┘  └──────────────┘  │
-└─────────────────────────────┬────────────────────────────────┘
-                              │ HTTP / JSON
-┌─────────────────────────────▼────────────────────────────────┐
-│                    FastAPI Backend (异步线程)                   │
-│  ┌──────────────┐  ┌──────────────┐  ┌─────────────────┐   │
-│  │ /api/recommend│  │ /api/compare │  │ /api/pipeline/* │   │
-│  │ /api/cost    │  │ /api/report  │  │ /api/pipeline/run│   │
-│  └──────────────┘  └──────────────┘  └─────────────────┘   │
-└─────────────────────────────┬────────────────────────────────┘
-                              │
-          ┌───────────────────┼───────────────────┐
-          ▼                   ▼                   ▼
-   ┌─────────────┐    ┌─────────────┐    ┌─────────────┐
-   │  SQLite     │    │   Redis     │    │  WeasyPrint  │
-   │  (状态持久化) │    │ (Pipeline   │    │ (PDF 生成)   │
-   │             │    │  实时状态)   │    │             │
-   └─────────────┘    └─────────────┘    └─────────────┘
+用户界面（Streamlit）
+    │
+    ▼
+FastAPI Backend
+    │
+    ├─ RFP Ingestion（v1.3）       → 招标文件解析 / 约束提取 / 澄清问题生成
+    ├─ Assumption Service（v0.9）  → 假设注册 / 版本化 / QA校验
+    ├─ Parameter Service（v0.9）     → 行业参数 / 成本指数 / overhead
+    ├─ Equipment Service（v1.1）    → 设备库 / 吞吐量匹配 / CAPEX估算
+    ├─ Workspace Manager（v1.0）   → 快照 / 版本控制 / Dirty追踪
+    ├─ Proposal Engine（v1.0）      → LLM生成（执行摘要/方案/实施计划）
+    ├─ Financial Service（v1.2）     → ROI / IRR / Payback / 现金流量表
+    ├─ Pitch Renderer（v1.4）      → Marp Markdown → PPTX
+    ├─ Diff Service（v1.4）        → Bid Scenario 对比
+    └─ Document Renderer（v1.0）   → DOCX / Markdown 导出
+```
+
+**数据流：**
+```
+RFP → RFPExtractor → Assumptions → WorkspaceManager
+                                    ↓
+                          EquipmentService（设备匹配）
+                                    ↓
+                          ProposalEngine（LLM生成）
+                                    ↓
+                          FinancialService（ROI计算）
+                                    ↓
+                    DocumentRenderer（DOCX）/ PitchRenderer（PPTX）
 ```
 
 ---
@@ -62,50 +72,43 @@
 ## 📂 项目结构
 
 ```
-logistics-presale-ai/
-├── backend/
-│   ├── api/
-│   │   ├── routes.py              # FastAPI 路由（recommend/cost/compare/report）
-│   │   └── report_api.py          # PDF 报告接口
-│   ├── engines/
-│   │   ├── automation_engine.py   # 推荐引擎（15 种场景评分）
-│   │   └── cost_engine.py         # 成本引擎（CAPEX / ROI / Y1 EBITA）
-│   ├── models/
-│   │   └── database.py            # SQLAlchemy 模型
-│   ├── schemas/
-│   │   └── schemas.py             # Pydantic 请求/响应模型
-│   ├── services/
-│   │   └── project_service.py     # 业务逻辑层
-│   ├── workers/
-│   │   └── pipeline_tasks.py      # 异步 Pipeline 任务（线程执行）
-│   └── main.py
-├── frontend/
-│   └── dashboard/
-│       ├── app.py                 # Streamlit 三模式界面
-│       └── ui_formatters.py       # 安全格式化工具（fmt_*, safe_div, safe_max）
-├── report/
-│   ├── generator.py               # PDF 生成引擎
-│   └── templates/
-│       └── report_template.html    # Jinja2 报告模板
-├── agents/                        # ClawTeam 多 Agent 协作
-│   ├── orchestrator.py            # Pipeline 编排 + API 路由
-│   └── *.yaml                    # Agent 职责定义
-├── scripts/
-│   └── init_db.py                # 数据库初始化
-├── data/                          # SQLite 数据库 + PDF 存储
-├── tests/                        # pytest 测试套件
-└── docker-compose.yml
+backend/
+├── api/
+│   ├── workspace_api.py       # Workspace CRUD + 快照
+│   ├── proposal_api.py         # 提案生成 + 预览
+│   ├── document_api.py          # DOCX/PPTX 导出
+│   ├── equipment_api.py         # 设备库查询 / 匹配
+│   ├── financial_api.py        # 财务测算 / ROI
+│   ├── rfp_api.py             # RFP 解析 / 澄清生成
+│   └── diff_api.py            # Bid Scenario 对比
+├── models/
+│   ├── equipment_models.py      # Equipment SQLAlchemy 表
+│   ├── financial_models.py     # FinancialSnapshot 表
+│   └── workspace_models.py     # Workspace 表
+├── schemas/
+│   ├── workspace_schemas.py     # WorkspaceContext / WorkspaceCreate
+│   ├── proposal_schemas.py      # SectionOutput / ProposalSections
+│   ├── equipment_schemas.py    # EquipmentSchema / EquipmentMatchResult
+│   └── financial_schemas.py    # FinancialInput / FinancialResult
+├── services/
+│   ├── workspace_manager.py     # Workspace 生命周期 + 快照 + 设备注入
+│   ├── proposal_section_generator.py  # LLM Section 生成
+│   ├── proposal_llm_service.py  # MiniMax API 封装
+│   ├── equipment_service.py     # 设备库查询 / 匹配
+│   ├── financial_service.py    # ROI / IRR / Payback 计算
+│   ├── rfp_extractor.py        # RFP 解析 / 澄清问题生成
+│   ├── pitch_renderer.py       # Marp Markdown → PPTX
+│   ├── workspace_diff_service.py  # Bid Scenario 对比
+│   └── document_renderer.py    # DOCX 渲染
+data/
+├── parameters/                 # assumption_defaults / cost_indices / industry_overhead CSVs
+└── equipment_seed.sql        # 设备库初始数据（12条记录）
+tests/                        # pytest 测试套件（396 tests）
 ```
 
 ---
 
 ## 🚀 快速启动
-
-### 环境要求
-- Python 3.11+
-- Redis（本地开发可省略，使用线程模式）
-
-### 方式一：本地启动
 
 ```bash
 # 1. 克隆
@@ -114,125 +117,78 @@ cd Logistics-Smart-Solution
 
 # 2. 安装依赖
 pip install -e ".[dev]"
-pip install weasyprint jinja2  # PDF 生成
 
-# 3. 初始化数据库
+# 3. 初始化数据库（建表 + 设备数据）
 python3 scripts/init_db.py
 
-# 4. 启动后端（终端 1）
-cd ~/Projects/logistics-presale-ai
+# 4. 启动后端
 uvicorn backend.main:app --reload --port 8000
 
-# 5. 启动前端（终端 2）
+# 5. 启动前端
 streamlit run frontend/dashboard/app.py --server.port 8501
 ```
 
 > 访问 http://localhost:8501
 
-### 方式二：Docker 一键启动
-
-```bash
-docker compose up --build
-```
-
-> - 前端：http://localhost:8501
-> - 后端：http://localhost:8000
-> - API 文档：http://localhost:8000/docs
-
 ---
 
 ## 📡 API 端点
 
-### 核心业务
+### Workspace
 
 | 方法 | 端点 | 说明 |
 |------|------|------|
-| `POST` | `/api/project` | 创建项目 |
-| `POST` | `/api/recommend` | 获取自动化方案推荐 |
-| `POST` | `/api/cost` | 单方案成本测算 |
-| `POST` | `/api/compare` | 多方案 ROI 对比 |
-| `POST` | `/api/report` | 生成 PDF 方案报告 |
-| `POST` | `/api/report/compare` | 生成 PDF 对比报告 |
-| `GET` | `/api/health` | 健康检查 |
+| `POST` | `/api/workspaces` | 创建 Workspace |
+| `GET` | `/api/workspaces/{id}` | 获取 Workspace |
+| `POST` | `/api/workspaces/{id}/refresh` | 刷新快照 |
+| `PATCH` | `/api/workspaces/{id}/fields` | 更新字段 |
+| `POST` | `/api/workspaces/{id}/finalize` | 最终化 |
+| `GET` | `/api/workspaces/{id}/context` | 获取 WorkspaceContext |
 
-### Pipeline（异步，非阻塞）
+### Proposal
 
 | 方法 | 端点 | 说明 |
 |------|------|------|
-| `POST` | `/api/pipeline/run` | 启动完整 Pipeline（立即返回 pipeline_id）|
-| `GET` | `/api/pipeline/status/{id}` | 查询 5 步实时进度 |
-| `PATCH` | `/api/pipeline/{id}` | 中途修正参数（如低置信度修正）|
-| `GET` | `/api/pipeline/{id}/download` | 下载生成的 PDF |
-| `GET` | `/api/pipeline/{id}/compare-scenarios` | 对比指定方案列表 |
+| `POST` | `/api/proposals/generate` | 生成提案文本 |
+| `GET` | `/api/workspaces/{id}/preview/{section}` | 预览单个章节 |
 
-### Pipeline 执行流程（v2 Pipeline）
+### Document
 
-```
-① 招标文件解析  →  ② Readiness  →  ③ Clarification  →  ④ Base Solution  →  ⑤ Cost/QA  →  ⑥ PDF
-   (PDF/DOCX)       (Gate)         (缺失补录)       (结构化方案)      (ROI+风险)     (可下载)
-      ↓                 ↓                ↓                 ↓                ↓            ↓
-  项目字段提取       P0 门禁       缺失项澄清        行业模式          成本模型      专业报告
-  YAML输出          BLOCK/PASS     Clarification    Base Solution    QA Gate      PDF+QA
-```
+| 方法 | 端点 | 说明 |
+|------|------|------|
+| `POST` | `/api/documents/export` | 导出 DOCX/Markdown |
+| `POST` | `/api/documents/export/pptx` | 导出 PPTX（Marp） |
+| `GET` | `/api/documents/workspaces/{id}/document` | 预览文档 |
 
-**主流程原则：** 上传标书 → 系统提取字段 → 缺失进入 Clarification Workspace 补录 → 生成方案
+### Equipment
 
-**无标书场景：** 展开「快速录入模式」→ 填入最少字段（industry/region/warehouse_area/sku_count/daily_orders）→ 直接进入 Pipeline，缺失字段同样在 Clarification 补录
+| 方法 | 端点 | 说明 |
+|------|------|------|
+| `GET` | `/api/equipment/` | 设备列表（支持类型/吞吐量过滤） |
+| `GET` | `/api/equipment/types` | 设备类型列表 |
+| `GET` | `/api/equipment/match/{type}` | 按吞吐量匹配设备 |
 
----
+### Financial
 
-## 🖥 三种使用模式
+| 方法 | 端点 | 说明 |
+|------|------|------|
+| `POST` | `/api/financial/calculate` | 财务测算 |
+| `POST` | `/api/financial/calculate-and-save/{workspace_id}` | 测算并保存快照 |
 
-### 1️⃣ 方案生成
-单方案推荐：输入项目参数 → 获取 TOP 5 自动化方案 → 查看成本拆解 + ROI 柱状图 → 一键 PDF。
+### RFP
 
-### 2️⃣ 多方案对比
-横向 ROI 对比：输入参数 + 选择 2-5 个方案 → 生成对比表、柱状图、雷达图 → 权重滑块实时刷新 → 高亮最优方案。
+| 方法 | 端点 | 说明 |
+|------|------|------|
+| `POST` | `/api/rfp/extract` | 从文本提取字段 |
+| `POST` | `/api/rfp/extract/pdf` | 上传 PDF 提取 |
+| `POST` | `/api/rfp/extract-and-clarify` | 完整管道：提取+澄清 |
 
-### 3️⃣ Pipeline Run（异步）
-端到端投标流程：
-1. 上传招标文件（PDF/DOCX/TXT）或粘贴摘要（**主入口**）
-2. 不填参数表单，缺失字段由系统自动识别
-3. 点击"🚀 开始运行 Pipeline"
-4. 实时查看执行状态（✅/⏳/❌）
-5. 缺失 P0 字段时进入 Clarification Workspace 补录
-6. Pipeline 完成后在右侧结果区显示：Base Solution / 成本 / ROI / QA 报告 / PDF 下载
+### Diff
 
-**无标书场景：** 展开「⚡ 快速录入模式」→ 填入 5 个必填字段（行业/区域/面积/SKU/日订单）→ 开始运行
-
----
-
-## 📊 Dashboard UI 特性
-
-| 特性 | 说明 |
-|------|------|
-| **安全格式化** | `ui_formatters.py` 提供 `fmt_*` 系列函数，全部字段 `None` 安全 |
-| `safe_div` | 防除零 / 防 `None`，所有归一化计算使用 `safe_div(value, max)` |
-| `safe_max` | `max()` 永远不返回 0，所有分母 `>= 1` |
-| `_safe_best_result` | 从 pipeline results 安全提取最优方案，`None` 时返回 `{}` |
-| **权重滑块** | ROI / 回本 / 节省 三轴权重实时可调，图表即时刷新 |
-| **雷达图** | 5 维度归一化评分，可视化最优方案 |
-| **PDF 下载** | Pipeline 完成即可下载，含 9 章节专业投标建议书 |
-
----
-
-## 📄 PDF 报告
-
-生成的 PDF 包含 9 个章节：
-
-| 章节 | 内容 |
-|------|------|
-| 封面 | 项目名称、行业、面积、日期 |
-| 项目背景 | 仓库面积、SKU、日均订单、库存量 |
-| 客户需求分析 | 行业特征、痛点识别 |
-| 自动化场景推荐 | TOP 3 方案（含评分，投资范围，人工节省） |
-| 投资成本分析 | CAPEX + 年维护 + 年节省 |
-| ROI 分析 | 5 年 ROI、回本周期、加权评分、Y1 EBITA |
-| 项目实施规划 | 实施阶段建议 |
-| 风险分析 | 风险识别与应对策略（含 39 项风险清单） |
-| 多方案对比 | 横向表格（含条件渲染） |
-
-**支持语言**：中文（默认）/ 英文，切换方式：后端 `language` 参数。
+| 方法 | 端点 | 说明 |
+|------|------|------|
+| `POST` | `/api/diff/workspaces` | 对比两个 Workspace |
+| `GET` | `/api/diff/workspaces/{id}/versions` | 列出快照版本 |
 
 ---
 
@@ -242,42 +198,22 @@ docker compose up --build
 pytest tests/ -v
 ```
 
-当前覆盖：自动化引擎推荐、成本引擎计算、API 端点。
+**当前：396 tests，3次连续闭环测试全部通过 ✅**
 
 ---
 
 ## 🗺️ Roadmap
 
-| 版本 | 目标 | 状态 |
+| 版本 | 主题 | 状态 |
 |------|------|------|
-| **v0.1–v0.5** | MVP — 推荐 + 成本 + PDF + UI + QA Gate | ✅ 完成 |
-| **v0.6** | Quality-Gated Foundation + Clarification 闭环 | ✅ 完成 |
-| **v0.7** | 唯一事实层打牢 + Clarification 标准化 | ✅ 完成 |
-| **v0.8** | Base Solution 主轴化 + 行业枚举 + 测试体系 + UI主入口重构 | ✅ 完成 |
-| **v0.9** | Improvement Layer（流程/库位/人力/KPI 优化建议） | 🔄 进行中 |
-| **v1.0** | Proposal Studio + Workspace | 待开始 |
-
----
-
-## 📦 15 种自动化场景
-
-| 方案 | 类别 | 适用行业 | 人工节省 |
-|------|------|---------|---------|
-| AMR 拣选辅助 | 移动机器人 | 电商/3PL/零售 | 30% |
-| GTP 货到人系统 | 货到人 | 电商/3PL | 50% |
-| 输送分拣线 | 输送分拣 | 电商/快递/零售 | 40% |
-| 立体仓库 AS/RS | 立体仓库 | 制造/3PL/医药 | 60% |
-| 跨带分拣机 | 高速分拣 | 快递/电商 | 55% |
-| 拆码垛机器人 | 搬运机器人 | 制造/3PL/零售 | 45% |
-| AGV 搬运系统 | 移动机器人 | 制造/3PL | 40% |
-| 自动包装线 | 包装自动化 | 电商/零售/3PL | 35% |
-| WMS 仓储管理系统 | 软件系统 | 通用 | 15% |
-| 自动化退货处理 | 逆向物流 | 电商/零售 | 30% |
-| 冷链自动化仓储 | 冷链系统 | 食品/医药/生鲜 | 50% |
-| 视觉识别质检 | 视觉检测 | 制造/医药/电商 | 25% |
-| 货架式密集存储 | 密集存储 | 3PL/零售/制造 | 20% |
-| 自动贴标系统 | 自动化辅助 | 制造/零售/3PL | 20% |
-| 自动化输送线 | 输送系统 | 制造/电商/3PL | 30% |
+| **v0.7** | Base Solution Generator | ✅ 完成 |
+| **v0.8** | Industry 5级分类 + 测试体系 | ✅ 完成 |
+| **v0.9** | Assumption Governance + 参数库 | ✅ 完成 |
+| **v1.0** | Proposal Studio + Workspace + DOCX | ✅ 完成 |
+| **v1.1** | Equipment DB + Scenario-Equipment DI | ✅ 完成 |
+| **v1.2** | Financial ROI Modeler | ✅ 完成 |
+| **v1.3** | RFP Ingestion + Clarification Generator | ✅ 完成 |
+| **v1.4** | Markdown→PPTX + Bid Scenario Diffing | ✅ 完成 |
 
 ---
 
