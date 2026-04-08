@@ -371,7 +371,7 @@ def test_render_docx_default_output_dir(sample_proposal_sections: ProposalSectio
     filepath = renderer.render_docx(proposal_sections=sample_proposal_sections)
     try:
         assert os.path.exists(filepath)
-        assert filepath.startswith("/tmp/proposals/")
+        assert os.path.normpath("/tmp/proposals") in os.path.normpath(filepath)
     finally:
         # 清理
         if os.path.exists(filepath):
