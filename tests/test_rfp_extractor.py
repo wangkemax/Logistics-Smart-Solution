@@ -4,11 +4,38 @@ tests/test_rfp_extractor.py — v1.3 RFP Ingestion Tests
 """
 
 import pytest
+from unittest.mock import patch
 from backend.services.rfp_extractor import (
     RFPExtractor,
     _CONFIDENCE_THRESHOLD,
     _FIELD_KEY_MAP,
 )
+
+# Mock LLM response for tests that need LLM extraction
+_MOCK_LLM_RESPONSE = {
+    "project_name": "某知名电商华东配送中心招标",
+    "client_name": "某电商有限公司",
+    "industry": "电商",
+    "region": "华东",
+    "warehouse_area": 25000,
+    "dc_count": 3,
+    "sku_count": 50000,
+    "daily_orders": 8000,
+    "peak_orders": 15000,
+    "labor_cost_level": "中等",
+    "budget_level": "较高",
+    "contract_years": 5,
+    "automation_level": "高",
+    "throughput_requirement": None,
+    "special_requirements": None,
+    "confidence_scores": {
+        "project_name": 0.95,
+        "client_name": 0.90,
+        "warehouse_area": 0.85,
+        "sku_count": 0.80,
+        "daily_orders": 0.80,
+    },
+}
 
 
 class TestRFPExtractor:
@@ -22,7 +49,8 @@ class TestRFPExtractor:
     # extract_from_text
     # -------------------------------------------------------------------------
 
-    def test_extract_from_text_returns_structured_data(self, extractor):
+    @patch("backend.services.rfp_extractor._call_minimax_llm", return_value=_MOCK_LLM_RESPONSE)
+    def test_extract_from_text_returns_structured_data(self, mock_llm, extractor):
         """验证返回结构包含所有目标字段。"""
         rfp_text = """
         项目名称：某知名电商华东配送中心招标
@@ -61,7 +89,14 @@ class TestRFPExtractor:
         assert result["extraction_confidence"] == 0.0
         assert result["extracted"] == {}
 
-    def test_extract_from_text_missing_fields_returns_null(self, extractor):
+    @patch("backend.services.rfp_extractor._call_minimax_llm", return_value={
+        "project_name": None, "client_name": None, "industry": None, "region": None,
+        "warehouse_area": None, "dc_count": None, "sku_count": None, "daily_orders": None,
+        "peak_orders": None, "labor_cost_level": None, "budget_level": None,
+        "contract_years": None, "automation_level": None, "throughput_requirement": None,
+        "special_requirements": None, "confidence_scores": {},
+    })
+    def test_extract_from_text_missing_fields_returns_null(self, mock_llm, extractor):
         """验证未提及的字段返回 null 而不报错。"""
         rfp_text = "这是一个测试文本，没有包含任何关键字段信息。"
         result = extractor.extract_from_text(rfp_text, language="cn")
@@ -224,7 +259,17 @@ class TestRFPExtractor:
     # run_full_pipeline
     # -------------------------------------------------------------------------
 
-    def test_run_full_pipeline_returns_complete_structure(self, extractor):
+    @patch("backend.services.rfp_extractor._call_minimax_llm", return_value={
+        "project_name": "某汽车零部件华东DC招标", "client_name": "某某汽车零部件有限公司",
+        "industry": "汽车", "region": "华东", "warehouse_area": 30000, "dc_count": 2,
+        "sku_count": 20000, "daily_orders": 5000, "peak_orders": None,
+        "labor_cost_level": None, "budget_level": None, "contract_years": 3,
+        "automation_level": None, "throughput_requirement": None,
+        "special_requirements": None, "confidence_scores": {
+            "project_name": 0.95, "warehouse_area": 0.85, "sku_count": 0.80,
+        },
+    })
+    def test_run_full_pipeline_returns_complete_structure(self, mock_llm, extractor):
         """验证完整管道返回完整结构。"""
         rfp_text = """
         项目名称：某汽车零部件华东DC招标
@@ -250,7 +295,14 @@ class TestRFPExtractor:
             result["p0_questions"] + result["p1_questions"]
         )
 
-    def test_run_full_pipeline_with_run_id(self, extractor):
+    @patch("backend.services.rfp_extractor._call_minimax_llm", return_value={
+        "project_name": None, "client_name": None, "industry": None, "region": None,
+        "warehouse_area": 20000, "dc_count": 3, "sku_count": None, "daily_orders": None,
+        "peak_orders": None, "labor_cost_level": None, "budget_level": None,
+        "contract_years": None, "automation_level": None, "throughput_requirement": None,
+        "special_requirements": None, "confidence_scores": {"warehouse_area": 0.85},
+    })
+    def test_run_full_pipeline_with_run_id(self, mock_llm, extractor):
         """验证传入 run_id 时尝试注册 Assumptions（不报错）。"""
         rfp_text = "仓库面积约20000平方米，DC数量3个。"
         result = extractor.run_full_pipeline(rfp_text, run_id="test-run-001")
