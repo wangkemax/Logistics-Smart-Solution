@@ -155,10 +155,11 @@ class TestWorkspaceManager:
         assert w2.snapshot_version == 3
         assert w2.is_dirty is True
 
-        # Verify assumptions split correctly
+        # Current values, including overrides, stay active. Overrides are also listed for provenance.
         ctx = json.loads(w2.context_json)
-        assert len(ctx["active_assumptions"]) == 1
+        assert len(ctx["active_assumptions"]) == 2
         assert len(ctx["overridden_assumptions"]) == 1
+        assert any(a["field_key"] == "warehouse_rent" and a["value"] == "30" for a in ctx["active_assumptions"])
 
     def test_build_workspace_context(self, db_session):
         """验证 context_json 能正确解析为 WorkspaceContext."""

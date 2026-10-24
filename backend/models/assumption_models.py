@@ -3,13 +3,16 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import Column, Integer, String, Float, Boolean, DateTime, Text
+from sqlalchemy import Column, Integer, String, Float, Boolean, DateTime, Text, UniqueConstraint
 
 from backend.models.database import Base
 
 
 class Assumption(Base):
     __tablename__ = "assumptions"
+    __table_args__ = (
+        UniqueConstraint("run_id", "field_key", "version_id", name="uq_assumption_run_field_version"),
+    )
 
     id = Column(Integer, primary_key=True, index=True)
     run_id = Column(String(40), index=True, nullable=False)
