@@ -7,7 +7,7 @@
       "sample_id": "bench_001",
       "sample_label": "汽车零部件DC投标",
       "ground_truth": {
-        "client_name": "保时捷（上海）汽车国际贸易有限公司",
+        "client_name": "澄海汽车贸易有限公司",
         "dc_count": "AMBIGUOUS",
         "warehouse_area": "AMBIGUOUS",
         "daily_orders": "MISSING",

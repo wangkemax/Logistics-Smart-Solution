@@ -93,7 +93,7 @@
 ### v0.7.1 — Base Solution Quality Patch
 - Markdown 导出端点: GET /api/solution/base/{pipeline_id}/markdown
 - 修复 complexity score 封顶 20 分（temperature_control 双重计数 bug）
-- 样板案例: 保时捷 PDC（仓配一体化）+ 医药冷链仓配中心
+- 样板案例: 澄海汽车零部件配送中心（虚构）+ 医药冷链仓配中心
 - Clarification Workspace: UTC→CST 时间戳转换
 
 ---
@@ -115,7 +115,7 @@
 
 ### v0.6.2 — Quality Gate Stability
 - Schema/CostModel field priority sync 修复
-- 保时捷 PDC 真实项目闭环验证
+- 澄海汽车零部件配送中心（虚构样例）闭环验证
 
 ### v0.6.3 — Downstream Explainability
 - Blocking Reasons Panel / Assumptions Used Panel

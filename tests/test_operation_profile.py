@@ -169,8 +169,8 @@ class TestOperationType:
 # =============================================================================
 
 class TestOperationProfileDerivation:
-    def test_full_derivation_porsche_like(self):
-        """Test with a 保时捷-like service scope (warehouse distribution)."""
+    def test_full_derivation_auto_parts_distribution(self):
+        """Warehouse distribution scope for a fictional auto-parts DC."""
         scope = make_scope(
             inbound={"receiving": True, "unloading": True, "quality_check": False, "putaway": True},
             storage={"pallet_storage": True, "bin_storage": False, "temperature_control": False, "bonded_storage": False},
@@ -289,7 +289,7 @@ class TestProcessModules:
         pm = build_process_modules(lm)
         assert pm == {}
 
-    def test_full_porsche_like_scope_has_multiple_processes(self):
+    def test_full_auto_parts_scope_has_multiple_processes(self):
         lm = {"receiving_team": True, "putaway_team": True, "picking_team": True,
               "packing_team": True, "loading_team": True, "return_processing_team": False,
               "inventory_control_team": True}

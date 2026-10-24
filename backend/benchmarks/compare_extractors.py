@@ -36,7 +36,7 @@ BENCHMARK_SAMPLES = [
         "text": """
 招标文件
 
-招标方：保时捷（上海）汽车国际贸易有限公司
+招标方：澄海汽车贸易有限公司
 项目名称：临港PDC仓储与配送服务采购
 服务区域：上海临港新片区
 合同期限：3年（2026年8月1日起）
@@ -78,7 +78,7 @@ SKU数量：招标文件提到约8,000个SKU，未提供ABC分类
 正文第3.2条写"覆盖5个DC"，附件A中列出4个仓库，存在矛盾
         """,
         "ground_truth": {
-            "client_name": "保时捷（上海）汽车国际贸易有限公司",
+            "client_name": "澄海汽车贸易有限公司",
             "dc_count": "AMBIGUOUS",   # 正文说5个DC，附件列4个
             "warehouse_area": "AMBIGUOUS",  # 只有两个面积，总量未明确
             "daily_orders": "MISSING",  # 未明确说日出库量

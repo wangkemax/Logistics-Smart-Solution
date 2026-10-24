@@ -67,7 +67,7 @@ def build_report_data(
     cost_summary: str,
     cost_recommendations: list,
     region: str = "华东",
-    company_name: str = "飞力达物流",
+    company_name: str | None = None,
     language: str = "cn",
 ) -> Dict[str, Any]:
     """
@@ -87,6 +87,8 @@ def build_report_data(
     Returns:
         Data dict ready for template rendering
     """
+    from backend.settings import COMPANY_NAME
+    company_name = company_name or COMPANY_NAME
     # Unwrap field-dict values (pipeline uses field-dict format: {value, status, ...})
     _UNWRAP_KEYS = {
         "industry", "region", "warehouse_area", "total_warehouse_area",
@@ -302,7 +304,7 @@ def generate_pdf(
     cost_recommendations: list,
     region: str = "华东",
     output_filename: Optional[str] = None,
-    company_name: str = "飞力达物流",
+    company_name: str | None = None,
     language: str = "cn",
 ) -> str:
     """
@@ -365,7 +367,7 @@ def generate_pdf_bytes(
     cost_summary: str,
     cost_recommendations: list,
     region: str = "华东",
-    company_name: str = "飞力达物流",
+    company_name: str | None = None,
     language: str = "cn",
 ) -> tuple[bytes, str]:
     """
