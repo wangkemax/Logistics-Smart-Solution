@@ -151,7 +151,7 @@ def export_pptx(request: PptxExportRequest):
     # 2. 渲染为 Marp Markdown
     marp_md = _pitch_renderer.render_marp_markdown(
         proposal,
-        company_name="飞力达物流",
+        company_name=None,
         theme=request.theme,
     )
 
@@ -216,7 +216,7 @@ def preview_pptx_markdown(workspace_id: str, theme: str = "default"):
 
     marp_md = _pitch_renderer.render_marp_markdown(
         proposal,
-        company_name="飞力达物流",
+        company_name=None,
         theme=theme,
     )
 

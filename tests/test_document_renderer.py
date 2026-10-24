@@ -312,7 +312,7 @@ def test_render_docx_cover_page(sample_proposal_sections: ProposalSections):
         filepath = renderer.render_docx(
             proposal_sections=sample_proposal_sections,
             output_dir=tmpdir,
-            company_name="飞力达物流",
+            company_name="澄海物流",
         )
 
         from docx import Document
@@ -320,7 +320,7 @@ def test_render_docx_cover_page(sample_proposal_sections: ProposalSections):
         doc = Document(filepath)
         full_text = "\n".join(p.text for p in doc.paragraphs)
 
-        assert "飞力达物流" in full_text
+        assert "澄海物流" in full_text
         assert "物流解决方案提案书" in full_text
 
 

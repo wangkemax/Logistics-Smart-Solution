@@ -115,7 +115,8 @@ def test_render_marp_markdown_includes_all_sections(pitch_renderer, sample_propo
     """验证所有核心 section 都被渲染"""
     md = pitch_renderer.render_marp_markdown(sample_proposal)
 
-    assert "飞力达物流" in md
+    from backend.settings import COMPANY_NAME
+    assert COMPANY_NAME in md
     assert "执行摘要" in md
     assert "核心方案设计" in md
     assert "阶段划分" in md  # 实施计划内容的子章节标题
@@ -336,7 +337,8 @@ def test_render_marp_markdown_empty_optional_fields(pitch_renderer):
     )
 
     md = pitch_renderer.render_marp_markdown(proposal)
-    assert "飞力达物流" in md
+    from backend.settings import COMPANY_NAME
+    assert COMPANY_NAME in md
     assert "---" in md
 
 

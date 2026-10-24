@@ -62,7 +62,7 @@ class PitchRenderer:
     def render_marp_markdown(
         self,
         proposal: ProposalSections,
-        company_name: str = "飞力达物流",
+        company_name: str | None = None,
         theme: str = "default",
     ) -> str:
         """
@@ -75,6 +75,8 @@ class PitchRenderer:
 
         返回完整的 Markdown 文本，可直接传给 marp-cli 渲染为 PPTX。
         """
+        from backend.settings import COMPANY_NAME
+        company_name = company_name or COMPANY_NAME
         colors = self.THEME_COLORS.get(theme, self.THEME_COLORS["default"])
         slides = []
 
