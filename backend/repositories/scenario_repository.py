@@ -13,14 +13,25 @@ Called by:
   - Future: admin UI, scenario management endpoints
 """
 
+import os
 import sys
 import sqlite3
 from pathlib import Path
 from typing import Optional
-from datetime import datetime
 
 PROJECT_ROOT = Path(__file__).parent.parent.parent
-DB_PATH = PROJECT_ROOT / "data" / "logistics_presale.db"
+
+
+def _resolve_db_path() -> Path:
+    """Same file SQLAlchemy opens for the default sqlite DATABASE_URL."""
+    url = os.getenv("DATABASE_URL", "sqlite:///./data/logistics_presale.db")
+    if url.startswith("sqlite:///"):
+        raw = url[len("sqlite:///") :]
+        return Path(raw)
+    return PROJECT_ROOT / "data" / "logistics_presale.db"
+
+
+DB_PATH = _resolve_db_path()
 
 
 # =============================================================================
@@ -212,7 +223,8 @@ DEFAULT_SCENARIOS = [
 CREATE_TABLE_SQL = """
 CREATE TABLE IF NOT EXISTS automation_scenarios (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
-    scenario_code   TEXT    UNIQUE NOT NULL,
+    scenario_id     INTEGER UNIQUE,
+    scenario_code   TEXT    UNIQUE,
     scenario_name   TEXT    NOT NULL,
     category        TEXT    NOT NULL DEFAULT '',
     applicable_industry TEXT NOT NULL DEFAULT '',
@@ -238,6 +250,12 @@ CREATE TABLE IF NOT EXISTS automation_scenarios (
     weight_orders   REAL    DEFAULT 0.20,
     weight_budget   REAL    DEFAULT 0.15,
     weight_region   REAL    DEFAULT 0.10,
+    capital_cost_per_sqm REAL,
+    annual_maintenance_pct REAL,
+    annual_savings_per_sqm REAL,
+    labor_reduction_ratio REAL,
+    deployment_months INTEGER,
+    compatible_regions TEXT,
     created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 )
@@ -246,16 +264,20 @@ CREATE TABLE IF NOT EXISTS automation_scenarios (
 
 def _get_conn() -> sqlite3.Connection:
     """Get a SQLite connection with row factory."""
-    conn = sqlite3.connect(str(DB_PATH))
+    path = _resolve_db_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(str(path))
     conn.row_factory = sqlite3.Row
     return conn
 
 
 def _ensure_table():
-    """Create the table if it doesn't exist (idempotent)."""
+    """Create the table if needed, then add any columns the old schema is missing."""
     conn = _get_conn()
     try:
         conn.executescript(CREATE_TABLE_SQL)
+        from backend.db_migrate import migrate_scenarios_sqlite
+        migrate_scenarios_sqlite(conn)
         conn.commit()
     finally:
         conn.close()
@@ -287,9 +309,11 @@ def get_active_scenarios() -> list[dict]:
 
             scenarios = []
             for row in rows:
+                keys = row.keys()
+                business_id = row["scenario_id"] if "scenario_id" in keys and row["scenario_id"] is not None else row["id"]
                 scenarios.append({
-                    "scenario_id": row["id"],
-                    "scenario_code": row["scenario_code"],  # may be None for old SCNxx rows
+                    "scenario_id": business_id,
+                    "scenario_code": row["scenario_code"] if "scenario_code" in keys else None,
                     "scenario_name": row["scenario_name"],
                     "category": row["category"] or "",
                     "applicable_industry": row["applicable_industry"] or "",
@@ -306,6 +330,8 @@ def get_active_scenarios() -> list[dict]:
                     "region": row["region"] or "华东",
                     "notes": row["notes"] or "",
                     "priority": row["priority"] or 5,
+                    "min_area": row["min_area"] if "min_area" in keys and row["min_area"] is not None else 0,
+                    "max_area": row["max_area"] if "max_area" in keys and row["max_area"] is not None else 999999,
                     # Weight columns — defaults match CREATE TABLE defaults
                     "weight_industry": row["weight_industry"] if row["weight_industry"] is not None else 0.20,
                     "weight_area": row["weight_area"] if row["weight_area"] is not None else 0.15,
@@ -374,41 +400,38 @@ def get_candidate_scenarios(
 # Seed / initialization
 # =============================================================================
 
+def _capex_bounds(s: dict) -> tuple[float, float]:
+    """Keep explicit capex. Derive from capital_cost_per_sqm only when both bounds are absent."""
+    has_min = s.get("capex_min") is not None
+    has_max = s.get("capex_max") is not None
+    if has_min or has_max:
+        return float(s.get("capex_min") or 0), float(s.get("capex_max") or s.get("capex_min") or 0)
+    rate = float(s.get("capital_cost_per_sqm") or 0)
+    return rate * float(s.get("min_area") or 0), rate * float(s.get("max_area") or 0)
+
+
 def seed_default_scenarios() -> int:
     """
-    Seed the database with default scenarios if table is empty.
-    Returns number of rows inserted.
+    Seed default scenarios only when the table is empty.
+
+    Existing rows (for example the CSV seed from scripts/init_db.py) are kept.
+    Missing columns are added first so startup does not fail on min_area.
+    Returns the number of rows inserted.
     """
     _ensure_table()
     conn = _get_conn()
     try:
-        # Check if already seeded
         count = conn.execute("SELECT COUNT(*) FROM automation_scenarios").fetchone()[0]
         if count > 0:
-            # Migrate: add missing columns for AUTO-01/AUTO-02 scenarios
-            cols = [r[1] for r in conn.execute("PRAGMA table_info(automation_scenarios)").fetchall()]
-            for col_sql in [
-                "ALTER TABLE automation_scenarios ADD COLUMN scenario_code TEXT",
-                "ALTER TABLE automation_scenarios ADD COLUMN capital_cost_per_sqm REAL",
-                "ALTER TABLE automation_scenarios ADD COLUMN annual_maintenance_pct REAL",
-                "ALTER TABLE automation_scenarios ADD COLUMN annual_savings_per_sqm REAL",
-                "ALTER TABLE automation_scenarios ADD COLUMN labor_reduction_ratio REAL",
-                "ALTER TABLE automation_scenarios ADD COLUMN deployment_months INTEGER",
-                "ALTER TABLE automation_scenarios ADD COLUMN compatible_regions TEXT",
-            ]:
-                col_name = col_sql.split("ADD COLUMN ")[1].split(" ")[0]
-                if col_name not in cols:
-                    try:
-                        conn.execute(col_sql)
-                    except Exception:
-                        pass
-            conn.execute("DELETE FROM automation_scenarios")
+            conn.commit()
+            return 0
 
+        import json as _json
         for s in DEFAULT_SCENARIOS:
-            import json as _json
+            capex_min, capex_max = _capex_bounds(s)
             conn.execute("""
                 INSERT INTO automation_scenarios (
-                    scenario_code, scenario_name, category, applicable_industry,
+                    scenario_id, scenario_code, scenario_name, category, applicable_industry,
                     min_area, max_area, sku_min, sku_max,
                     order_min, order_max, capex_min, capex_max,
                     opex_year, labor_saving, efficiency_gain,
@@ -419,8 +442,9 @@ def seed_default_scenarios() -> int:
                     annual_savings_per_sqm, labor_reduction_ratio,
                     deployment_months, compatible_regions,
                     is_active
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
+                s.get("scenario_id"),
                 s.get("scenario_code") or f"SCN{s.get('scenario_id', 99):02d}",
                 s["scenario_name"],
                 s["category"],
@@ -429,11 +453,10 @@ def seed_default_scenarios() -> int:
                 s.get("max_area") or 999999,
                 s.get("sku_min") or 0, s.get("sku_max") or 999999999,
                 s.get("order_min") or 0, s.get("order_max") or 999999999,
-                # Compute capex from capital_cost_per_sqm for AUTO-style scenarios
-                (s.get("capital_cost_per_sqm") or 0) * max(s.get("min_area") or 1, 1),
-                (s.get("capital_cost_per_sqm") or 0) * max(s.get("max_area") or 1, 1),
-                s.get("opex_year") or s.get("annual_savings_per_sqm", 0) * s.get("min_area", 10000) * 0.1 or 0,
-                s.get("labor_saving") or s.get("labor_reduction_ratio", 0),
+                capex_min,
+                capex_max,
+                s.get("opex_year") or 0,
+                s.get("labor_saving") if s.get("labor_saving") is not None else s.get("labor_reduction_ratio", 0),
                 s.get("efficiency_gain") or 0,
                 s.get("risk_level") or "中",
                 s.get("region") or "华东",
@@ -446,7 +469,7 @@ def seed_default_scenarios() -> int:
                 s.get("labor_reduction_ratio"),
                 s.get("deployment_months"),
                 _json.dumps(s.get("compatible_regions")) if s.get("compatible_regions") else None,
-                s.get("is_active", True),
+                1 if s.get("is_active", True) else 0,
             ))
         conn.commit()
         return len(DEFAULT_SCENARIOS)
