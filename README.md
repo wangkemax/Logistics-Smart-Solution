@@ -130,6 +130,10 @@ streamlit run frontend/dashboard/app.py --server.port 8501
 
 > 访问 http://localhost:8501
 
+金额与 `data/cost_parameters.csv` 一致，单位是元。ROI 是合同期累计净收益 / CAPEX 的倍数（`x`），不是百分比。无法回收时回收期和 IRR 为 `null`。
+
+本地开发默认不校验 API Key。把 `API_KEY` 写进环境后，除 `/`、`/api/health`、`/docs` 外的接口需要请求头 `X-API-Key`。CORS 使用 `CORS_ORIGINS`（默认 Streamlit 本机地址），不会同时打开 `*` 和 credentials。报告抬头用 `COMPANY_NAME`，未设置时是「物流解决方案团队」。PDF 上传默认不超过 20MB，且文件头必须是 `%PDF`。
+
 ---
 
 ## 📡 API 端点

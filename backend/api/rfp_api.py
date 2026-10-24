@@ -110,17 +110,24 @@ async def extract_from_pdf(
     上传 RFP PDF 文件提取内容。
     PDF 文件保存到临时路径，处理完成后自动删除。
     """
-    if not file.filename.lower().endswith(".pdf"):
+    if not file.filename or not file.filename.lower().endswith(".pdf"):
         raise HTTPException(status_code=400, detail="仅支持 PDF 文件格式")
 
-    # Save to temporary file
+    from backend.settings import max_pdf_bytes
+    content = await file.read()
+    if len(content) > max_pdf_bytes():
+        raise HTTPException(status_code=413, detail="PDF 超过大小限制")
+    if not content.startswith(b"%PDF"):
+        raise HTTPException(status_code=400, detail="文件不是有效的 PDF")
+
     with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as f:
-        content = await file.read()
         f.write(content)
         pdf_path = f.name
 
     try:
         result = _extractor.extract_from_pdf(pdf_path, language)
+        if result.get("error"):
+            raise HTTPException(status_code=422, detail=str(result.get("error")))
         return ExtractionResponse(
             success=result.get("error") is None,
             extracted=result.get("extracted", {}),

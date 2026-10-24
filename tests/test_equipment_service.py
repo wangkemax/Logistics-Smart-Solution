@@ -18,13 +18,14 @@ def setup_db():
     """每个测试创建干净数据库表，测试后清理"""
     Base.metadata.create_all(bind=engine)
     db = SessionLocal()
+    db.query(Equipment).delete()
+    db.commit()
     try:
         yield db
     finally:
-        db.close()
-        # 清理 equipment 表数据（不影响其他表）
         db.query(Equipment).delete()
         db.commit()
+        db.close()
 
 
 @pytest.fixture
@@ -172,6 +173,39 @@ class TestGetEquipmentById:
         result = service.get_equipment_by_id(deprecated.id)
         assert result is None
 
+    def test_null_version_id_does_not_fail_validation(self, seed_equipment):
+        from sqlalchemy import text
+        db = seed_equipment
+        db.execute(text("UPDATE equipment SET version_id = NULL WHERE model_name = 'AMR-500L'"))
+        db.commit()
+        service = EquipmentService()
+        rows = service.get_equipment(equipment_type="AMR")
+        named = next(row for row in rows if row.model_name == "AMR-500L")
+        assert named.version_id == 1
+
+    def test_asrs_alias_matches_slash_name(self, seed_equipment):
+        db = seed_equipment
+        db.add(Equipment(
+            equipment_type="AS/RS",
+            model_name="ASRS-M8",
+            manufacturer="Test",
+            capex_min=150,
+            capex_max=300,
+            throughput_unit="bin/hr",
+            throughput_value=80,
+            payload_kg=50,
+            max_speed_mps=0.8,
+            power_kw=1.5,
+            mtbf_hours=20000,
+            maintenance_cost_pa=20,
+            footprint_sqm=25,
+            is_active=True,
+        ))
+        db.commit()
+        service = EquipmentService()
+        rows = service.get_equipment(equipment_type="ASRS")
+        assert [row.model_name for row in rows] == ["ASRS-M8"]
+
 
 class TestEstimateCapex:
     def test_estimate_capex_returns_range(self, seed_equipment):
@@ -184,18 +218,34 @@ class TestEstimateCapex:
         assert "max" in result
         assert result["min"] > 0
         assert result["max"] > result["min"]
-        assert result["unit_count"] == 2
+        # No throughput target: one cheapest model times the requested quantity.
+        assert result["model_name"] == "AMR-500L"
+        assert result["unit_count"] == 10
+        assert result["min"] == 8.0 * 10
+        assert result["max"] == 15.0 * 10
 
     def test_estimate_capex_with_throughput_filter(self, seed_equipment):
-        """按吞吐量目标过滤后再估算"""
+        """Fleet size is ceil(target / chosen capacity), priced on that model only."""
         service = EquipmentService()
         result = service.estimate_capex(
             equipment_type="AMR", quantity=5, throughput_target=70.0
         )
-        # 只有 AMR-500L (80pos/hr) 满足 >=70
+        # AMR-500L covers 70 with 1 unit (80). AMR-1000L needs 2 and costs more.
+        assert result["model_name"] == "AMR-500L"
         assert result["unit_count"] == 1
-        assert result["min"] == 8.0 * 5
-        assert result["max"] == 15.0 * 5
+        assert result["min"] == 8.0
+        assert result["max"] == 15.0
+
+    def test_estimate_capex_scales_fleet_when_one_unit_is_short(self, seed_equipment):
+        service = EquipmentService()
+        result = service.estimate_capex(
+            equipment_type="AMR", quantity=1, throughput_target=100.0
+        )
+        # 100 / 80 = 2 units of AMR-500L (max 30) beats 2 units of AMR-1000L (max 44)
+        assert result["model_name"] == "AMR-500L"
+        assert result["unit_count"] == 2
+        assert result["min"] == 16.0
+        assert result["max"] == 30.0
 
     def test_estimate_capex_unknown_type_returns_zero(self, seed_equipment):
         """未知类型返回零值"""
@@ -214,12 +264,11 @@ class TestMatchEquipment:
         results = service.match_equipment_for_scenario(
             equipment_type="AMR", throughput_target=70.0
         )
-        assert len(results) == 2
-        # score = 1 - |throughput - target| / max(throughput, target)
-        # AMR-500L: 1 - 10/80 = 0.875
-        # AMR-1000L: 1 - 10/60 = 0.833
-        assert results[0].match_score >= results[1].match_score
+        # AMR-1000L (60) does not cover 70 with one unit.
+        assert len(results) == 1
         assert results[0].equipment.model_name == "AMR-500L"
+        assert results[0].quantity == 1
+        assert results[0].capex_estimate == 15.0
 
     def test_match_equipment_with_payload_filter(self, seed_equipment):
         """payload_min 过滤"""

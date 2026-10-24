@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import Column, Integer, String, Float, Boolean, DateTime, Text
+from sqlalchemy import Column, Integer, String, Float, Boolean, DateTime, Text, text
 
 from backend.models.database import Base
 
@@ -16,7 +16,7 @@ class Equipment(Base):
     id = Column(Integer, primary_key=True, index=True)
 
     # 设备分类
-    equipment_type = Column(String(30), nullable=False, index=True)  # AMR / GTP / ASRS / Shuttle / Conveyor / Sorter
+    equipment_type = Column(String(30), nullable=False, index=True)  # AMR / GTP / AS/RS / Shuttle / Conveyor / Sorter
     model_name = Column(String(100), nullable=False)  # 型号名
     manufacturer = Column(String(100), default="")
 
@@ -39,7 +39,7 @@ class Equipment(Base):
     footprint_sqm = Column(Float, nullable=False)  # 单机占地面积（m²）
 
     # 版本控制（与 Assumption Governance 体系对齐）
-    version_id = Column(Integer, default=1)
+    version_id = Column(Integer, default=1, server_default=text("1"))
     effective_date = Column(DateTime, default=datetime.utcnow)
     deprecated_at = Column(DateTime, nullable=True)
 
