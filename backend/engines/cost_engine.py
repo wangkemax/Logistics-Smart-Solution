@@ -2,6 +2,8 @@ from typing import Dict, Any, Optional
 import pandas as pd
 import os
 
+from backend.services.financial_core import automation_economics, roi_multiple
+
 
 REGION_DEFAULTS = {
     "华东": {"rent": 600, "labor": 80000, "labor_cost_per_person_year": 80000, "maintenance": 0.05, "overhead": 0.15, "density": 4},
@@ -92,13 +94,9 @@ def calculate_roi(
     capex: float,
     years: int = 5
 ) -> float:
-    """ROI = (节省人工 - 运维成本) / 投资"""
-    if capex <= 0:
-        return 0.0
+    """ROI 倍数 = (年节省人工 - 年运维) * 年数 / 投资。"""
     net_annual_benefit = labor_saving_annual - maintenance_cost_annual
-    total_benefit = net_annual_benefit * years
-    roi = total_benefit / capex
-    return round(roi, 2)
+    return roi_multiple(net_annual_benefit, capex, years)
 
 
 def calculate_costs(profile: Dict, region: str = "华东",
@@ -156,27 +154,27 @@ def calculate_costs(profile: Dict, region: str = "华东",
         auto_map = {"低": 0.2, "中": 0.35, "高": 0.5}
         labor_saving_rate = auto_map.get(automation_expectation, 0.35)
 
-    # Cost calculations
-    headcount_saved = max(0, baseline_headcount - automated_headcount)
-    actual_labor_saving = headcount_saved * labor_cost_per_person
+    # Labor saving rate scales the manual baseline. Do not add a second fudge on the remaining crew.
+    maint_rate = params.get("maintenance", params.get("equipment_maintenance_rate", 0.05))
+    econ = automation_economics(
+        daily_orders=daily_orders,
+        labor_cost_per_person=labor_cost_per_person,
+        labor_saving_rate=labor_saving_rate,
+        capex=capex,
+        maintenance_rate=maint_rate,
+        years=5,
+    )
+    headcount_saved = econ["headcount_saved"]
+    automated_headcount = econ["headcount_required"]
+    total_labor_saving = econ["annual_labor_saving"]
+    annual_maintenance = econ["annual_maintenance"]
+    net_annual_benefit = econ["net_annual_benefit"]
+    roi = econ["roi"]
+    payback_value = econ["payback_years"]
 
-    # Also apply labor saving rate to remaining workforce
-    additional_saving = automated_headcount * labor_cost_per_person * labor_saving_rate * 0.3
-    total_labor_saving = actual_labor_saving + additional_saving
-
-    # Automation costs
-    annual_maintenance = capex * params["maintenance"]
     overhead = (warehouse_cost_annual + baseline_labor_cost) * params["overhead"]
-
-    total_annual_cost_manual = warehouse_cost_annual + baseline_labor_cost + overhead
     automated_labor_cost = automated_headcount * labor_cost_per_person
     total_annual_cost_auto = warehouse_cost_annual + automated_labor_cost + annual_maintenance + overhead
-
-    net_annual_benefit = total_labor_saving - annual_maintenance
-    roi = calculate_roi(total_labor_saving, annual_maintenance, capex, years=5)
-
-    payback_years = capex / max(1, net_annual_benefit) if net_annual_benefit > 0 else 99
-    payback_years = min(99, round(payback_years, 1))
 
     # Year 1 financial fields (EBITA model)
     y1_revenue = round(total_labor_saving, 0)          # automation_savings = "revenue" side
@@ -192,7 +190,7 @@ def calculate_costs(profile: Dict, region: str = "华东",
         "automation_savings_annual": round(total_labor_saving, 0),
         "net_annual_benefit": round(net_annual_benefit, 0),
         "roi": roi,
-        "payback_years": payback_years,
+        "payback_years": payback_value,
         "headcount_required": automated_headcount,
         "headcount_saved": headcount_saved,
         # Y1 EBITA fields
@@ -205,15 +203,19 @@ def calculate_costs(profile: Dict, region: str = "华东",
 def generate_cost_summary(cost_data: Dict) -> str:
     """Generate human-readable cost summary."""
     roi = cost_data.get("roi", 0)
-    payback = cost_data.get("payback_years", 99)
+    payback = cost_data.get("payback_years")
     savings = cost_data.get("automation_savings_annual", 0)
     capex = cost_data.get("automation_capex", 0)
 
+    if isinstance(payback, (int, float)):
+        payback_text = f"预计回本周期 {payback:.1f}年"
+    else:
+        payback_text = "投资无法回收，建议重新评估方案"
     summary_parts = [
         f"项目预计总投资 ¥{capex/10000:.0f}万元",
         f"年节省人工成本 ¥{savings/10000:.1f}万元",
         f"5年ROI达到 {roi:.1f}x",
-        f"预计回本周期 {payback:.1f}年" if payback < 99 else "回本周期较长，建议重新评估方案",
+        payback_text,
     ]
 
     return "，".join(summary_parts) + "。"
@@ -224,7 +226,7 @@ def generate_cost_recommendations(cost_data: Dict, profile: Dict) -> list:
     recommendations = []
 
     roi = cost_data.get("roi", 0)
-    payback = cost_data.get("payback_years", 99)
+    payback = cost_data.get("payback_years")
     headcount_saved = cost_data.get("headcount_saved", 0)
 
     if roi < 1.5:
@@ -232,7 +234,7 @@ def generate_cost_recommendations(cost_data: Dict, profile: Dict) -> list:
     elif roi > 3:
         recommendations.append("ROI表现优秀，可考虑扩大自动化投资范围")
 
-    if payback > 5:
+    if payback is None or payback > 5:
         recommendations.append("回本周期超过5年，建议评估租赁方案降低初始投入")
     elif payback < 2:
         recommendations.append("回本周期短，方案经济性优良，建议尽快推进")

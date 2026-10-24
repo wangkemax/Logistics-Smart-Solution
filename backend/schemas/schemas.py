@@ -77,7 +77,7 @@ class CostBreakdown(BaseModel):
     automation_savings_annual: float
     net_annual_benefit: float
     roi: float
-    payback_years: float
+    payback_years: Optional[float] = None
     headcount_required: int
     headcount_saved: int
 
@@ -117,7 +117,7 @@ class ScenarioComparisonRow(BaseModel):
     five_year_net_benefit: float
     roi: float
     roi_5y: float
-    payback_years: float
+    payback_years: Optional[float] = None
     headcount_saved: int
     headcount_required: int
     total_annual_cost: float
