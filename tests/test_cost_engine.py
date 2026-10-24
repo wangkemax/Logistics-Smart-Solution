@@ -180,3 +180,58 @@ class TestCostSummary:
         summary = generate_cost_summary(cost_data)
         assert "万" in summary
         assert "ROI" in summary
+
+
+class TestSharedLaborPath:
+    def test_scenario_labor_rate_sets_headcount_without_double_count(self):
+        """5000 orders, 华东, scenario 1.
+
+        baseline = int(int(5000/150) * 1.3) = 42
+        saved = round(42 * 0.30) = 13
+        salary = 80000
+        saving = 1,040,000
+        capex = 1,250,000
+        maintenance = 62,500
+        net = 977,500
+        5y ROI multiple = 3.91
+        """
+        profile = {
+            "industry": "电商",
+            "warehouse_area": 10000,
+            "sku_count": 20000,
+            "daily_orders": 5000,
+            "inventory": 100000,
+            "labor_cost_level": "中",
+            "budget_level": "中",
+            "automation_expectation": "中",
+        }
+        low = calculate_costs(profile, "华东", selected_scenario_id=9)
+        high = calculate_costs(profile, "华东", selected_scenario_id=1)
+        assert high["headcount_saved"] == 13
+        assert high["automation_savings_annual"] == 1_040_000
+        assert high["annual_maintenance"] == 62_500
+        assert high["net_annual_benefit"] == 977_500
+        assert high["roi"] == pytest.approx(3.91, abs=0.01)
+        assert high["payback_years"] == pytest.approx(1.3, abs=0.05)
+        assert low["headcount_saved"] != high["headcount_saved"]
+        assert low["headcount_saved"] == int(round(42 * 0.15))
+
+        from backend.services.cost_service import calculate_solution_financials
+        fin = calculate_solution_financials(
+            profile,
+            {
+                "scenario_id": 1,
+                "scenario_name": "AMR拣选辅助",
+                "category": "移动机器人",
+                "capex_min": 500000,
+                "capex_max": 2000000,
+                "labor_saving": 0.3,
+                "efficiency_gain": 0.4,
+            },
+            "华东",
+        )
+        assert fin["annual_efficiency_saving"] == 0
+        assert fin["opex_annual"] == 62500
+        assert fin["headcount_saved"] == 13
+        assert fin["net_annual_benefit"] == 977500
+        assert fin["roi_5y"] == pytest.approx(3.91, abs=0.01)

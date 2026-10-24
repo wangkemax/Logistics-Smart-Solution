@@ -304,29 +304,40 @@ def calculate_solution_financials(
     labor_cost_per_person = cost_params["labor_cost_per_person_year"] * labor_cost_multiplier
 
     daily_orders, _ = _resolved_val("daily_orders", 0)
-    base_headcount = max(1, int(daily_orders / 150)) if daily_orders else 1
+    try:
+        daily_orders = int(daily_orders or 0)
+    except (TypeError, ValueError):
+        daily_orders = 0
 
-    headcount_saved = base_headcount * labor_saving_ratio
-    annual_labor_saving = headcount_saved * labor_cost_per_person
-
-    efficiency_saving_hours = (daily_orders or 0) * efficiency_gain_ratio * 0.01
-    annual_efficiency_saving = efficiency_saving_hours * cost_params["labor_cost_per_person_year"]
-
-    # OPEX (annual maintenance, ~8% of CAPEX for automation systems)
-    opex_annual = capex_estimate * 0.08
-
-    # Net annual benefit
-    net_annual_benefit = annual_labor_saving + annual_efficiency_saving - opex_annual
-
-    # ROI calculations
-    roi_5y = _safe_div(net_annual_benefit * 5, capex_estimate)
-    roi_3y = _safe_div(net_annual_benefit * 3, capex_estimate)
-
-    # Payback period
-    payback_years = _safe_div(capex_estimate, net_annual_benefit) if net_annual_benefit > 0 else None
-
-    # Headcount required (remaining after automation)
-    headcount_required = max(1, int(round(base_headcount * (1 - labor_saving_ratio))))
+    from backend.services.financial_core import automation_economics
+    maint_rate = cost_params.get("equipment_maintenance_rate", cost_params.get("maintenance", 0.05))
+    econ = automation_economics(
+        daily_orders=daily_orders,
+        labor_cost_per_person=labor_cost_per_person,
+        labor_saving_rate=labor_saving_ratio,
+        capex=capex_estimate,
+        maintenance_rate=float(maint_rate or 0),
+        years=5,
+    )
+    # efficiency_gain is not a second cash term; labor_saving_rate already scales headcount.
+    base_headcount = econ["baseline_headcount"]
+    headcount_saved = econ["headcount_saved"]
+    annual_labor_saving = econ["annual_labor_saving"]
+    annual_efficiency_saving = 0.0
+    opex_annual = econ["annual_maintenance"]
+    net_annual_benefit = econ["net_annual_benefit"]
+    roi_5y = econ["roi"]
+    roi_3y = automation_economics(
+        daily_orders=daily_orders,
+        labor_cost_per_person=labor_cost_per_person,
+        labor_saving_rate=labor_saving_ratio,
+        capex=capex_estimate,
+        maintenance_rate=float(maint_rate or 0),
+        years=3,
+    )["roi"]
+    payback_years = econ["payback_years"]
+    headcount_required = econ["headcount_required"]
+    _ = efficiency_gain_ratio  # displayed with the scenario; not a second cash term
 
     # Warnings
     warnings = []
@@ -366,7 +377,7 @@ def calculate_solution_financials(
         "payback_years_str": f"{payback_years:.1f}年" if payback_years else "无法计算",
         "headcount_saved": _round2(headcount_saved),
         "headcount_required": headcount_required,
-        "total_annual_cost": _round2(opex_annual + base_headcount * labor_cost_per_person * (1 - labor_saving_ratio)),
+        "total_annual_cost": _round2(opex_annual + headcount_required * labor_cost_per_person),
         "is_best": False,
         "warnings": warnings,
         # Y1 EBITA fields
@@ -478,10 +489,11 @@ def get_scenario_comparison(profile_dict: dict, region: str,
     if best:
         best_name = best["scenario_name"]
         roi_5y = best.get("roi_5y") or 0
-        payback = best.get("payback_years") or 0
+        payback = best.get("payback_years")
+        payback_text = f"{payback:.1f}年" if isinstance(payback, (int, float)) else "无法回收"
         summary = (
             f"基于{industry}行业的运营特征，在{len(comparisons)}个方案中，"
-            f"【{best_name}】综合表现最优：5年ROI {roi_5y:.1f}x，回本周期 {payback:.1f}年，"
+            f"【{best_name}】综合表现最优：5年ROI {roi_5y:.1f}x，回本周期 {payback_text}，"
             f"建议作为首选方案。"
         )
     else:

@@ -105,9 +105,10 @@ def get_scenario_comparison(profile_dict: dict, region: str,
         best_name = best["scenario_name"]
         roi_5y = best["roi_5y"]
         payback = best["payback_years"]
+        payback_text = f"{payback:.1f}年" if isinstance(payback, (int, float)) else "无法回收"
         summary = (
             f"基于{industry}行业的运营特征，在{len(comparisons)}个方案中，"
-            f"【{best_name}】综合表现最优：5年ROI {roi_5y:.1f}x，回本周期 {payback:.1f}年，"
+            f"【{best_name}】综合表现最优：5年ROI {roi_5y:.1f}x，回本周期 {payback_text}，"
             f"建议作为首选方案。"
         )
     else:

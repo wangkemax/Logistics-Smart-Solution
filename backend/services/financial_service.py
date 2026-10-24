@@ -3,6 +3,13 @@ from __future__ import annotations
 from backend.schemas.financial_schemas import FinancialInput, FinancialResult
 from backend.models.financial_models import FinancialSnapshot
 from backend.models.database import SessionLocal
+from backend.services.financial_core import (
+    irr_percent,
+    npv,
+    payback_years,
+    project_cashflows,
+    roi_multiple,
+)
 
 
 class FinancialService:
@@ -31,54 +38,34 @@ class FinancialService:
         capex_total_min = inp.equipment_capex_min + engineering_fee_min + software_fee_min
         capex_total_max = inp.equipment_capex_max + engineering_fee_max + software_fee_max
 
-        # 2. OPEX 计算
-        opex_labor = inp.headcount_reduction * inp.avg_labor_cost_per_person
+        # 人力只作为收益。租金列示，不进入净收益，避免把存量租金当成自动化成本。
+        revenue_labor_saving = inp.headcount_reduction * inp.avg_labor_cost_per_person
+        opex_labor = 0.0
         opex_warehouse = inp.warehouse_area_sqm * inp.warehouse_cost_per_sqm
         opex_utility = inp.warehouse_area_sqm * inp.utility_cost_per_sqm
-        opex_maintenance = (inp.equipment_capex_min + inp.equipment_capex_max) / 2 * inp.maintenance_rate
-        opex_total = opex_labor + opex_warehouse + opex_utility + opex_maintenance
+        avg_equipment = (inp.equipment_capex_min + inp.equipment_capex_max) / 2
+        opex_maintenance = avg_equipment * inp.maintenance_rate
+        opex_total = opex_utility + opex_maintenance
 
-        # 3. 收益
-        revenue_labor_saving = opex_labor  # 人力节省 = OPEX人力减少
         revenue_throughput_improvement = inp.annual_throughput_revenue
         revenue_total = revenue_labor_saving + revenue_throughput_improvement
-
-        # 4. 年净收益
         net_annual_benefit = revenue_total - opex_total
 
-        # 5. Payback（年）
         avg_capex = (capex_total_min + capex_total_max) / 2
-        if net_annual_benefit > 0:
-            payback_years = avg_capex / net_annual_benefit
-        else:
-            payback_years = 999.0  # 无法回收
+        years = inp.contract_years
+        payback = payback_years(avg_capex, net_annual_benefit)
+        roi = roi_multiple(net_annual_benefit, avg_capex, years)
+        cashflow_years = project_cashflows(avg_capex, net_annual_benefit, years)
+        irr_pct = irr_percent(cashflow_years)
+        npv_value = round(npv(cashflow_years, inp.discount_rate), 2)
 
-        # 6. 5年ROI
-        total_net_benefit_5y = net_annual_benefit * inp.contract_years
-        roi_5y = (total_net_benefit_5y - avg_capex) / avg_capex * 100 if avg_capex > 0 else 0
-
-        # 7. IRR（简化算法：牛顿法迭代）
-        irr = self._calculate_irr(
-            cashflows=[-avg_capex] + [net_annual_benefit] * inp.contract_years,
-            guess=0.1,
-        )
-
-        # 8. 现金流量表
-        cashflow_years = []
-        for year in range(1, inp.contract_years + 1):
-            if year == 1:
-                cf = -avg_capex + net_annual_benefit  # 首年含CAPEX
-            else:
-                cf = net_annual_benefit
-            cashflow_years.append(round(cf, 2))
-
-        # 9. 生成摘要文本
         summary_text = self._generate_summary(
-            roi_5y=roi_5y,
-            payback_years=payback_years,
-            irr=irr,
+            roi_multiple_value=roi,
+            payback=payback,
+            irr_percent_value=irr_pct,
             capex_total=avg_capex,
             net_annual_benefit=net_annual_benefit,
+            years=years,
         )
 
         return FinancialResult(
@@ -98,55 +85,51 @@ class FinancialService:
             revenue_throughput_improvement=round(revenue_throughput_improvement, 2),
             revenue_total=round(revenue_total, 2),
             net_annual_benefit=round(net_annual_benefit, 2),
-            roi_5y=round(roi_5y, 1),
-            payback_years=round(payback_years, 1),
-            irr=round(irr * 100, 1),  # 转为百分比
+            roi_5y=roi,
+            payback_years=payback,
+            irr=irr_pct,
+            npv=npv_value,
+            discount_rate=inp.discount_rate,
+            contract_years=years,
             cashflow_years=cashflow_years,
             summary_text=summary_text,
         )
 
-    def _calculate_irr(self, cashflows: list[float], guess: float = 0.1, tolerance: float = 1e-6, max_iter: int = 1000) -> float:
-        """
-        简化 IRR 计算：牛顿法迭代。
-        找到使 NPV=0 的折现率。
-        """
-        rate = guess
-        for _ in range(max_iter):
-            npv = sum(cf / (1 + rate) ** t for t, cf in enumerate(cashflows))
-            d_npv = sum(-t * cf / (1 + rate) ** (t + 1) for t, cf in enumerate(cashflows))
-            if abs(d_npv) < 1e-12:
-                break
-            rate_new = rate - npv / d_npv
-            if abs(rate_new - rate) < tolerance:
-                return rate_new
-            rate = rate_new
-        return rate
-
     def _generate_summary(
         self,
-        roi_5y: float,
-        payback_years: float,
-        irr: float,
+        roi_multiple_value: float,
+        payback: float | None,
+        irr_percent_value: float | None,
         capex_total: float,
         net_annual_benefit: float,
+        years: int,
     ) -> str:
-        """生成 LLM 可读的财务摘要"""
-        if payback_years >= 999:
-            return "投资无法在合同期内回收，建议优化方案或重新评估假设。"
+        """摘要金额按万元显示，ROI 用倍数。"""
+        capex_wan = capex_total / 10000
+        net_wan = net_annual_benefit / 10000
+        if payback is None:
+            return (
+                f"本方案总投资约{capex_wan:.1f}万元，"
+                f"年净收益约{net_wan:.1f}万元。"
+                "投资无法在合同期内回收，建议优化方案或重新评估假设。"
+            )
 
-        roi_status = "优秀" if roi_5y > 100 else "良好" if roi_5y > 50 else "一般"
-
+        roi_status = "优秀" if roi_multiple_value > 2 else "良好" if roi_multiple_value > 1 else "一般"
+        irr_text = f"{irr_percent_value:.1f}%" if irr_percent_value is not None else "无法计算"
         return (
-            f"本方案总投资约{capex_total:.0f}万元，"
-            f"年净收益约{net_annual_benefit:.0f}万元，"
-            f"投资回收期{payback_years:.1f}年，"
-            f"5年ROI{roi_5y:.0f}%，"
-            f"内部收益率{irr * 100:.1f}%，"
+            f"本方案总投资约{capex_wan:.1f}万元，"
+            f"年净收益约{net_wan:.1f}万元，"
+            f"投资回收期{payback:.1f}年，"
+            f"{years}年ROI {roi_multiple_value:.1f}x，"
+            f"内部收益率{irr_text}，"
             f"整体{roi_status}。"
         )
 
     def save_snapshot(self, result: FinancialResult, workspace_id: str, snapshot_version: int) -> FinancialSnapshot:
         """保存财务快照到数据库"""
+        from backend.db_migrate import apply_migrations
+        from backend.models.database import engine
+        apply_migrations(engine)
         db = SessionLocal()
         try:
             snap = FinancialSnapshot(
@@ -169,6 +152,9 @@ class FinancialService:
                 roi_5y=result.roi_5y,
                 payback_years=result.payback_years,
                 irr=result.irr,
+                npv=result.npv,
+                contract_years=result.contract_years,
+                discount_rate=result.discount_rate,
                 cashflow_y1=result.cashflow_years[0] if len(result.cashflow_years) > 0 else 0,
                 cashflow_y2=result.cashflow_years[1] if len(result.cashflow_years) > 1 else 0,
                 cashflow_y3=result.cashflow_years[2] if len(result.cashflow_years) > 2 else 0,
