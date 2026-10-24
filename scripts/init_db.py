@@ -4,7 +4,8 @@ import sys
 import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from backend.models.database import init_db, SessionLocal, AutomationScenario, CostParameter
+from backend.models.database import init_db, SessionLocal, AutomationScenario, CostParameter, engine
+from backend.models.equipment_models import Equipment
 import pandas as pd
 
 
@@ -42,6 +43,30 @@ def seed_scenarios(db):
 
     db.commit()
     print(f"Seeded {len(df)} automation scenarios")
+
+
+def seed_equipment(db):
+    """Load equipment_seed.sql when the catalog is empty, then fill null version_id."""
+    from sqlalchemy import text
+
+    existing = db.query(Equipment).count()
+    if existing == 0:
+        sql_path = os.path.join(os.path.dirname(__file__), "../data/equipment_seed.sql")
+        if not os.path.exists(sql_path):
+            print(f"WARNING: {sql_path} not found, skipping equipment seeding")
+        else:
+            raw = open(sql_path, encoding="utf-8").read()
+            connection = engine.raw_connection()
+            try:
+                connection.executescript(raw)
+                connection.commit()
+            finally:
+                connection.close()
+            print("Seeded equipment catalog")
+    else:
+        print(f"Equipment already seeded ({existing} records), skipping...")
+    db.execute(text("UPDATE equipment SET version_id = 1 WHERE version_id IS NULL"))
+    db.commit()
 
 
 def seed_cost_parameters(db):
@@ -84,6 +109,7 @@ if __name__ == "__main__":
     try:
         seed_scenarios(db)
         seed_cost_parameters(db)
+        seed_equipment(db)
         print("Database initialization complete!")
     finally:
         db.close()

@@ -14,7 +14,7 @@ _service = EquipmentService()
 @router.get("/types")
 def list_equipment_types():
     """列出所有设备类型"""
-    return ["AMR", "GTP", "ASRS", "Shuttle", "Conveyor", "Sorter"]
+    return ["AMR", "GTP", "AS/RS", "Shuttle", "Conveyor", "Sorter"]
 
 
 @router.get("/", response_model=list[EquipmentSchema])

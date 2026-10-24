@@ -11,7 +11,9 @@ class ProposalLLMService:
     """Proposal 专用的 LLM 调用封装"""
 
     def __init__(self):
-        self.api_key = os.getenv("MINIMAX_API_KEY", "")
+        from backend.services.llm_client import minimax_api_key
+        # Proposal chat stays on MiniMax. Do not fall back to an OpenAI key.
+        self.api_key = minimax_api_key() or ""
         self.base_url = "https://api.minimax.chat/v1"
         self.model = "MiniMax-M2.7-32K"
         self.group_id = os.getenv("MINIMAX_GROUP_ID", "")
