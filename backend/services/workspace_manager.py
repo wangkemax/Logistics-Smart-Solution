@@ -187,10 +187,9 @@ class WorkspaceManager:
             active_assumptions = []
             overridden_assumptions = []
             for a in assumption_list:
+                active_assumptions.append(a)
                 if a.get("is_overridden", False):
                     overridden_assumptions.append(a)
-                else:
-                    active_assumptions.append(a)
 
             # 从 base_solution_json 提取字段
             context_dict = {

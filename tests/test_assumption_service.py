@@ -88,3 +88,39 @@ class TestAssumptionService:
         assert rolled is not None
         assert rolled.value == "v1"
         assert rolled.version_id == 3  # New version created
+
+
+class TestAssumptionVersionRegression:
+    def setup_method(self):
+        _cleanup()
+
+    def teardown_method(self):
+        _cleanup()
+
+    def test_second_override_is_what_get_for_run_returns(self):
+        """9000 written as v3 must win over an earlier v2 of 8000."""
+        svc = AssumptionService()
+        svc.register(TEST_RUN_ID_2, "sku_count", "5000", "v1", confidence=0.5)
+        first = svc.override(TEST_RUN_ID_2, "sku_count", "8000", "v2")
+        second = svc.override(TEST_RUN_ID_2, "sku_count", "9000", "v3")
+        assert first.version_id == 2
+        assert second.version_id == 3
+        assert second.value == "9000"
+        latest = next(r for r in svc.get_for_run(TEST_RUN_ID_2) if r.field_key == "sku_count")
+        assert latest.value == "9000"
+        assert latest.version_id == 3
+
+    def test_reregister_appends_and_rollback_restores_original(self):
+        svc = AssumptionService()
+        svc.register(TEST_RUN_ID_2, "sku_count", "5000", "original", confidence=0.5)
+        svc.override(TEST_RUN_ID_2, "sku_count", "8000", "edited")
+        again = svc.register(TEST_RUN_ID_2, "sku_count", "1111", "reregister", confidence=0.4)
+        assert again.version_id == 3
+        assert again.value == "1111"
+        history = svc.get_version_history(TEST_RUN_ID_2, "sku_count")
+        assert [h.value for h in history] == ["1111", "8000", "5000"]
+        rolled = svc.rollback(TEST_RUN_ID_2, "sku_count", 1)
+        assert rolled.value == "5000"
+        assert rolled.version_id == 4
+        latest = next(r for r in svc.get_for_run(TEST_RUN_ID_2) if r.field_key == "sku_count")
+        assert latest.value == "5000"

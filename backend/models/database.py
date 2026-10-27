@@ -12,22 +12,50 @@ Base = declarative_base()
 
 
 class AutomationScenario(Base):
+    """Single schema shared with scenario_repository.
+
+    Existing SQLite files created from the old column set are altered at
+    startup (see backend.db_migrate / seed_default_scenarios). create_all
+    does not add columns to a table that already exists.
+    """
     __tablename__ = "automation_scenarios"
 
     id = Column(Integer, primary_key=True, index=True)
     scenario_id = Column(Integer, unique=True, index=True)
+    scenario_code = Column(String(40), unique=True, nullable=True)
     scenario_name = Column(String(100), nullable=False)
     category = Column(String(50))
     applicable_industry = Column(String(200))
+    min_area = Column(Float, default=0)
+    max_area = Column(Float, default=999999)
     sku_min = Column(Integer, default=0)
     sku_max = Column(Integer, default=9999999)
     order_min = Column(Integer, default=0)
     order_max = Column(Integer, default=9999999)
     capex_min = Column(Float, default=0)
     capex_max = Column(Float, default=99999999)
+    opex_year = Column(Float, default=0)
     labor_saving = Column(Float, default=0)
     efficiency_gain = Column(Float, default=0)
     risk_level = Column(String(10), default="中")
+    region = Column(String(20), default="华东")
+    notes = Column(Text, default="")
+    priority = Column(Integer, default=5)
+    is_active = Column(Integer, default=1)
+    weight_industry = Column(Float, default=0.20)
+    weight_area = Column(Float, default=0.15)
+    weight_sku = Column(Float, default=0.20)
+    weight_orders = Column(Float, default=0.20)
+    weight_budget = Column(Float, default=0.15)
+    weight_region = Column(Float, default=0.10)
+    capital_cost_per_sqm = Column(Float, nullable=True)
+    annual_maintenance_pct = Column(Float, nullable=True)
+    annual_savings_per_sqm = Column(Float, nullable=True)
+    labor_reduction_ratio = Column(Float, nullable=True)
+    deployment_months = Column(Integer, nullable=True)
+    compatible_regions = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow)
 
 
 class Project(Base):
@@ -152,3 +180,28 @@ def init_db():
     from backend.models.workspace_models import Workspace  # noqa: F401
     from backend.models.financial_models import FinancialSnapshot  # noqa: F401
     Base.metadata.create_all(bind=engine)
+    from backend.db_migrate import apply_migrations
+    apply_migrations(engine)
+    _seed_equipment_if_empty()
+
+
+def _seed_equipment_if_empty():
+    from pathlib import Path
+    from sqlalchemy import text
+    from backend.models.equipment_models import Equipment
+
+    db = SessionLocal()
+    try:
+        if db.query(Equipment).count() == 0:
+            sql_path = Path(__file__).resolve().parents[2] / "data" / "equipment_seed.sql"
+            if sql_path.exists():
+                raw_conn = engine.raw_connection()
+                try:
+                    raw_conn.executescript(sql_path.read_text(encoding="utf-8"))
+                    raw_conn.commit()
+                finally:
+                    raw_conn.close()
+        db.execute(text("UPDATE equipment SET version_id = 1 WHERE version_id IS NULL"))
+        db.commit()
+    finally:
+        db.close()

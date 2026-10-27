@@ -12,6 +12,13 @@ import plotly.graph_objects as go
 from datetime import datetime
 
 API_BASE_URL = os.getenv("API_BASE_URL", "http://localhost:8000")
+COMPANY_NAME = os.getenv("COMPANY_NAME", "物流解决方案团队")
+
+
+def _fmt_years(value) -> str:
+    if isinstance(value, (int, float)):
+        return f"{float(value):.1f}年"
+    return "无法回收"
 
 st.set_page_config(
     page_title="物流预售AI系统",
@@ -141,7 +148,8 @@ def render_compare_roi_chart(comparisons):
 
 def render_compare_radar(comparisons):
     max_roi = max((c["roi_5y"] for c in comparisons), default=1)
-    max_payback = max((c["payback_years"] for c in comparisons), default=1)
+    paybacks = [c["payback_years"] for c in comparisons if isinstance(c.get("payback_years"), (int, float))]
+    max_payback = max(paybacks, default=1) or 1
     max_saving = max((c["annual_saving"] for c in comparisons), default=1)
     max_hc = max((c["headcount_saved"] for c in comparisons), default=1)
     colors = ["#2196f3", "#4caf50", "#ff9800", "#9c27b0", "#f44336"]
@@ -149,7 +157,7 @@ def render_compare_radar(comparisons):
     for i, c in enumerate(comparisons[:5]):
         values = [
             (c["roi_5y"] / max_roi) * 100,
-            (1 - c["payback_years"] / max_payback) * 100,
+            (1 - c["payback_years"] / max_payback) * 100 if isinstance(c.get("payback_years"), (int, float)) else 0,
             (c["annual_saving"] / max_saving) * 100,
             (c["headcount_saved"] / max_hc) * 100,
             100,
@@ -371,7 +379,7 @@ if app_mode == "📋 方案生成":
                 c1.metric("总投资", f"¥{cost_data['automation_capex']/10000:.0f}万")
                 c2.metric("年节省人工", f"¥{cost_data['automation_savings_annual']/10000:.1f}万")
                 c3.metric("5年ROI", f"{cost_data['roi']:.1f}x")
-                c4.metric("回本周期", f"{cost_data['payback_years']:.1f}年")
+                c4.metric("回本周期", _fmt_years(cost_data.get("payback_years")))
                 c5.metric("节省人数", f"{cost_data['headcount_saved']}人")
                 st.divider()
                 cc1, cc2 = st.columns(2)
@@ -397,7 +405,7 @@ if app_mode == "📋 方案生成":
 - 自动化投资: ¥{cost_d['automation_capex']/10000:.0f}万元
 - 年节省人工: ¥{cost_d['automation_savings_annual']/10000:.1f}万元
 - 净年度收益: ¥{cost_d['net_annual_benefit']/10000:.1f}万元
-- 5年ROI: {cost_d['roi']:.1f}倍 | 回本周期: {cost_d['payback_years']:.1f}年
+- 5年ROI: {cost_d['roi']:.1f}倍 | 回本周期: {_fmt_years(cost_d.get('payback_years'))}
 - 预计减少人员: {cost_d['headcount_saved']}人
 """)
                 report_data = {
@@ -519,7 +527,7 @@ elif app_mode == "⚖️ 多方案对比":
                         "年维护 (万)": f"{c['annual_maintenance']/10000:.1f}",
                         "净年收益 (万)": f"{c['net_annual_benefit']/10000:.1f}",
                         "5年ROI": f"{c['roi_5y']:.1f}x",
-                        "回本周期": f"{c['payback_years']:.1f}年",
+                        "回本周期": _fmt_years(c.get("payback_years")),
                         "省人数": f"{c['headcount_saved']}人",
                     })
                 st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
@@ -529,7 +537,7 @@ elif app_mode == "⚖️ 多方案对比":
                 c1, c2, c3, c4 = st.columns(4)
                 c1.metric("🥇 最佳方案", best.get("scenario_name", "—"))
                 c2.metric("5年ROI", f"{best.get('roi_5y', 0):.1f}x")
-                c3.metric("回本周期", f"{best.get('payback_years', 0):.1f}年")
+                c3.metric("回本周期", _fmt_years(best.get("payback_years")))
                 c4.metric("年节省", f"{best.get('annual_saving', 0)/10000:.1f}万")
 
                 st.divider()
@@ -552,7 +560,7 @@ elif app_mode == "⚖️ 多方案对比":
                         "自动化投资": f"¥{c['automation_capex']/10000:.0f}万",
                         "5年累计净收益": f"¥{c['five_year_net_benefit']/10000:.1f}万",
                         "5年ROI": f"{c['roi_5y']:.1f}x",
-                        "回本周期": f"{c['payback_years']:.1f}年",
+                        "回本周期": _fmt_years(c.get("payback_years")),
                         "节省人数": f"{c['headcount_saved']}/{c['headcount_required']}",
                     })
                 st.dataframe(pd.DataFrame(det), use_container_width=True, hide_index=True)
@@ -670,7 +678,7 @@ elif app_mode == "🚀 Pipeline Run":
             "budget_level": budget_level_p, "region": region_p,
             "compare_sids_str": compare_sids_str,
             "tender_text": tender_text,
-                    "company_name": "飞力达物流",
+                    "company_name": COMPANY_NAME,
             "language": "cn"  # lang,
         }
         st.session_state.skip_extraction = False
@@ -845,7 +853,7 @@ elif app_mode == "🚀 Pipeline Run":
         progress_bar.progress(60)
         if comparisons:
             best_cmp = next((c for c in comparisons if c.get("is_best")), comparisons[0])
-            log(f"③ ROI计算完成 | 最佳: {best_cmp['scenario_name']} | ROI: {best_cmp.get('roi_5y', 0):.1f}x | 回本: {best_cmp.get('payback_years', 0):.1f}年")
+            log(f"③ ROI计算完成 | 最佳: {best_cmp['scenario_name']} | ROI: {best_cmp.get('roi_5y', 0):.1f}x | 回本: {_fmt_years(best_cmp.get('payback_years'))}")
         else:
             log("⚠️ 未能生成有效成本对比结果")
         st.session_state.pipeline_comparisons = comparisons
@@ -872,7 +880,7 @@ elif app_mode == "🚀 Pipeline Run":
                     "budget_level": profile.get("budget_level", "中"),
                     "automation_expectation": profile.get("automation_expectation", "中"),
                     "region": params.get("region", "华东"),
-                    "company_name": "飞力达物流",
+                    "company_name": COMPANY_NAME,
                     "language": "cn",
                 },
                 timeout=60,
@@ -938,10 +946,12 @@ elif app_mode == "🚀 Pipeline Run":
 
             def weighted_score(c):
                 max_roi = max((x["roi_5y"] for x in comparisons), default=1) or 1
-                max_payback = max((x["payback_years"] for x in comparisons), default=1) or 1
+                paybacks = [x["payback_years"] for x in comparisons if isinstance(x.get("payback_years"), (int, float))]
+                max_payback = max(paybacks, default=1) or 1
                 max_saving = max((x["annual_saving"] for x in comparisons), default=1) or 1
                 roi_score = (c["roi_5y"] / max_roi) * 100
-                pb_score = (1 - c["payback_years"] / max_payback) * 100
+                pb = c.get("payback_years")
+                pb_score = (1 - pb / max_payback) * 100 if isinstance(pb, (int, float)) else 0
                 sav_score = (c["annual_saving"] / max_saving) * 100
                 return roi_score * w_roi_n + pb_score * w_payback_n + sav_score * w_saving_n
 
@@ -967,7 +977,7 @@ elif app_mode == "🚀 Pipeline Run":
             k1, k2, k3, k4 = st.columns(4)
             k1.metric("🥇 推荐方案", best.get("scenario_name", "—"))
             k2.metric("5年ROI", f"{best.get('roi_5y', 0):.1f}x")
-            k3.metric("回本周期", f"{best.get('payback_years', 0):.1f}年")
+            k3.metric("回本周期", _fmt_years(best.get("payback_years")))
             k4.metric("年节省", f"{best.get('annual_saving', 0)/10000:.1f}万")
 
             t1, t2, t3 = st.tabs(["📊 投资与年节省", "📈 ROI对比", "🎯 综合雷达图"])

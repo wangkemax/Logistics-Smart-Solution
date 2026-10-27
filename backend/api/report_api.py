@@ -39,7 +39,7 @@ class ReportRequest(BaseModel):
     automation_expectation: str = Field(default="中", description="自动化期望")
     region: str = Field(default="华东", description="所在区域")
     selected_scenario_id: Optional[int] = Field(default=None, description="指定方案ID")
-    company_name: str = Field(default="飞力达物流", description="报告编制单位名称")
+    company_name: str | None = Field(default=None, description="报告编制单位名称，默认 COMPANY_NAME")
     language: str = Field(default="cn", description="报告语言: cn=中文, en=英文")
 
 
@@ -174,7 +174,14 @@ def generate_compare_report(request: ReportCompareRequest):
             "scenario_name": c["scenario_name"],
             "category": c["category"],
             "score": c["roi_5y"] * 20,  # approximate score from ROI
-            "reason": f"5年ROI {c['roi_5y']:.1f}x，回本周期 {c['payback_years']:.1f}年",
+            "reason": (
+                f"5年ROI {c['roi_5y']:.1f}x，回本周期 "
+                + (
+                    f"{c['payback_years']:.1f}年"
+                    if isinstance(c.get("payback_years"), (int, float))
+                    else "无法回收"
+                )
+            ),
             "risk": "中",
             "capex_range": f"¥{c['automation_capex']/10000:.0f}万",
             "labor_saving": c["headcount_saved"] / max(c["headcount_required"], 1),

@@ -5,6 +5,8 @@ import json
 from datetime import datetime
 from typing import Optional
 
+from sqlalchemy import func
+
 from backend.models.assumption_models import Assumption
 from backend.models.database import SessionLocal
 from backend.schemas.assumption_schemas import (
@@ -36,6 +38,22 @@ class AssumptionService:
             version_id=model.version_id,
         )
 
+    def _latest(self, db, run_id: str, field_key: str) -> Optional[Assumption]:
+        return (
+            db.query(Assumption)
+            .filter(Assumption.run_id == run_id, Assumption.field_key == field_key)
+            .order_by(Assumption.version_id.desc(), Assumption.id.desc())
+            .first()
+        )
+
+    def _next_version(self, db, run_id: str, field_key: str) -> int:
+        current = (
+            db.query(func.max(Assumption.version_id))
+            .filter(Assumption.run_id == run_id, Assumption.field_key == field_key)
+            .scalar()
+        )
+        return int(current or 0) + 1
+
     def register(
         self,
         run_id: str,
@@ -49,28 +67,9 @@ class AssumptionService:
         impact_factors: list = None,
         effective_date: datetime = None,
     ) -> AssumptionSchema:
-        """Register a new assumption for a run."""
+        """Append a new version. History rows are never updated."""
         db = SessionLocal()
         try:
-            existing = db.query(Assumption).filter(
-                Assumption.run_id == run_id,
-                Assumption.field_key == field_key,
-            ).first()
-
-            if existing:
-                existing.assumption_value = value
-                existing.assumption_rule = rule
-                existing.source = source
-                existing.source_type = source_type
-                existing.confidence = confidence
-                existing.context_tags = json.dumps(context_tags or {})
-                existing.impact_factors = json.dumps(impact_factors or [])
-                existing.effective_date = effective_date
-                existing.is_overridden = False
-                db.commit()
-                db.refresh(existing)
-                return self._to_schema(existing)
-
             assumption = Assumption(
                 run_id=run_id,
                 field_key=field_key,
@@ -79,10 +78,11 @@ class AssumptionService:
                 source=source,
                 source_type=source_type,
                 confidence=confidence,
+                is_overridden=False,
                 context_tags=json.dumps(context_tags or {}),
                 impact_factors=json.dumps(impact_factors or []),
                 effective_date=effective_date or datetime.utcnow(),
-                version_id=1,
+                version_id=self._next_version(db, run_id, field_key),
             )
             db.add(assumption)
             db.commit()
@@ -101,11 +101,7 @@ class AssumptionService:
         """Override an existing assumption. Creates a new version."""
         db = SessionLocal()
         try:
-            existing = db.query(Assumption).filter(
-                Assumption.run_id == run_id,
-                Assumption.field_key == field_key,
-            ).first()
-
+            existing = self._latest(db, run_id, field_key)
             if not existing:
                 return None
 
@@ -122,9 +118,8 @@ class AssumptionService:
                 context_tags=existing.context_tags,
                 impact_factors=existing.impact_factors,
                 effective_date=datetime.utcnow(),
-                version_id=existing.version_id + 1,
+                version_id=self._next_version(db, run_id, field_key),
             )
-            # existing.is_overridden = True  # old version stays as-is (is_overridden=False means it's the latest)
             db.add(new_assumption)
             db.commit()
             db.refresh(new_assumption)
@@ -138,7 +133,7 @@ class AssumptionService:
         try:
             assumptions = db.query(Assumption).filter(
                 Assumption.run_id == run_id
-            ).order_by(Assumption.version_id.desc()).all()
+            ).order_by(Assumption.version_id.desc(), Assumption.id.desc()).all()
 
             seen = set()
             result = []
@@ -159,7 +154,7 @@ class AssumptionService:
             assumptions = db.query(Assumption).filter(
                 Assumption.run_id == run_id,
                 Assumption.field_key == field_key,
-            ).order_by(Assumption.version_id.desc()).all()
+            ).order_by(Assumption.version_id.desc(), Assumption.id.desc()).all()
             return [self._to_schema(a) for a in assumptions]
         finally:
             db.close()
@@ -170,11 +165,16 @@ class AssumptionService:
         """Rollback an assumption to a specific version."""
         db = SessionLocal()
         try:
-            target = db.query(Assumption).filter(
-                Assumption.run_id == run_id,
-                Assumption.field_key == field_key,
-                Assumption.version_id == target_version,
-            ).first()
+            target = (
+                db.query(Assumption)
+                .filter(
+                    Assumption.run_id == run_id,
+                    Assumption.field_key == field_key,
+                    Assumption.version_id == target_version,
+                )
+                .order_by(Assumption.id.asc())
+                .first()
+            )
 
             if not target:
                 return None
@@ -192,11 +192,7 @@ class AssumptionService:
                 context_tags=target.context_tags,
                 impact_factors=target.impact_factors,
                 effective_date=datetime.utcnow(),
-                version_id=(
-                    db.query(Assumption)
-                    .filter(Assumption.run_id == run_id, Assumption.field_key == field_key)
-                    .count()
-                ) + 1,
+                version_id=self._next_version(db, run_id, field_key),
             )
             db.add(new_version)
             db.commit()

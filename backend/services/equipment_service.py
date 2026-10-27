@@ -1,7 +1,7 @@
 """backend/services/equipment_service.py — v1.1 Equipment Database Service"""
 from __future__ import annotations
 
-from typing import Optional
+import math
 
 from backend.models.equipment_models import Equipment
 from backend.models.database import SessionLocal
@@ -10,6 +10,14 @@ from backend.schemas.equipment_schemas import (
     EquipmentQuery,
     EquipmentMatchResult,
 )
+
+
+def equipment_type_aliases(equipment_type: str) -> list[str]:
+    """ASRS and AS/RS are the same catalog entry. Stored name is AS/RS."""
+    key = equipment_type.upper().replace("/", "").replace("-", "").replace(" ", "")
+    if key == "ASRS":
+        return ["AS/RS", "ASRS"]
+    return [equipment_type]
 
 
 class EquipmentService:
@@ -42,7 +50,7 @@ class EquipmentService:
         try:
             query = db.query(Equipment).filter(Equipment.is_active == True)
             if equipment_type:
-                query = query.filter(Equipment.equipment_type == equipment_type)
+                query = query.filter(Equipment.equipment_type.in_(equipment_type_aliases(equipment_type)))
             if min_throughput is not None:
                 query = query.filter(Equipment.throughput_value >= min_throughput)
             if min_payload_kg is not None:
@@ -85,22 +93,38 @@ class EquipmentService:
         """
         db = SessionLocal()
         try:
-            query = db.query(Equipment).filter(
-                Equipment.equipment_type == equipment_type,
-                Equipment.is_active == True,
+            results = (
+                db.query(Equipment)
+                .filter(
+                    Equipment.equipment_type.in_(equipment_type_aliases(equipment_type)),
+                    Equipment.is_active == True,
+                )
+                .all()
             )
-            if throughput_target is not None:
-                # 取吞吐量不低于目标的设备
-                query = query.filter(Equipment.throughput_value >= throughput_target)
-            results = query.order_by(Equipment.throughput_value.desc()).all()
             if not results:
-                return {"min": 0.0, "max": 0.0, "unit_count": 0}
-            min_total = sum(r.capex_min * quantity for r in results)
-            max_total = sum(r.capex_max * quantity for r in results)
+                return {"min": 0.0, "max": 0.0, "unit_count": 0, "model_name": None}
+
+            if throughput_target is None:
+                chosen = min(results, key=lambda r: (r.capex_min, r.capex_max, r.id))
+                units = max(0, int(quantity))
+            else:
+                target = float(throughput_target)
+                fleet = []
+                for row in results:
+                    if not row.throughput_value or row.throughput_value <= 0:
+                        continue
+                    units_needed = math.ceil(target / row.throughput_value)
+                    fleet.append((row.capex_max * units_needed, row.capex_min * units_needed, units_needed, row))
+                if not fleet:
+                    return {"min": 0.0, "max": 0.0, "unit_count": 0, "model_name": None}
+                fleet.sort(key=lambda item: (item[0], item[1], -item[3].throughput_value))
+                _, _, units, chosen = fleet[0]
+
             return {
-                "min": round(min_total, 2),
-                "max": round(max_total, 2),
-                "unit_count": len(results),
+                "min": round(chosen.capex_min * units, 2),
+                "max": round(chosen.capex_max * units, 2),
+                "unit_count": units,
+                "model_name": chosen.model_name,
             }
         finally:
             db.close()
@@ -124,7 +148,7 @@ class EquipmentService:
         db = SessionLocal()
         try:
             query = db.query(Equipment).filter(
-                Equipment.equipment_type == equipment_type,
+                Equipment.equipment_type.in_(equipment_type_aliases(equipment_type)),
                 Equipment.is_active == True,
             )
             if payload_min is not None:
@@ -133,23 +157,25 @@ class EquipmentService:
 
             matches = []
             for r in results:
-                # 计算匹配度
+                # A match must cover the target with one unit. Fleet sizing is estimate_capex.
+                if throughput_target > 0 and (not r.throughput_value or r.throughput_value < throughput_target):
+                    continue
                 if throughput_target > 0 and r.throughput_value > 0:
                     score = 1 - abs(r.throughput_value - throughput_target) / max(
                         r.throughput_value, throughput_target
                     )
                     score = max(0.0, min(1.0, score))
+                    quantity = 1
                 else:
                     score = 0.0
-
-                # 估算单台 CAPEX（取 capex_max 作为估算）
-                capex_estimate = r.capex_max
+                    quantity = 1
 
                 matches.append(
                     EquipmentMatchResult(
                         equipment=EquipmentSchema.model_validate(r),
                         match_score=round(score, 4),
-                        capex_estimate=capex_estimate,
+                        quantity=quantity,
+                        capex_estimate=round(r.capex_max * quantity, 2),
                     )
                 )
 

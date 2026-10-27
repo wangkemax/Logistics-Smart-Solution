@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from typing import Optional
 
 
@@ -24,6 +24,13 @@ class EquipmentSchema(BaseModel):
     footprint_sqm: float
     version_id: int = 1
     effective_date: datetime | None = None
+
+    @field_validator("version_id", mode="before")
+    @classmethod
+    def _version_id_default(cls, value):
+        if value is None:
+            return 1
+        return value
     is_active: bool = True
     notes: str = ""
 
@@ -32,7 +39,7 @@ class EquipmentSchema(BaseModel):
 
 class EquipmentQuery(BaseModel):
     """设备查询条件"""
-    equipment_type: Optional[str] = None  # AMR / GTP / ASRS / Shuttle / Conveyor / Sorter
+    equipment_type: Optional[str] = None  # AMR / GTP / AS/RS / Shuttle / Conveyor / Sorter
     min_throughput: Optional[float] = None
     min_payload_kg: Optional[float] = None
     max_capex: Optional[float] = None
@@ -43,4 +50,5 @@ class EquipmentMatchResult(BaseModel):
     """设备匹配结果"""
     equipment: EquipmentSchema
     match_score: float = Field(ge=0.0, le=1.0)  # 0~1 匹配度
-    capex_estimate: float  # 该项目估算CAPEX（万元）
+    quantity: int = 1  # ceil(target / capacity); 1 when a single unit covers
+    capex_estimate: float  # 该项目估算CAPEX（万元）= capex_max * quantity

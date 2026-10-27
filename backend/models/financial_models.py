@@ -40,7 +40,8 @@ class FinancialSnapshot(Base):
     net_annual_benefit = Column(Float, default=0)  # 年净收益（收益-OPEX）
     roi_5y = Column(Float, default=0)  # 5年ROI
     payback_years = Column(Float, default=0)  # 投资回收期（年）
-    irr = Column(Float, default=0)  # 内部收益率（%）
+    irr = Column(Float, nullable=True)  # 内部收益率（%），无法计算时为空
+    npv = Column(Float, nullable=True)  # 按 discount_rate 折现的 NPV（元）
 
     # 现金流量表（简化版，5年）
     cashflow_y1 = Column(Float, default=0)

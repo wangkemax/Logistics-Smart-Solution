@@ -27,7 +27,7 @@ class DocumentRenderer:
         self,
         proposal_sections: ProposalSections,
         output_dir: str | None = None,
-        company_name: str = "飞力达物流",
+        company_name: str | None = None,
         include_assumptions: bool = True,
         active_assumptions: list[dict] | None = None,
     ) -> str:
@@ -44,6 +44,8 @@ class DocumentRenderer:
         Returns:
             生成的 .docx 文件路径
         """
+        from backend.settings import COMPANY_NAME
+        company_name = company_name or COMPANY_NAME
         from docx import Document
         from docx.shared import Pt, RGBColor
         from docx.enum.text import WD_ALIGN_PARAGRAPH
